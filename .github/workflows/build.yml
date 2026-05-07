@@ -26,5 +26,5 @@ jobs:
     - name: Upload artifacts
       uses: actions/upload-artifact@v4.4.3
       with:
-          name: GlideClient
-          path: build/libs/GlideClient-Release.jar
+          name: FlaxClient
+          path: build/libs/FlaxClient-Release.jar

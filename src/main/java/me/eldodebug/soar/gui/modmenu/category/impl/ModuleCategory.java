@@ -26,6 +26,7 @@ import me.eldodebug.soar.management.mods.settings.impl.NumberSetting;
 import me.eldodebug.soar.management.mods.settings.impl.SoundSetting;
 import me.eldodebug.soar.management.mods.settings.impl.TextSetting;
 import me.eldodebug.soar.management.nanovg.NanoVGManager;
+import me.eldodebug.soar.management.nanovg.font.Font;
 import me.eldodebug.soar.management.nanovg.font.Fonts;
 import me.eldodebug.soar.management.nanovg.font.LegacyIcon;
 import me.eldodebug.soar.ui.comp.Comp;
@@ -50,23 +51,33 @@ import me.eldodebug.soar.utils.mouse.Scroll;
 public class ModuleCategory extends Category {
 
 	private ModCategory currentCategory;
+	private final ModCategory defaultCategory;
+	private final boolean showCategoryTabs;
 	
 	private Scroll settingScroll = new Scroll();
 	private boolean openSetting;
 	private Animation settingAnimation;
 	private Mod currentMod;
+	private Mod bindingMod;
 	Color noColour = new Color(0, 0, 0, 0);
 	
 	private ArrayList<ModuleSetting> comps = new ArrayList<ModuleSetting>();
 	
 	public ModuleCategory(GuiModMenu parent) {
-		super(parent, TranslateText.MODULE, LegacyIcon.ARCHIVE, true, true);
+		this(parent, TranslateText.MODULE, LegacyIcon.ARCHIVE, Fonts.LEGACYICON, ModCategory.ALL, true);
+	}
+
+	protected ModuleCategory(GuiModMenu parent, TranslateText name, String icon, Font iconFont, ModCategory defaultCategory, boolean showCategoryTabs) {
+		super(parent, name, icon, iconFont, true, true);
+		this.defaultCategory = defaultCategory;
+		this.showCategoryTabs = showCategoryTabs;
 	}
 	
 	@Override
 	public void initGui() {
-		currentCategory = ModCategory.ALL;
+		currentCategory = defaultCategory;
 		openSetting = false;
+		bindingMod = null;
 		settingAnimation = new SmoothStepAnimation(260, 1.0);
 		settingAnimation.setValue(1.0);
 	}
@@ -75,6 +86,7 @@ public class ModuleCategory extends Category {
 	public void initCategory() {
 		scroll.resetAll();
 		openSetting = false;
+		bindingMod = null;
 		settingAnimation = new SmoothStepAnimation(260, 1.0);
 		settingAnimation.setValue(1.0);
 	}
@@ -97,7 +109,7 @@ public class ModuleCategory extends Category {
 		settingAnimation.setDirection(openSetting ? Direction.BACKWARDS : Direction.FORWARDS);
 		
 		if(settingAnimation.isDone(Direction.FORWARDS)) {
-			this.setCanClose(true);
+			this.setCanClose(bindingMod == null);
 			currentMod = null;
 		}
 		
@@ -109,27 +121,31 @@ public class ModuleCategory extends Category {
 		nvg.save();
 		nvg.translate(0, scrollValue);
 		
-		for(ModCategory c : ModCategory.values()) {
-			
-			float textWidth = nvg.getTextWidth(c.getName(), 9, Fonts.MEDIUM);
-			boolean isCurrentCategory = c.equals(currentCategory);
-			
-			c.getBackgroundAnimation().setAnimation(isCurrentCategory ? 1.0F : 0.0F, 16);
-			
-			Color defaultColor = palette.getBackgroundColor(ColorType.DARK);
-			Color color1 = ColorUtils.applyAlpha(accentColor.getColor1(), (int) (c.getBackgroundAnimation().getValue() * 255));
-			Color color2 = ColorUtils.applyAlpha(accentColor.getColor2(), (int) (c.getBackgroundAnimation().getValue() * 255));
-			Color textColor = c.getTextColorAnimation().getColor(isCurrentCategory ? Color.WHITE : palette.getFontColor(ColorType.DARK), 20);
+			if(showCategoryTabs) {
+				for(ModCategory c : ModCategory.values()) {
+					if(c.equals(ModCategory.GHOST)) {
+						continue;
+					}
+					
+					float textWidth = nvg.getTextWidth(c.getName(), 9, Fonts.MEDIUM);
+					float chipWidth = textWidth + 20;
+					boolean isCurrentCategory = c.equals(currentCategory);
+					
+					c.getBackgroundAnimation().setAnimation(isCurrentCategory ? 1.0F : 0.0F, 16);
+					
+					Color defaultColor = palette.getBackgroundColor(ColorType.DARK);
+					Color color1 = ColorUtils.applyAlpha(accentColor.getColor1(), (int) (c.getBackgroundAnimation().getValue() * 255));
+					Color color2 = ColorUtils.applyAlpha(accentColor.getColor2(), (int) (c.getBackgroundAnimation().getValue() * 255));
+					Color textColor = c.getTextColorAnimation().getColor(isCurrentCategory ? Color.WHITE : palette.getFontColor(ColorType.DARK), 20);
 
-			nvg.drawRoundedRect(this.getX() + 15 + offsetX, this.getY() + offsetY - 3, textWidth + 20, 16, 6, defaultColor);
-			nvg.drawGradientRoundedRect(this.getX() + 15 + offsetX, this.getY() + offsetY - 3, textWidth + 20, 16, 6, color1, color2);
-			
-			nvg.drawText(c.getName(), this.getX() + 15 + offsetX + ((textWidth + 20) - textWidth) / 2, this.getY() + offsetY + 1.5F, textColor, 9, Fonts.MEDIUM);
-			
-			offsetX+=textWidth + 28;
-		}
-		
-		offsetY = offsetY + 23;
+					nvg.drawRoundedRect(this.getX() + 15 + offsetX, this.getY() + offsetY - 3, chipWidth, 16, 6, defaultColor);
+					nvg.drawGradientRoundedRect(this.getX() + 15 + offsetX, this.getY() + offsetY - 3, chipWidth, 16, 6, color1, color2);
+					nvg.drawText(c.getName(), this.getX() + 15 + offsetX + ((chipWidth - textWidth) / 2), this.getY() + offsetY + 1.5F, textColor, 9, Fonts.MEDIUM);
+					
+					offsetX += chipWidth + 8;
+				}
+				offsetY = offsetY + 23;
+			}
 		
 		for(Mod m : modManager.getMods()) {
 
@@ -163,6 +179,18 @@ public class ModuleCategory extends Category {
 				
 				if(modManager.getSettingsByMod(m) != null) {
 					nvg.drawText(LegacyIcon.SETTINGS, this.getX() + this.getWidth() - 39, this.getY() + offsetY + 13.5F, palette.getFontColor(ColorType.NORMAL), 13, Fonts.LEGACYICON);
+				}
+
+				if(m.getKeyCode() != Keyboard.KEY_NONE) {
+					String keyName = formatKeyName(Keyboard.getKeyName(m.getKeyCode()));
+					float keyTextWidth = nvg.getTextWidth(keyName, 8, Fonts.SEMIBOLD);
+					float keyBadgeWidth = Math.min(72.0F, Math.max(20.0F, keyTextWidth + 12.0F));
+					float keyX = this.getX() + this.getWidth() - 48 - keyBadgeWidth;
+					float keyY = this.getY() + offsetY + 13.0F;
+
+					nvg.drawRoundedRect(keyX, keyY, keyBadgeWidth, 13, 4, palette.getBackgroundColor(ColorType.NORMAL));
+					nvg.drawOutlineRoundedRect(keyX, keyY, keyBadgeWidth, 13, 4, 0.6F, ColorUtils.applyAlpha(accentColor.getColor1(), 150));
+					nvg.drawCenteredText(keyName, keyX + (keyBadgeWidth / 2), keyY + 6.6F, palette.getFontColor(ColorType.DARK), 8, Fonts.SEMIBOLD);
 				}
 			}
 			
@@ -298,7 +326,20 @@ public class ModuleCategory extends Category {
 		}
 		
 		nvg.restore();
-		
+
+		if(bindingMod != null && !openSetting) {
+			float promptWidth = 230;
+			float promptHeight = 28;
+			float promptX = this.getX() + (this.getWidth() / 2.0F) - (promptWidth / 2.0F);
+			float promptY = this.getY() + this.getHeight() - 36;
+			String bindText = "Waiting Type Key....  " + bindingMod.getName();
+
+			nvg.drawRoundedRect(promptX, promptY, promptWidth, promptHeight, 8, palette.getBackgroundColor(ColorType.DARK));
+			nvg.drawOutlineRoundedRect(promptX, promptY, promptWidth, promptHeight, 8, 0.8F, ColorUtils.applyAlpha(accentColor.getColor1(), 205));
+			nvg.drawGradientRoundedRect(promptX + 1.2F, promptY + 1.2F, promptWidth - 2.4F, 3.3F, 6, ColorUtils.applyAlpha(accentColor.getColor1(), 200), ColorUtils.applyAlpha(accentColor.getColor2(), 200));
+			nvg.drawCenteredText(bindText, promptX + (promptWidth / 2), promptY + (promptHeight / 2), palette.getFontColor(ColorType.DARK), 10, Fonts.MEDIUM);
+		}
+
 		scroll.setMaxScroll((index - (index > 5 ? 5.18F : index)) * 50);
 	}
 	
@@ -311,21 +352,41 @@ public class ModuleCategory extends Category {
 		
 		int offsetX = 0;
 		float offsetY = 13 + scroll.getValue();
-		
-		if(!openSetting) {
-			for(ModCategory c : ModCategory.values()) {
-				
-				float textWidth = nvg.getTextWidth(c.getName(), 9, Fonts.MEDIUM);
-				
-				if(MouseUtils.isInside(mouseX, mouseY, this.getX() + 15 + offsetX, this.getY() + offsetY - 3, textWidth + 20, 16) && mouseButton == 0) {
-					currentCategory = c;
-					scroll.reset();
-				}
-				
-				offsetX+=textWidth + 28;
+
+		if(bindingMod != null) {
+			if(mouseButton == 1) {
+				bindingMod.setKeyCode(Keyboard.KEY_NONE);
+				bindingMod = null;
+				this.setCanClose(true);
+				return;
 			}
-			
-			offsetY = offsetY + 23;
+
+			if(mouseButton == 2) {
+				bindingMod = null;
+				this.setCanClose(true);
+				return;
+			}
+		}
+		
+			if(!openSetting) {
+				if(showCategoryTabs) {
+					for(ModCategory c : ModCategory.values()) {
+						if(c.equals(ModCategory.GHOST)) {
+							continue;
+						}
+						
+						float textWidth = nvg.getTextWidth(c.getName(), 9, Fonts.MEDIUM);
+						float chipWidth = textWidth + 20;
+						
+						if(MouseUtils.isInside(mouseX, mouseY, this.getX() + 15 + offsetX, this.getY() + offsetY - 3, chipWidth, 16) && mouseButton == 0) {
+							currentCategory = c;
+							scroll.reset();
+						}
+						
+						offsetX += chipWidth + 8;
+					}
+					offsetY = offsetY + 23;
+				}
 			
 			for(Mod m : modManager.getMods()) {
 				
@@ -465,6 +526,14 @@ public class ModuleCategory extends Category {
 						}
 					}
 				}
+
+				if(MouseUtils.isInside(mouseX, mouseY, this.getX(), this.getY(), this.getWidth(), this.getHeight()) && mouseButton == 2) {
+					if(MouseUtils.isInside(mouseX, mouseY, this.getX() + 15, this.getY() + offsetY, this.getWidth() - 30, 40)) {
+						bindingMod = m;
+						this.setCanClose(false);
+						return;
+					}
+				}
 				
 				offsetY+=50;
 			}
@@ -536,6 +605,27 @@ public class ModuleCategory extends Category {
 	
 	@Override
 	public void keyTyped(char typedChar, int keyCode) {
+		if(bindingMod != null) {
+			if(keyCode == Keyboard.KEY_ESCAPE) {
+				bindingMod = null;
+				this.setCanClose(false);
+				return;
+			}
+
+			if(keyCode == Keyboard.KEY_DELETE || keyCode == Keyboard.KEY_BACK) {
+				bindingMod.setKeyCode(Keyboard.KEY_NONE);
+				bindingMod = null;
+				this.setCanClose(true);
+				return;
+			}
+
+			if(keyCode != Keyboard.KEY_NONE) {
+				bindingMod.setKeyCode(keyCode);
+				bindingMod = null;
+				this.setCanClose(true);
+			}
+			return;
+		}
 		
 		boolean binding = false;
 		
@@ -565,10 +655,24 @@ public class ModuleCategory extends Category {
 			if(keyCode != 0xD0 && keyCode != 0xC8 && keyCode != Keyboard.KEY_ESCAPE) this.getSearchBox().setFocused(true);
 		}
 	}
+
+	private String formatKeyName(String keyName) {
+		if(keyName == null || keyName.trim().isEmpty()) {
+			return "NONE";
+		}
+
+		String result = keyName.replace("NUMPAD", "NP").replace("CONTROL", "CTRL").replace("MENU", "ALT");
+		return result.length() > 9 ? result.substring(0, 9) : result;
+	}
 	
 	private boolean filterMod(Mod m) {
 		
 		if(m.isHide()) {
+			return true;
+		}
+
+		// Keep ghost-only modules out of the normal module list.
+		if(showCategoryTabs && m.getCategory().equals(ModCategory.GHOST)) {
 			return true;
 		}
 

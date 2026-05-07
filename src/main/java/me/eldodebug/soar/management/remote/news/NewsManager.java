@@ -1,14 +1,7 @@
 package me.eldodebug.soar.management.remote.news;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import me.eldodebug.soar.utils.JsonUtils;
 import me.eldodebug.soar.utils.Multithreading;
-import me.eldodebug.soar.utils.network.HttpUtils;
 
-import java.util.Iterator;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class NewsManager {
@@ -20,28 +13,12 @@ public class NewsManager {
 	}
 	
 	private void loadNews() {
-		
-		JsonObject jsonObject = HttpUtils.readJson("https://glideclient.github.io/data/news/news.json", null);
-		
-		if(jsonObject != null) {
-			
-			JsonArray jsonArray = JsonUtils.getArrayProperty(jsonObject, "news");
-			
-			if(jsonArray != null) {
-
-				Iterator<JsonElement> iterator = jsonArray.iterator();
-
-				while(iterator.hasNext()) {
-
-
-					JsonElement jsonElement = (JsonElement) iterator.next();
-                    Gson gson = new Gson();
-                    JsonObject changelogJsonObject = gson.fromJson(jsonElement, JsonObject.class);
-
-                    news.add(new News(JsonUtils.getStringProperty(changelogJsonObject, "title", "null"), JsonUtils.getStringProperty(changelogJsonObject, "subtitle", "null"), JsonUtils.getStringProperty(changelogJsonObject, "body", "null")));
-                }
-			}
-		}
+		news.clear();
+		news.add(new News(
+				"Flax Client dev 1.0",
+				"Development release",
+				"This is the dev 1.0 build. Branding has been refreshed for Flax, legacy feed content was removed, and the client is now aligned to local Flax release notes."
+		));
 	}
 
 	public CopyOnWriteArrayList<News> getNews() {

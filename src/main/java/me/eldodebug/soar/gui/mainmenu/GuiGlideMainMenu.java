@@ -27,6 +27,7 @@ import me.eldodebug.soar.utils.animation.simple.SimpleAnimation;
 import me.eldodebug.soar.utils.mouse.MouseUtils;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
+import net.minecraft.util.ResourceLocation;
 
 public class GuiGlideMainMenu extends GuiScreen {
 
@@ -136,7 +137,7 @@ public class GuiGlideMainMenu extends GuiScreen {
 		}
 
 		nvg.drawText(copyright, sr.getScaledWidth() - (nvg.getTextWidth(copyright, 9, Fonts.REGULAR)) - 4, sr.getScaledHeight() - 12, new Color(255, 255, 255), 9, Fonts.REGULAR);
-		nvg.drawText("Glide Client v" + instance.getVersion(), 4, sr.getScaledHeight() - 12, new Color(255, 255, 255), 9, Fonts.REGULAR);
+		nvg.drawText("FlaxClient " + instance.getVersion(), 4, sr.getScaledHeight() - 12, new Color(255, 255, 255), 9, Fonts.REGULAR);
 	}
 	
 	private void drawButtons(int mouseX, int mouseY, ScaledResolution sr, NanoVGManager nvg) {
@@ -168,8 +169,14 @@ public class GuiGlideMainMenu extends GuiScreen {
 				fadeBackgroundAnimation.reset();
 			}
 			
+			float logoSize = 130;
+			float logoX = (sr.getScaledWidth() - logoSize) / 2F;
+			float logoY = (sr.getScaledHeight() - logoSize) / 2F - 1;
 			nvg.drawRect(0, 0, sr.getScaledWidth(), sr.getScaledHeight(), new Color(0, 0, 0, fadeBackgroundAnimation != null ? (int) (255 - (fadeBackgroundAnimation.getValue() * 255)) : 255));
-			nvg.drawCenteredText(LegacyIcon.SOAR, sr.getScaledWidth() / 2, (sr.getScaledHeight() / 2) - (nvg.getTextHeight(LegacyIcon.SOAR, 130, Fonts.LEGACYICON) / 2) - 1, new Color(255, 255, 255, (int) (255 - (fadeIconAnimation.getValue() * 255))), 130, Fonts.LEGACYICON);
+			nvg.save();
+			nvg.setAlpha(1.0F - fadeIconAnimation.getValueFloat());
+			nvg.drawImage(new ResourceLocation("soar/logo.png"), logoX, logoY, logoSize, logoSize);
+			nvg.restore();
 		}
 	}
 	

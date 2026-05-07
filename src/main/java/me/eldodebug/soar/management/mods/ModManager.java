@@ -16,6 +16,7 @@ public class ModManager {
 	
 	public void init() {
 		mods.add(new AnimationsMod());
+		mods.add(new AimAssistMod());
 		mods.add(new AppleSkinMod());
 		mods.add(new ArmorStatusMod());
 		mods.add(new ArrayListMod());
@@ -48,11 +49,14 @@ public class ModManager {
 		mods.add(new DamageTiltMod());
 		mods.add(new DamageTintMod());
 		mods.add(new DayCounterMod());
-		mods.add(new DiscordRPCMod());
-		mods.add(new EarsMod());
-		mods.add(new EntityCullingMod());
+			mods.add(new AutoClickerMod());
+			mods.add(new DiscordRPCMod());
+			mods.add(new EarsMod());
+			mods.add(new ESPMod());
+			mods.add(new EntityCullingMod());
 		mods.add(new FarCameraMod());
 		mods.add(new FemaleGenderMod());
+			mods.add(new FastPlaceMod());
 		mods.add(new FovModifierMod());
 		mods.add(new FPSBoostMod());
 		mods.add(new FPSDisplayMod());
@@ -61,9 +65,11 @@ public class ModManager {
 		mods.add(new FreelookMod());
 		mods.add(new FullbrightMod());
 		mods.add(new GlintColorMod());
-		mods.add(new InternalSettingsMod());
-		mods.add(new GodbridgeAssistMod());
-		mods.add(new HealthDisplayMod());
+			mods.add(new InternalSettingsMod());
+			mods.add(new GodbridgeAssistMod());
+			mods.add(new GhostNametagsMod());
+			mods.add(new HealthbarMod());
+			mods.add(new HealthDisplayMod());
 		mods.add(new HitBoxMod());
 		mods.add(new HitColorMod());
 		mods.add(new HitDelayFixMod());
@@ -77,6 +83,7 @@ public class ModManager {
 		mods.add(new ItemPhysicsMod());
 		mods.add(new Items2DMod());
 		mods.add(new JumpCircleMod());
+		mods.add(new JumpResetMod());
 		mods.add(new KeystrokesMod());
 		mods.add(new KillEffectsMod());
 		mods.add(new KillSoundsMod());
@@ -111,6 +118,7 @@ public class ModManager {
 		mods.add(new ReachDisplayMod());
 		mods.add(new RearviewMod());
 		mods.add(new ScoreboardMod());
+		mods.add(new SafeWalkMod());
 		mods.add(new ServerIPDisplayMod());
 		mods.add(new SessionInfoMod());
 		mods.add(new ShinyPotsMod());

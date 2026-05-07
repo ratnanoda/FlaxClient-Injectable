@@ -1,19 +1,8 @@
 package me.eldodebug.soar.management.remote.changelog;
 
-import java.net.UnknownHostException;
-import java.util.Iterator;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-
-import me.eldodebug.soar.Glide;
-import me.eldodebug.soar.logger.GlideLogger;
-import me.eldodebug.soar.utils.JsonUtils;
 import me.eldodebug.soar.utils.Multithreading;
-import me.eldodebug.soar.utils.network.HttpUtils;
 
 public class ChangelogManager {
 
@@ -24,29 +13,10 @@ public class ChangelogManager {
 	}
 	
 	private void loadChangelog() {
-
-		JsonObject jsonObject = HttpUtils.readJson("https://glideclient.github.io/changelogs/versions/" + Glide.getInstance().getVersionIdentifier() + ".json", null);
-
-
-		if(jsonObject != null) {
-			
-			JsonArray jsonArray = JsonUtils.getArrayProperty(jsonObject, "changelogs");
-			
-			if(jsonArray != null) {
-				
-				Iterator<JsonElement> iterator = jsonArray.iterator();
-				
-				while(iterator.hasNext()) {
-					
-					JsonElement jsonElement = (JsonElement) iterator.next();
-					Gson gson = new Gson();
-					JsonObject changelogJsonObject = gson.fromJson(jsonElement, JsonObject.class);
-					
-					changelogs.add(new Changelog(JsonUtils.getStringProperty(changelogJsonObject, "text", "null"), 
-							ChangelogType.getTypeById(JsonUtils.getIntProperty(changelogJsonObject, "type", 999))));
-				}
-			}
-		}
+		changelogs.clear();
+		changelogs.add(new Changelog("dev 1.0: Flax cape and icon updates are now available in-client", ChangelogType.ADDED));
+		changelogs.add(new Changelog("dev 1.0: Home feed and version labels now use Flax branding", ChangelogType.FIXED));
+		changelogs.add(new Changelog("dev 1.0: Removed legacy Glide release history from the panel", ChangelogType.REMOVED));
 	}
 
 	public CopyOnWriteArrayList<Changelog> getChangelogs() {

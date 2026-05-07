@@ -41,7 +41,7 @@ public class DiscontinuedSoar8 extends MainMenuScene {
 		nvg.drawCenteredText("Soar Client 8", acX + (acWidth / 2), acY + 12, new Color(24, 29, 23), 14, Fonts.SEMIBOLD);
 
 		nvg.drawCenteredText("Soar Client V8 is finally ready for public use and because of this", acX + (acWidth / 2), acY + 35, new Color(66, 73, 64), 9, Fonts.REGULAR);
-		nvg.drawCenteredText("GlideClient is now discontinued so we ask that you get Soar 8.", acX + (acWidth / 2), acY + 45, new Color(66, 73, 64), 9, Fonts.REGULAR);
+		nvg.drawCenteredText("FlaxClient is now discontinued so we ask that you get Soar 8.", acX + (acWidth / 2), acY + 45, new Color(66, 73, 64), 9, Fonts.REGULAR);
 
 		nvg.drawCenteredText("Soar 8 features many new modern features such as its material", acX + (acWidth / 2), acY + 60, new Color(66, 73, 64), 9, Fonts.REGULAR);
 		nvg.drawCenteredText("you design, better performance, 1.21 base and so much more to discover!", acX + (acWidth / 2), acY + 70, new Color(66, 73, 64), 9, Fonts.REGULAR);

@@ -11,9 +11,11 @@ import me.eldodebug.soar.discord.ipc.exceptions.NoDiscordClientException;
 public class DiscordRPC {
 
 	private IPCClient client;
+	private boolean started;
 	
 	public void start() {
 		
+		started = false;
 		client = new IPCClient(1059341815205068901L);
 		client.setListener(new IPCListener() {
 			@Override
@@ -21,7 +23,7 @@ public class DiscordRPC {
 				
 				RichPresence.Builder builder = new RichPresence.Builder();
 				
-				builder.setState("Playing Glide Client v" + Glide.getInstance().getVersion())
+				builder.setState("Playing FlaxClient " + Glide.getInstance().getVersion())
 						.setStartTimestamp(OffsetDateTime.now())
 						.setLargeImage("icon");
 				
@@ -29,15 +31,21 @@ public class DiscordRPC {
 			}
 		});
 		
-		try {
-			client.connect();
-		} catch (NoDiscordClientException e) {
-			e.printStackTrace();
-		}
+			try {
+				client.connect();
+				started = true;
+			} catch (NoDiscordClientException e) {
+				started = false;
+			}
 	}
 	
 	public void stop() {
-		client.close();
+		started = false;
+		if(client != null) {
+			try {
+				client.close();
+			} catch (Exception ignored) {}
+		}
 	}
 
 	public IPCClient getClient() {
@@ -45,6 +53,6 @@ public class DiscordRPC {
 	}
 	
 	public boolean isStarted() {
-		return client != null;
+		return started;
 	}
 }

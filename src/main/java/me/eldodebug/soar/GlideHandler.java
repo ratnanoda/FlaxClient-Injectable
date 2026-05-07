@@ -13,12 +13,14 @@ import me.eldodebug.soar.management.cape.CapeManager;
 import me.eldodebug.soar.management.cape.impl.Cape;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.profile.Profile;
+import me.eldodebug.soar.management.mods.Mod;
 import me.eldodebug.soar.utils.OptifineUtils;
 import me.eldodebug.soar.utils.TargetUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.network.play.server.S2EPacketCloseWindow;
 import net.minecraft.util.ResourceLocation;
+import org.lwjgl.input.Keyboard;
 
 public class GlideHandler {
 
@@ -67,6 +69,28 @@ public class GlideHandler {
             mc.gameSettings.thirdPersonView = (mc.gameSettings.thirdPersonView + 1) % 3;
             mc.renderGlobal.setDisplayListEntitiesDirty();
         }
+	}
+
+	@EventTarget
+	public void onKey(EventKey event) {
+		if(mc.currentScreen != null) {
+			return;
+		}
+
+		int keyCode = event.getKeyCode();
+		if(keyCode == Keyboard.KEY_NONE) {
+			return;
+		}
+
+		for(Mod mod : instance.getModManager().getMods()) {
+			if(mod.isHide()) {
+				continue;
+			}
+
+			if(mod.getKeyCode() == keyCode) {
+				mod.toggle();
+			}
+		}
 	}
 	
 	@EventTarget

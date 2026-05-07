@@ -1,8 +1,6 @@
 package me.eldodebug.soar.gui.modmenu.category.impl;
 
 import java.awt.Color;
-import java.awt.Desktop;
-import java.net.URL;
 
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.gui.modmenu.GuiModMenu;
@@ -17,7 +15,6 @@ import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.nanovg.NanoVGManager;
 import me.eldodebug.soar.management.nanovg.font.Fonts;
 import me.eldodebug.soar.management.nanovg.font.LegacyIcon;
-import me.eldodebug.soar.management.remote.discord.DiscordStats;
 import me.eldodebug.soar.management.remote.news.News;
 import me.eldodebug.soar.management.remote.news.NewsManager;
 import me.eldodebug.soar.utils.mouse.MouseUtils;
@@ -35,7 +32,6 @@ public class HomeCategory extends Category {
 	public void initGui() {
 		changelogScroll.resetAll();
 		newsScroll.resetAll();
-		Glide.getInstance().getDiscordStats().check();
 	}
 
 	Color onlineColour = new Color(85, 155, 89, 255);
@@ -51,8 +47,6 @@ public class HomeCategory extends Category {
 		AccentColor currentColor = colorManager.getCurrentColor();
 		ChangelogManager changelogManager = instance.getChangelogManager();
 		NewsManager newsManager = instance.getNewsManager();
-		DiscordStats discStat = instance.getDiscordStats();
-		int standardPadding = 8;
 		int outerPadding = 15;
 
 		// news
@@ -90,11 +84,11 @@ public class HomeCategory extends Category {
 
 		int offsetChangelogY = 0;
 
-		nvg.drawRoundedRect(this.getX() + 230, this.getY() + outerPadding, 174, 151, 8, palette.getBackgroundColor(ColorType.DARK));
+		nvg.drawRoundedRect(this.getX() + 230, this.getY() + outerPadding, 174, 250, 8, palette.getBackgroundColor(ColorType.DARK));
 		nvg.drawText(TranslateText.CHANGELOG.getText(), this.getX() + 230 + 8, this.getY() + 15 + 8, palette.getFontColor(ColorType.DARK), 11F, Fonts.SEMIBOLD);
 
 		nvg.save();
-		nvg.scissor(this.getX() + 230, this.getY() + outerPadding + 20, 174, 131);
+		nvg.scissor(this.getX() + 230, this.getY() + outerPadding + 20, 174, 230);
 		nvg.translate(0, changelogScroll.getValue());
 
 		for(Changelog c : changelogManager.getChangelogs()) {
@@ -105,46 +99,16 @@ public class HomeCategory extends Category {
 			offsetChangelogY+= (int) (tbSize + 9);
 		}
 		nvg.restore();
-		if(offsetChangelogY > 130 && MouseUtils.isInside(mouseX, mouseY,this.getX() + 230, this.getY() + outerPadding, 174, 151)) {changelogScroll.onScroll();}
+		if(MouseUtils.isInside(mouseX, mouseY,this.getX() + 230, this.getY() + outerPadding, 174, 250)) {changelogScroll.onScroll();}
 		changelogScroll.onAnimation();
-		changelogScroll.setMaxScroll(Math.max(offsetChangelogY - 120, 0));
+		changelogScroll.setMaxScroll(Math.max(offsetChangelogY - 225, 0));
 
 		nvg.drawVerticalGradientRect(this.getX() + 230 + 8, this.getY() + outerPadding + 20, 174 - 16, 8, palette.getBackgroundColor(ColorType.DARK), noColour);
-		nvg.drawVerticalGradientRect(this.getX() + 230 + 8, this.getY() + outerPadding +  151 - 8, 174 - 16, 8, noColour, palette.getBackgroundColor(ColorType.DARK));
-
-
-		// Discord
-		int discordStartX = this.getX() + 230;
-		int discordStartY = this.getY() + 179;
-		int discordWidth = 174;
-		//bg
-		nvg.drawRoundedRect(discordStartX, discordStartY, discordWidth, 86, 8, palette.getBackgroundColor(ColorType.DARK));
-		// Discord branding
-		nvg.drawRoundedRectVarying(discordStartX + discordWidth - 22, discordStartY, 22, 22, 0, 8, 8, 0, new Color(114, 137, 214));
-		nvg.drawCenteredText(LegacyIcon.DISCORD, discordStartX  + discordWidth - 11, discordStartY + 4, Color.WHITE, 14F, Fonts.LEGACYICON);
-		// txt
-		nvg.drawText(TranslateText.JOIN_OUR_DISCORD_SERVER.getText(), discordStartX + standardPadding, discordStartY + standardPadding, palette.getFontColor(ColorType.DARK), 11F, Fonts.SEMIBOLD);
-		nvg.drawTextBox(TranslateText.DISCORD_DESCRIPTION.getText(), discordStartX + standardPadding, discordStartY + 26, discordWidth - 16, palette.getFontColor(ColorType.DARK), 8, Fonts.REGULAR);
-		// stats
-		if(discStat.getMemberCount() != -1){
-			nvg.drawRoundedRect(discordStartX + 10, discordStartY + 66, 6, 6, 3, onlineColour);
-			nvg.drawRoundedGlow(discordStartX + 10, discordStartY + 66, 6, 6, 3, onlineColour, 7);
-			nvg.drawTextGlowing(discStat.getMemberCount() + " Members", discordStartX + 20, discordStartY + 62, onlineColour, 4, 8, Fonts.REGULAR);
-			nvg.drawTextGlowing(discStat.getMemberOnline() + " Online", discordStartX + 20, discordStartY + 70, onlineColour, 4, 8, Fonts.REGULAR);
-		}
-		// join button
-		nvg.drawRoundedRect(discordStartX + discordWidth - 60, discordStartY + 60, 52, 18, 9,  new Color(114, 137, 214));
-		nvg.drawCenteredText(TranslateText.JOIN.getText() + " >", discordStartX + discordWidth - 60 + (52 / 2), discordStartY + 66,  Color.WHITE, 7, Fonts.REGULAR);
+		nvg.drawVerticalGradientRect(this.getX() + 230 + 8, this.getY() + outerPadding +  250 - 8, 174 - 16, 8, noColour, palette.getBackgroundColor(ColorType.DARK));
 
 	}
 
 	@Override
 	public void mouseClicked(int mouseX, int mouseY, int mouseButton) {
-		int discordStartX = this.getX() + 230;
-		int discordStartY = this.getY() + 179;
-			if(MouseUtils.isInside(mouseX, mouseY, discordStartX + 174 - 60, discordStartY + 60, 52, 18)) {
-				try {
-					Desktop.getDesktop().browse(new URL("https://glideclient.github.io/discord").toURI());
-				} catch (Exception e) {}}
 	}
 }

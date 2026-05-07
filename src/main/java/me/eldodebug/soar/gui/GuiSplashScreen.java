@@ -6,8 +6,6 @@ import org.lwjgl.opengl.GL11;
 
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.management.nanovg.NanoVGManager;
-import me.eldodebug.soar.management.nanovg.font.Fonts;
-import me.eldodebug.soar.management.nanovg.font.LegacyIcon;
 import me.eldodebug.soar.utils.GlUtils;
 import me.eldodebug.soar.utils.animation.normal.Animation;
 import me.eldodebug.soar.utils.animation.normal.Direction;
@@ -16,6 +14,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.shader.Framebuffer;
+import net.minecraft.util.ResourceLocation;
 
 public class GuiSplashScreen {
 
@@ -63,8 +62,14 @@ public class GuiSplashScreen {
 	        GlStateManager.blendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
 	        
 			nvg.setupAndDraw(() -> {
+				float logoSize = 130;
+				float logoX = (sr.getScaledWidth() - logoSize) / 2F;
+				float logoY = (sr.getScaledHeight() - logoSize) / 2F - 1;
 				nvg.drawRect(0, 0, sr.getScaledWidth(), sr.getScaledHeight(), Color.BLACK);
-				nvg.drawCenteredText(LegacyIcon.SOAR, sr.getScaledWidth() / 2, (sr.getScaledHeight() / 2) - (nvg.getTextHeight(LegacyIcon.SOAR, 130, Fonts.LEGACYICON) / 2) - 1, new Color(255, 255, 255, (int) (fadeAnimation.getValue() * 255)), 130, Fonts.LEGACYICON);
+				nvg.save();
+				nvg.setAlpha(fadeAnimation.getValueFloat());
+				nvg.drawImage(new ResourceLocation("soar/logo.png"), logoX, logoY, logoSize, logoSize);
+				nvg.restore();
 			});
 			
 	        framebuffer.unbindFramebuffer();

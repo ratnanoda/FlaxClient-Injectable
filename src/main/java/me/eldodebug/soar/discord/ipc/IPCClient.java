@@ -43,7 +43,7 @@ public final class IPCClient implements Closeable {
     
     public void connect(DiscordBuild... preferredOrder) throws NoDiscordClientException {
     	
-    	if(isConnected(false)) {
+    	if(isConnected()) {
     		return;
     	}
     	
@@ -67,7 +67,7 @@ public final class IPCClient implements Closeable {
     
     public void sendRichPresence(RichPresence presence, Callback callback) {
     	
-    	if(isConnected(true)) {
+    	if(!isConnected()) {
     		return;
     	}
     	
@@ -90,7 +90,7 @@ public final class IPCClient implements Closeable {
     
     public void subscribe(Event sub, Callback callback) {
     	
-    	if(isConnected(true)) {
+    	if(!isConnected()) {
     		return;
     	}
     	
@@ -118,7 +118,7 @@ public final class IPCClient implements Closeable {
     @Override
     public void close() {
     	
-    	if(isConnected(true)) {
+    	if(!isConnected() || pipe == null) {
     		return;
     	}
     	
@@ -173,17 +173,8 @@ public final class IPCClient implements Closeable {
         }
     }
 
-    private boolean isConnected(boolean connected) {
-    	
-        if(connected && getStatus() != PipeStatus.CONNECTED) {
-        	return false;
-        }
-
-        if(!connected && getStatus() == PipeStatus.CONNECTED) {
-        	return true;
-        }
-        
-        return false;
+    private boolean isConnected() {
+        return getStatus() == PipeStatus.CONNECTED;
     }
     
     private void startReading() {

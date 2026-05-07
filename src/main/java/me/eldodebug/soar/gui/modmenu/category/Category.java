@@ -2,6 +2,8 @@ package me.eldodebug.soar.gui.modmenu.category;
 
 import me.eldodebug.soar.gui.modmenu.GuiModMenu;
 import me.eldodebug.soar.management.language.TranslateText;
+import me.eldodebug.soar.management.nanovg.font.Font;
+import me.eldodebug.soar.management.nanovg.font.Fonts;
 import me.eldodebug.soar.ui.comp.impl.field.CompSearchBox;
 import me.eldodebug.soar.utils.animation.ColorAnimation;
 import me.eldodebug.soar.utils.animation.simple.SimpleAnimation;
@@ -13,6 +15,7 @@ public class Category {
 	public Minecraft mc = Minecraft.getMinecraft();
 	
 	private String icon;
+	private Font iconFont;
 	private GuiModMenu parent;
 	
 	private TranslateText nameTranslate;
@@ -29,9 +32,14 @@ public class Category {
 	private boolean showTitle;
 
 	public Category(GuiModMenu parent, TranslateText nameTranslate, String icon, boolean showSearchBox, boolean showTitle) {
+		this(parent, nameTranslate, icon, Fonts.LEGACYICON, showSearchBox, showTitle);
+	}
+
+	public Category(GuiModMenu parent, TranslateText nameTranslate, String icon, Font iconFont, boolean showSearchBox, boolean showTitle) {
 		this.nameTranslate = nameTranslate;
 		this.parent = parent;
 		this.icon = icon;
+		this.iconFont = iconFont;
 		this.initialized = false;
 		this.scroll = parent.getScroll();
 		this.showSearchBox = showSearchBox;
@@ -60,6 +68,10 @@ public class Category {
 
 	public String getIcon() {
 		return icon;
+	}
+
+	public Font getIconFont() {
+		return iconFont;
 	}
 
 	public int getX() {

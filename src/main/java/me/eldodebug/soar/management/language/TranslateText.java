@@ -111,7 +111,7 @@ public enum TranslateText {
 	ADDED_MUSIC_QUEUE("text.addedmusicqueue"), MUSIC_DOWNLOAD_COMPLETE("text.musicdownloadcomplete"), MUSIC_DOWNLOAD_FAILED("text.musicdownloadfailed"),
 	PLAYER_PREDICATOR("text.playerpredicator.name"), PLAYER_PREDICATOR_DESCRIPTION("text.playerpredicator.description"), UNMARKED("textunmarked"),
 	SPACE("text.space"), INVENTORY("text.inventory.name"), INVENTORY_DESCRIPTION("text.inventory.description"), ANIMATION_TYPE("text.animationtype"),
-	BACKIN("text.backin"), PREVENT_POTION_SHIFT("text.preventpotionshift"), PLAYER("text.player"), RENDER("text.render"), WORLD("text.world"), OTHER("text.other"),
+		BACKIN("text.backin"), PREVENT_POTION_SHIFT("text.preventpotionshift"), PLAYER("text.player"), RENDER("text.render"), WORLD("text.world"), OTHER("text.other"), GHOST("text.ghost"),
 	BLACK_SMOKE("text.blacksmoke"), FIRE("text.fire"), GREEN_STAR("text.greenstar"), HEARTS("text.hearts"), MAGIC("text.msgic"), MUSIC_NOTES("text.musicnotes"),
 	SLIME("text.slime"), SPARK("text.spark"), SWIRL("text.swirl"), WHITE_SMOKE("text.whitesmoke"), SKIN_PROTECT("text.skinprotect.name"),
 	SKIN_PROTECT_DESCRIPTION("text.skinprotect.description"), HYPIXEL_QUICK_PLAY("text.hypixelquickplay.name"), HYPIXEL_QUICK_PLAY_DESCRIPTION("text.hypixelquickplay.description"),
@@ -141,8 +141,20 @@ public enum TranslateText {
 	LOADING("text.loading"), PING_DISPLAY("text.pingdisplay.name"), PING_DISPLAY_DESCRIPTION("text.pingdisplay.description"), SESSION_INFO("text.sessioninfo.name"), SESSION_INFO_DESCRIPTION("text.sessioninfo.description"), MINEMEN("text.minemen.name"),
 	MINEMEN_DESCRIPTION("text.minemen.description"), CLIPBOARD("text.clipboard"), VIA_VERSION("text.viaversion.name"), VIA_VERSION_DESCRIPTION("text.viaversion.description"), WEB_BROWSER("text.webbrowser.name"), WEB_BROWSER_DESCRIPTION("text.webbrowser.description"),
 	REQUIRED_FILE_MISSING("text.requiredfilemissing"), GODBRIDGE_ASSIST("text.godbridgeassist.name"), GODBRIDGE_ASSIST_DESCRIPTION("text.godbridgeassist.description"), ENTITY_CULLING("text.entityculling.name"), ENTITY_CULLING_DESCRIPTIONN("text.entityculling.description"), TEXT("text.text"),
-	DISTANCE("text.distance"), DISCORD_RPC("text.discordrpc.name"), DISCORD_RPC_DESCRIPTION("text.discordrpc.description"), HIDE_ARMOR_STAND("text.hidearmorstand"),
-	REMOVE_BOT("text.removebot"), PARTICLE("text.particle"), LIGHT("text.light"), CLIENT("text.client"), DARK("text.dark"), FEMALE_GENDER("text.femalegender.name"), FEMALE_GENDER_DESCRIPTION("text.femalegender.description"), EARS("text.ears.name"), EARS_DESCRIPTION("text.ears.description"), PICKUP_ANIM("text.pickup"), PICKUP_VANILLA("text.pickup.vanilla"),PICKUP_BREAD("text.pickup.bread"),PICKUP_POP("text.pickup.pop"), SPOTIFY_AUTH("text.spotify.auth"), SPOTIFY_AUTH_FAILED("text.spotify.auth.failed"),
+		DISTANCE("text.distance"), DISCORD_RPC("text.discordrpc.name"), DISCORD_RPC_DESCRIPTION("text.discordrpc.description"), HIDE_ARMOR_STAND("text.hidearmorstand"),
+		GHOST_NAMETAGS("text.ghostnametags.name"), GHOST_NAMETAGS_DESCRIPTION("text.ghostnametags.description"),
+		ESP("text.esp.name"), ESP_DESCRIPTION("text.esp.description"), PVP_HITBOX_RANGE("text.hitbox.pvprange"),
+		SAFE_WALK("text.safewalk.name"), SAFE_WALK_DESCRIPTION("text.safewalk.description"),
+		JUMP_RESET("text.jumpreset.name"), JUMP_RESET_DESCRIPTION("text.jumpreset.description"),
+		AIM_ASSIST("text.aimassist.name"), AIM_ASSIST_DESCRIPTION("text.aimassist.description"), ACCURACY("text.accuracy"), STRENGTH("text.strength"),
+		SUCCESS_CHANCE("text.successchance"),
+		AUTO_BLOCK("text.autoblock.name"), AUTO_BLOCK_DESCRIPTION("text.autoblock.description"),
+		FAST_PLACE("text.fastplace.name"), FAST_PLACE_DESCRIPTION("text.fastplace.description"), AUTO_CLICKER("text.autoclicker.name"), AUTO_CLICKER_DESCRIPTION("text.autoclicker.description"),
+		HEALTH_BAR("text.healthbar.name"), HEALTH_BAR_DESCRIPTION("text.healthbar.description"), MIN_CPS("text.mincps"), MAX_CPS("text.maxcps"),
+		LAG_KNOCKBACK("text.lagknockback.name"), LAG_KNOCKBACK_DESCRIPTION("text.lagknockback.description"),
+		LATENCY_RANGE("text.latencyrange.name"), LATENCY_RANGE_DESCRIPTION("text.latencyrange.description"), DELAY_MS("text.delayms"), MAX_DELAY_MS("text.maxdelayms"), INDICATOR("text.indicator"),
+		PRECISE_FIREBALL("text.precisefireball.name"), PRECISE_FIREBALL_DESCRIPTION("text.precisefireball.description"), RELEASE_KEY("text.releasekey"), HORIZONTAL_BOOST("text.horizontalboost"), VERTICAL_BOOST("text.verticalboost"), HOLD_TIME_MS("text.holdtimems"),
+		REMOVE_BOT("text.removebot"), PARTICLE("text.particle"), LIGHT("text.light"), CLIENT("text.client"), DARK("text.dark"), FEMALE_GENDER("text.femalegender.name"), FEMALE_GENDER_DESCRIPTION("text.femalegender.description"), EARS("text.ears.name"), EARS_DESCRIPTION("text.ears.description"), PICKUP_ANIM("text.pickup"), PICKUP_VANILLA("text.pickup.vanilla"),PICKUP_BREAD("text.pickup.bread"),PICKUP_POP("text.pickup.pop"), SPOTIFY_AUTH("text.spotify.auth"), SPOTIFY_AUTH_FAILED("text.spotify.auth.failed"),
 	SPOTIFY_AUTH_REFRESH_FAILED("text.spotify.auth.refresh.failed"), SPOTIFY_AUTH_REFRESH("text.spotify.auth.refresh"), SPOTIFY_PLAYBACK("text.spotify.playback"), SPOTIFY_PLAYBACK_START_FAILED("text.spotify.playback.start_failed"),
 	SPOTIFY_PLAYBACK_PAUSE_FAILED("text.spotify.playback.pause_failed"), SPOTIFY_PLAYBACK_RESUME_FAILED("text.spotify.playback.resume_failed"), SPOTIFY_VOLUME_SET_FAILED("text.spotify.volume.set_failed"), SEARCH_COMPLETE("text.search_complete"),
 	SEARCH_FAILED("text.search_failed"), SPOTIFY_AUTH_MANUAL_REQUIRED("Please authorize in the browser and then click 'Complete Authorization'"), SPOTIFY_AUTH_SUCCESS("Authorization completed successfully"), SPOTIFY_AUTH_TOKEN_RECEIVED("text.spotify.auth.token_received"),
@@ -157,7 +169,7 @@ public enum TranslateText {
 	}
 
 	public String getText() {
-		return text == null ? "null" : text;
+		return (text == null || text.isEmpty()) ? key : text;
 	}
 
 	public void setText(String text) {

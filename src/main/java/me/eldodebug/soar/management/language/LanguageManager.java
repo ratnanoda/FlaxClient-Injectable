@@ -9,29 +9,34 @@ import me.eldodebug.soar.logger.GlideLogger;
 
 public class LanguageManager {
 
-	private HashMap<String, String> translateMap = new HashMap<String, String>();
-	
+	private final HashMap<String, String> translateMap = new HashMap<String, String>();
 	private Language currentLanguage;
-	
+
 	public LanguageManager() {
-		setCurrentLanguage(Language.ENGLISHGB);
+		setCurrentLanguage(Language.ENGLISH);
 	}
-	
+
 	private void loadMap(HashMap<String, String> map, String language) {
-		
-		try (BufferedReader reader = new BufferedReader(new InputStreamReader(LanguageManager.class.getClassLoader().getResourceAsStream("assets/minecraft/soar/language/" + language + ".properties"), StandardCharsets.UTF_8))) {
-			
-			String s;
-			
-			while((s = reader.readLine()) != null) {
-				
-				if(!s.equals("") && !s.startsWith("#")) {
-					String[] args = s.split("=");
-					
-					map.put(args[0], args[1]);
+		try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+				LanguageManager.class.getClassLoader().getResourceAsStream("assets/minecraft/soar/language/" + language + ".properties"),
+				StandardCharsets.UTF_8))) {
+
+			String line;
+			while((line = reader.readLine()) != null) {
+				line = line.trim();
+				if(line.isEmpty() || line.startsWith("#")) {
+					continue;
 				}
+
+				int separatorIndex = line.indexOf('=');
+				if(separatorIndex <= 0) {
+					continue;
+				}
+
+				String key = line.substring(0, separatorIndex).trim();
+				String value = line.substring(separatorIndex + 1);
+				map.put(key, value);
 			}
-			
 		} catch(Exception e) {
 			GlideLogger.error("Failed to load translate", e);
 		}
@@ -42,14 +47,15 @@ public class LanguageManager {
 	}
 
 	public void setCurrentLanguage(Language currentLanguage) {
-		
 		this.currentLanguage = currentLanguage;
-		this.loadMap(translateMap, currentLanguage.getId());
-		
+		translateMap.clear();
+
+		// Base fallback language is English (US).
+		loadMap(translateMap, Language.ENGLISH.getId());
+		loadMap(translateMap, currentLanguage.getId());
+
 		for(TranslateText text : TranslateText.values()) {
-			if(translateMap.containsKey(text.getKey())) {
-				text.setText(translateMap.get(text.getKey()));
-			}
+			text.setText(translateMap.getOrDefault(text.getKey(), text.getKey()));
 		}
 	}
 }

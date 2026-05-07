@@ -36,8 +36,9 @@ public class WelcomeMessageScene extends MainMenuScene {
 		ScaledResolution sr = new ScaledResolution(mc);
 		NanoVGManager nvg = Glide.getInstance().getNanoVGManager();
 		String hello = "Hello!";
-		String welcomeMessage = "Welcome to Glide Client";
-		String setupMessage = "An Updated Version of Soar Client";
+		String welcomeMessage = "Welcome to FlaxClient";
+		String setupMessage = "An Updated Version of";
+		String setupMessageLine2 = "Soar / Glide Client";
 		String setupMessage2 = "Time to setup Glide.";
 		
 		BlurUtils.drawBlurScreen(14);
@@ -67,9 +68,18 @@ public class WelcomeMessageScene extends MainMenuScene {
 			}
 			
 			nvg.setupAndDraw(() -> {
-				nvg.drawCenteredText(message, sr.getScaledWidth() / 2, 
-						(sr.getScaledHeight() / 2) - (nvg.getTextHeight(message, 26, Fonts.REGULAR) / 2), 
-						new Color(255, 255, 255, (int) (fadeAnimation.getValueFloat() * 255)), 26, Fonts.REGULAR);
+				Color textColor = new Color(255, 255, 255, (int) (fadeAnimation.getValueFloat() * 255));
+				float centerX = sr.getScaledWidth() / 2F;
+				float centerY = sr.getScaledHeight() / 2F;
+				
+				if(step == 2) {
+					nvg.drawCenteredText(setupMessage, centerX, centerY - 18, textColor, 26, Fonts.REGULAR);
+					nvg.drawCenteredText(setupMessageLine2, centerX, centerY + 10, textColor, 26, Fonts.REGULAR);
+				}else {
+					nvg.drawCenteredText(message, centerX,
+							centerY - (nvg.getTextHeight(message, 26, Fonts.REGULAR) / 2),
+							textColor, 26, Fonts.REGULAR);
+				}
 			});
 			
 			if(timer.delay(2500) && fadeAnimation.getDirection().equals(Direction.FORWARDS)) {

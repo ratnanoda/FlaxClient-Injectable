@@ -125,6 +125,7 @@ public class ProfileManager {
 				JsonObject mJsonObject = new JsonObject();
 				
 				mJsonObject.addProperty("Toggle", m.isToggled());
+				mJsonObject.addProperty("Bind", m.getKeyCode());
 				
 				if(m instanceof HUDMod) {
 					
@@ -241,7 +242,7 @@ public class ProfileManager {
 			colorManager.setCurrentColor(colorManager.getColorByName(JsonUtils.getStringProperty(appJsonObject, "Accent Color", "Teal Love")));
 			colorManager.setTheme(Theme.getThemeById(JsonUtils.getIntProperty(appJsonObject, "Theme", Theme.LIGHT.getId())));
 			backgroundManager.setCurrentBackground(backgroundManager.getBackgroundById(JsonUtils.getIntProperty(appJsonObject, "Background", 0)));
-			instance.getLanguageManager().setCurrentLanguage(Language.getLanguageById(JsonUtils.getStringProperty(appJsonObject, "Language", Language.ENGLISHGB.getId())));
+			instance.getLanguageManager().setCurrentLanguage(Language.getLanguageById(JsonUtils.getStringProperty(appJsonObject, "Language", Language.ENGLISH.getId())));
 			
 			for(Mod m : modManager.getMods()) {
 				
@@ -250,6 +251,7 @@ public class ProfileManager {
 				if(mJsonObject != null) {
 					
 					m.setToggled(JsonUtils.getBooleanProperty(mJsonObject, "Toggle", false));
+					m.setKeyCode(JsonUtils.getIntProperty(mJsonObject, "Bind", m.getDefaultKeyCode()));
 					
 					if(m instanceof HUDMod) {
 						

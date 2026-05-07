@@ -7,6 +7,7 @@ import me.eldodebug.soar.management.notification.NotificationType;
 import me.eldodebug.soar.utils.animation.simple.SimpleAnimation;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
+import org.lwjgl.input.Keyboard;
 
 public class Mod {
 
@@ -19,6 +20,8 @@ public class Mod {
     private ModCategory category;
     private String alias = "\u200B"; // zerowidth space
     private Boolean restricted = false, allowed = true;
+    private int defaultKeyCode = Keyboard.KEY_NONE;
+    private int keyCode = Keyboard.KEY_NONE;
 
     public Mod(TranslateText nameTranslate, TranslateText descriptionTranslate, ModCategory category) {
 
@@ -142,6 +145,18 @@ public class Mod {
 
     public void setAllowed(boolean modAllowed) {
         this.allowed = modAllowed;
+    }
+
+    public int getKeyCode() {
+        return keyCode;
+    }
+
+    public int getDefaultKeyCode() {
+        return defaultKeyCode;
+    }
+
+    public void setKeyCode(int keyCode) {
+        this.keyCode = keyCode;
     }
 
 }

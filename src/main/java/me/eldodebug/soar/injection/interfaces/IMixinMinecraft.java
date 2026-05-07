@@ -11,6 +11,10 @@ public interface IMixinMinecraft {
 	void setSession(Session session);
 	void callClickMouse();
 	void callRightClickMouse();
+	int getLeftClickCounter();
+	void setLeftClickCounter(int counter);
+	int getRightClickDelayTimer();
+	void setRightClickDelayTimer(int delay);
 	DefaultResourcePack getMcDefaultResourcePack();
     void resizeWindow(int width, int height);
     Entity getRenderViewEntity();

@@ -32,6 +32,7 @@ public class HitBoxMod extends Mod {
 	private BooleanSetting boundingBoxSetting = new BooleanSetting(TranslateText.BOUNDING_BOX, this, true);
 	private BooleanSetting eyeHeightSetting = new BooleanSetting(TranslateText.EYE_HEIGHT, this, true);
 	private BooleanSetting lookVectorSetting = new BooleanSetting(TranslateText.LOOK_VECTOR, this, true);
+	private BooleanSetting pvpHitboxRangeSetting = new BooleanSetting(TranslateText.PVP_HITBOX_RANGE, this, true);
 	
 	private NumberSetting lineWidthSetting = new NumberSetting(TranslateText.LINE_WIDTH, this, 2, 1, 5, true);
 	
@@ -57,15 +58,18 @@ public class HitBoxMod extends Mod {
 		GlStateManager.enableBlend();
 		GL11.glLineWidth(lineWidthSetting.getValueFloat());
 		
-		if(boundingBoxSetting.isToggled()) {
-			AxisAlignedBB box = event.getEntity().getEntityBoundingBox();
-			AxisAlignedBB offsetBox = new AxisAlignedBB(box.minX - event.getEntity().posX + event.getX(),
-					box.minY - event.getEntity().posY + event.getY(), box.minZ - event.getEntity().posZ + event.getZ(),
-					box.maxX - event.getEntity().posX + event.getX(), box.maxY - event.getEntity().posY + event.getY(),
-					box.maxZ - event.getEntity().posZ + event.getZ());
-			Color boundingBoxColor = colorSetting.getColor();
-			RenderGlobal.drawOutlinedBoundingBox(offsetBox, boundingBoxColor.getRed(), boundingBoxColor.getGreen(), boundingBoxColor.getBlue(), (int) (alphaSetting.getValue() * 255));
-		}
+			if(boundingBoxSetting.isToggled()) {
+				AxisAlignedBB box = event.getEntity().getEntityBoundingBox();
+				AxisAlignedBB offsetBox = new AxisAlignedBB(box.minX - event.getEntity().posX + event.getX(),
+						box.minY - event.getEntity().posY + event.getY(), box.minZ - event.getEntity().posZ + event.getZ(),
+						box.maxX - event.getEntity().posX + event.getX(), box.maxY - event.getEntity().posY + event.getY(),
+						box.maxZ - event.getEntity().posZ + event.getZ());
+				Color boundingBoxColor = colorSetting.getColor();
+				if(pvpHitboxRangeSetting.isToggled() && isEntityInAttackRange(event.getEntity())) {
+					boundingBoxColor = Color.RED;
+				}
+				RenderGlobal.drawOutlinedBoundingBox(offsetBox, boundingBoxColor.getRed(), boundingBoxColor.getGreen(), boundingBoxColor.getBlue(), (int) (alphaSetting.getValue() * 255));
+			}
 		
 		if(eyeHeightSetting.isToggled() && event.getEntity() instanceof EntityLivingBase) {
 			RenderGlobal.drawOutlinedBoundingBox(
@@ -105,6 +109,16 @@ public class HitBoxMod extends Mod {
 		if(mc.getRenderManager() != null) {
 			mc.getRenderManager().setDebugBoundingBox(true);
 		}
+	}
+
+	private boolean isEntityInAttackRange(net.minecraft.entity.Entity entity) {
+		if(mc.thePlayer == null || entity == null || entity == mc.thePlayer) {
+			return false;
+		}
+
+		double baseReach = (mc.playerController != null && mc.playerController.extendedReach()) ? 6.0D : 3.0D;
+		double allowedDistance = baseReach + (entity.width * 0.5D);
+		return mc.thePlayer.getDistanceToEntity(entity) <= allowedDistance;
 	}
 	
 	@Override

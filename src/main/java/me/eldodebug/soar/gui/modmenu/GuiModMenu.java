@@ -12,7 +12,6 @@ import me.eldodebug.soar.management.file.FileManager;
 import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.mods.impl.InternalSettingsMod;
 import me.eldodebug.soar.management.nanovg.font.FontManager;
-import me.eldodebug.soar.management.nanovg.font.Icons;
 import me.eldodebug.soar.utils.file.FileUtils;
 import org.lwjgl.input.Keyboard;
 
@@ -39,6 +38,7 @@ import me.eldodebug.soar.utils.mouse.Scroll;
 import me.eldodebug.soar.utils.render.BlurUtils;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
+import net.minecraft.util.ResourceLocation;
 
 public class GuiModMenu extends GuiScreen {
 
@@ -60,11 +60,12 @@ public class GuiModMenu extends GuiScreen {
 	
 	public GuiModMenu() {
 		
-		categories.add(new HomeCategory(this));
-		categories.add(new ModuleCategory(this));
-		categories.add(new CosmeticsCategory(this));
-		categories.add(new GamesCategory(this));
-		categories.add(new ProfileCategory(this));
+			categories.add(new HomeCategory(this));
+			categories.add(new ModuleCategory(this));
+			categories.add(new GhostCategory(this));
+			categories.add(new CosmeticsCategory(this));
+			categories.add(new GamesCategory(this));
+			categories.add(new ProfileCategory(this));
 		categories.add(new ScreenshotCategory(this));
 		categories.add(new SettingCategory(this));
 		
@@ -136,7 +137,7 @@ public class GuiModMenu extends GuiScreen {
 		}
 
 		nvg.drawGradientRoundedRect(x + 5, y + 7, 22, 22, 11, currentColor.getColor1(), currentColor.getColor2());
-		nvg.drawText(Icons.GLIDE, x + 8, y + 10, Color.WHITE, 16, Fonts.ICON_FILLED);
+		nvg.drawRoundedImage(new ResourceLocation("soar/logo.png"), x + 8, y + 10, 16, 16, 8);
 		if(currentCategory.isShowTitle()) {
 			nvg.save();
 			nvg.translate(currentCategory.getTextAnimation().getValue() * 15, 0);
@@ -158,7 +159,7 @@ public class GuiModMenu extends GuiScreen {
 			
 			c.getTextAnimation().setAnimation(c.equals(currentCategory) ? 1.0F : 0.0F, 14);
 			
-			nvg.drawText(c.getIcon(), x + 9F, y + 42 + offsetY, textColor, 14, Fonts.LEGACYICON);
+				nvg.drawText(c.getIcon(), x + 9F, y + 42 + offsetY, textColor, 14, c.getIconFont());
 			
 			offsetY+=30;
 		}
@@ -224,6 +225,14 @@ public class GuiModMenu extends GuiScreen {
 		// exit gui if not clicked in the gui area
 		if(!MouseUtils.isInside(mouseX, mouseY, x - 5, y - 5, width + 10, height + 10) && mouseButton == 0 && canClose) {
 			introAnimation.setDirection(Direction.BACKWARDS);
+		}
+
+		// Open client settings when clicking the Flax icon in the top-left sidebar.
+		if(MouseUtils.isInside(mouseX, mouseY, x + 5, y + 7, 22, 22) && mouseButton == 0) {
+			Category settingCategory = getCategoryByClass(SettingCategory.class);
+			if(settingCategory != null) {
+				currentCategory = settingCategory;
+			}
 		}
 
 		for(Category c : categories) {

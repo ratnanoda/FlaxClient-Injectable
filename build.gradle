@@ -27,10 +27,63 @@ apply plugin: 'java'
 
 version = "Release"
 group= "me.eldodebug"
-archivesBaseName = "GlideClient"
+archivesBaseName = "FlaxClient"
+
+def buildNumberFile = file("build-number.txt")
+
+def readBuildNumber = {
+    if(!buildNumberFile.exists()) {
+        buildNumberFile.text = "0\n"
+    }
+    return buildNumberFile.text.trim().toInteger()
+}
+
+ext.currentBuildNumber = readBuildNumber()
+
+task bumpBuildNumber {
+    doLast {
+        def next = readBuildNumber() + 1
+        buildNumberFile.text = "${next}\n"
+        project.ext.currentBuildNumber = next
+        println "FlaxClient build number: ${next}"
+    }
+}
+
+ext.devVersionName = "dev 1.${project.ext.currentBuildNumber}"
+def generatedVersionSourceDir = file("$buildDir/generated/sources/version/java")
 
 sourceCompatibility = targetCompatibility = 1.8
 compileJava.options.encoding = 'UTF-8'
+tasks.withType(JavaCompile).configureEach {
+    options.fork = true
+    options.forkOptions.memoryInitialSize = '1024m'
+    options.forkOptions.memoryMaximumSize = '4096m'
+    options.forkOptions.jvmArgs += ['-XX:-UseGCOverheadLimit']
+}
+
+sourceSets.main.java.srcDir generatedVersionSourceDir
+
+task generateBuildVersionSource {
+    dependsOn bumpBuildNumber
+    inputs.file(buildNumberFile)
+    outputs.file("$generatedVersionSourceDir/me/eldodebug/soar/BuildVersion.java")
+    doLast {
+        def latest = readBuildNumber()
+        project.ext.currentBuildNumber = latest
+        project.ext.devVersionName = "dev 1.${latest}"
+        def outFile = file("$generatedVersionSourceDir/me/eldodebug/soar/BuildVersion.java")
+        outFile.parentFile.mkdirs()
+        outFile.text = """package me.eldodebug.soar;
+
+public final class BuildVersion {
+    public static final int BUILD_NUMBER = ${latest};
+    public static final String DISPLAY_VERSION = "${project.ext.devVersionName}";
+
+    private BuildVersion() {}
+}
+"""
+    }
+}
 
 minecraft {
     version = "1.8.9"
@@ -109,4 +162,17 @@ jar {
             exclude 'META-INF', 'META-INF/**'
         }
     }
+
+    doFirst {
+        def latest = readBuildNumber()
+        project.ext.currentBuildNumber = latest
+        project.ext.devVersionName = "dev 1.${latest}"
+        manifest.attributes("Implementation-Version": project.ext.devVersionName)
+    }
+}
+
+compileJava.dependsOn generateBuildVersionSource
+
+bumpBuildNumber.doLast {
+    project.ext.devVersionName = "dev 1.${project.ext.currentBuildNumber}"
 }

@@ -52,8 +52,10 @@ import net.minecraft.client.settings.KeyBinding;
 import net.minecraft.client.stream.IStream;
 import net.minecraft.entity.Entity;
 import net.minecraft.util.MovingObjectPosition;
+import net.minecraft.util.MouseHelper;
 import net.minecraft.util.Session;
 import net.minecraft.util.Timer;
+import org.lwjgl.LWJGLException;
 
 @Mixin(Minecraft.class)
 public abstract class MixinMinecraft implements IMixinMinecraft {
@@ -86,6 +88,9 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
     private int leftClickCounter;
     
     @Shadow
+    private int rightClickDelayTimer;
+    
+    @Shadow
     public WorldClient theWorld;
     
     @Shadow
@@ -93,6 +98,12 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
     
     @Shadow
     public GuiScreen currentScreen;
+
+	@Shadow
+	public MouseHelper mouseHelper;
+
+	@Shadow
+	public boolean inGameHasFocus;
     
     @Shadow
     private boolean fullscreen;
@@ -112,6 +123,9 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
 	
 	@Shadow
 	public abstract void updateDisplay();
+
+	@Shadow
+	public abstract void setIngameNotInFocus();
 	
 	@Shadow 
 	public EntityRenderer entityRenderer;
@@ -218,7 +232,42 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
     @Inject(method = "runTick", at = @At("TAIL"))
     private void onTick(final CallbackInfo ci) {
     	new EventTick().call();
+
+		// Keep cursor state sane after focus switching (alt-tab).
+		if(!Display.isActive() && this.inGameHasFocus) {
+			this.setIngameNotInFocus();
+		}
+
+		if(this.currentScreen != null) {
+			if(this.inGameHasFocus) {
+				this.setIngameNotInFocus();
+			}
+			if(Mouse.isGrabbed()) {
+				this.mouseHelper.ungrabMouseCursor();
+				if(Mouse.isGrabbed()) {
+					Mouse.setGrabbed(false);
+				}
+			}
+
+			// Some systems keep an invisible native cursor after focus restore.
+			try {
+				Mouse.setNativeCursor(null);
+			} catch (LWJGLException ignored) {}
+		}
     }
+
+	@Inject(method = "displayGuiScreen", at = @At("TAIL"))
+	private void forceCursorVisibleOnGuiOpen(GuiScreen guiScreenIn, CallbackInfo ci) {
+		if(guiScreenIn != null) {
+			if(Mouse.isGrabbed()) {
+				this.mouseHelper.ungrabMouseCursor();
+				Mouse.setGrabbed(false);
+			}
+			try {
+				Mouse.setNativeCursor(null);
+			} catch (LWJGLException ignored) {}
+		}
+	}
     
     @Inject(method = "sendClickBlockToController", at = @At("HEAD"))
     public void preSendClickBlockToController(boolean leftClick, CallbackInfo ci) {
@@ -253,7 +302,7 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
     
 	@Redirect(method = "createDisplay", at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/Display;setTitle(Ljava/lang/String;)V"))
 	public void overrideTitle(String title) {
-		Display.setTitle("Glide Client v" + Glide.getInstance().getVersion() + " (" + Glide.getInstance().getVersionIdentifier() + ") for " + title);
+		Display.setTitle("FlaxClient " + Glide.getInstance().getVersion() + " for " + title);
 	}
 	
     @Inject(method = "updateFramebufferSize", at = @At("HEAD"))
@@ -429,6 +478,26 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
 	@Override
 	public void callRightClickMouse() {
 		rightClickMouse();
+	}
+
+	@Override
+	public int getLeftClickCounter() {
+		return leftClickCounter;
+	}
+
+	@Override
+	public void setLeftClickCounter(int counter) {
+		this.leftClickCounter = counter;
+	}
+
+	@Override
+	public int getRightClickDelayTimer() {
+		return rightClickDelayTimer;
+	}
+
+	@Override
+	public void setRightClickDelayTimer(int delay) {
+		this.rightClickDelayTimer = delay;
 	}
 	
     @Override

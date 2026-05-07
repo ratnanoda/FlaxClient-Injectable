@@ -1,10 +1,6 @@
 package me.eldodebug.soar.management.remote.update;
 
-import com.google.gson.JsonObject;
 import me.eldodebug.soar.Glide;
-import me.eldodebug.soar.utils.JsonUtils;
-import me.eldodebug.soar.utils.Multithreading;
-import me.eldodebug.soar.utils.network.HttpUtils;
 
 public class Update {
 
@@ -47,29 +43,15 @@ public class Update {
 
 
     public void check(){
-        try{
-            Multithreading.runAsync(this::checkUpdates);
-        } catch (Exception ignored){}
+        Glide g = Glide.getInstance();
+        g.setUpdateNeeded(false);
+        g.setSoar8Released(false);
     }
 
     public void checkForUpdates(){
         Glide g = Glide.getInstance();
-        if (g.getVersionIdentifier() < this.updateBuildID){
-            g.setUpdateNeeded(true);
-        }
-        g.setSoar8Released(getSoar8Released());
-    }
-
-    private void checkUpdates() {
-        JsonObject jsonObject = HttpUtils.readJson("https://glideclient.github.io/data/meta/client.json", null);
-        if (jsonObject != null) {
-            setUpdateLink(JsonUtils.getStringProperty(jsonObject, "updatelink", "https://glideclient.github.io/"));
-            setVersionString(JsonUtils.getStringProperty(jsonObject, "latestversionstring", "something is broken lmao"));
-            setBuildID(JsonUtils.getIntProperty(jsonObject, "latestversion", 0));
-            setDiscontinued(JsonUtils.getBooleanProperty(jsonObject, "discontinued", false));
-            setSoar8Released(JsonUtils.getBooleanProperty(jsonObject, "soar8released", false));
-            checkForUpdates();
-        }
+        g.setUpdateNeeded(false);
+        g.setSoar8Released(false);
     }
 
 }

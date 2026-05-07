@@ -73,9 +73,9 @@ public class Glide {
 	private RestrictedMod restrictedMod;
 	
 	public Glide() {
-		name = "Glide";
-		version = "7.2";
-		verIdentifier = 7201;
+		name = "FlaxClient";
+		version = BuildVersion.DISPLAY_VERSION;
+		verIdentifier = 1000 + BuildVersion.BUILD_NUMBER;
 	}
 	
 	public void start() {

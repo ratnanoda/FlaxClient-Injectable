@@ -8,12 +8,12 @@ import me.eldodebug.soar.gui.mainmenu.MainMenuScene;
 import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.nanovg.NanoVGManager;
 import me.eldodebug.soar.management.nanovg.font.Fonts;
-import me.eldodebug.soar.management.nanovg.font.LegacyIcon;
 import me.eldodebug.soar.utils.mouse.MouseUtils;
 import net.minecraft.client.gui.GuiMultiplayer;
 import net.minecraft.client.gui.GuiOptions;
 import net.minecraft.client.gui.GuiSelectWorld;
 import net.minecraft.client.gui.ScaledResolution;
+import net.minecraft.util.ResourceLocation;
 
 public class MainScene extends MainMenuScene {
 
@@ -43,7 +43,10 @@ public class MainScene extends MainMenuScene {
 		
 		float yPos = sr.getScaledHeight() / 2 - 22;
 		
-		nvg.drawCenteredText(LegacyIcon.SOAR, sr.getScaledWidth() / 2, sr.getScaledHeight() / 2 - (nvg.getTextHeight(LegacyIcon.SOAR, 54, Fonts.LEGACYICON) / 2) - 60, Color.WHITE, 54, Fonts.LEGACYICON);
+		float logoSize = 54;
+		float logoX = (sr.getScaledWidth() - logoSize) / 2F;
+		float logoY = (sr.getScaledHeight() - logoSize) / 2F - 60;
+		nvg.drawImage(new ResourceLocation("soar/logo.png"), logoX, logoY, logoSize, logoSize);
 		
 		nvg.drawRoundedRect(sr.getScaledWidth() / 2 - (180 / 2), yPos, 180, 20, 4.5F, this.getBackgroundColor());
 		nvg.drawCenteredText(TranslateText.SINGLEPLAYER.getText(), sr.getScaledWidth() / 2, yPos + 6.5F, Color.WHITE, 9.5F, Fonts.REGULAR);
