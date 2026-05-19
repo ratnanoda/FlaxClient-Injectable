@@ -27,6 +27,8 @@ public class GlideHandler {
 	private Minecraft mc = Minecraft.getMinecraft();
 	
 	private Glide instance;
+
+	private int fastRenderCheckTicker;
 	
 	private String prevOfflineName;
 	private ResourceLocation offlineSkin;
@@ -37,6 +39,12 @@ public class GlideHandler {
 	
 	@EventTarget
 	public void onTick(EventTick event) {
+		fastRenderCheckTicker++;
+		if(fastRenderCheckTicker < 20) {
+			return;
+		}
+
+		fastRenderCheckTicker = 0;
 		OptifineUtils.disableFastRender();
 	}
 	

@@ -16,6 +16,7 @@ import net.minecraft.client.gui.*;
 import net.minecraft.client.gui.achievement.GuiAchievements;
 import net.minecraft.client.gui.achievement.GuiStats;
 import net.minecraft.client.resources.I18n;
+import net.minecraft.server.integrated.IntegratedServer;
 import net.minecraft.util.ResourceLocation;
 import org.lwjgl.input.Keyboard;
 
@@ -64,7 +65,7 @@ public class GuiGameMenu extends GuiScreen {
         float offset = 29.5F;
         drawButton(nvg, "Minecraft Options", LegacyIcon.SLIDERS, offset, false);
         offset += standardPadding;
-        if(this.mc.isSingleplayer() && !this.mc.getIntegratedServer().getPublic()){
+        if(this.mc.isSingleplayer() && isSinglePlayerPrivateWorld()){
             drawButton(nvg, I18n.format("menu.shareToLan"), LegacyIcon.USERS, offset, false);
         } else {
             drawButton(nvg, TranslateText.EDIT_HUD.getText(), LegacyIcon.LAYOUT, offset, false);
@@ -107,7 +108,7 @@ public class GuiGameMenu extends GuiScreen {
         }
         offset += standardPadding;
         if (MouseUtils.isInside(mouseX, mouseY, x, y + offset, width, 22)){
-            if(this.mc.isSingleplayer() && !this.mc.getIntegratedServer().getPublic()){
+            if(this.mc.isSingleplayer() && isSinglePlayerPrivateWorld()){
                 this.mc.displayGuiScreen(new GuiShareToLan(this));
             } else {
                 mc.displayGuiScreen(new GuiEditHUD(false));
@@ -128,7 +129,9 @@ public class GuiGameMenu extends GuiScreen {
         offset += standardPadding;
         if (MouseUtils.isInside(mouseX, mouseY, x, y + offset, width, 22)) {
             boolean flag = this.mc.isIntegratedServerRunning();
-            this.mc.theWorld.sendQuittingDisconnectingPacket();
+            if(this.mc.theWorld != null) {
+                this.mc.theWorld.sendQuittingDisconnectingPacket();
+            }
             this.mc.loadWorld(null);
 
             if (flag) {
@@ -147,5 +150,10 @@ public class GuiGameMenu extends GuiScreen {
         if(keyCode == Keyboard.KEY_ESCAPE) {
             introAnimation.setDirection(Direction.BACKWARDS);
         }
+    }
+
+    private boolean isSinglePlayerPrivateWorld() {
+        IntegratedServer server = this.mc.getIntegratedServer();
+        return server != null && !server.getPublic();
     }
 }

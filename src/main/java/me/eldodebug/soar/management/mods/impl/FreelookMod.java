@@ -7,6 +7,7 @@ import org.lwjgl.input.Keyboard;
 
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventCameraRotation;
+import me.eldodebug.soar.management.event.impl.EventFovUpdate;
 import me.eldodebug.soar.management.event.impl.EventKey;
 import me.eldodebug.soar.management.event.impl.EventPlayerHeadRotation;
 import me.eldodebug.soar.management.event.impl.EventTick;
@@ -16,6 +17,7 @@ import me.eldodebug.soar.management.mods.ModCategory;
 import me.eldodebug.soar.management.mods.settings.impl.BooleanSetting;
 import me.eldodebug.soar.management.mods.settings.impl.ComboSetting;
 import me.eldodebug.soar.management.mods.settings.impl.KeybindSetting;
+import me.eldodebug.soar.management.mods.settings.impl.NumberSetting;
 import me.eldodebug.soar.management.mods.settings.impl.combo.Option;
 import net.minecraft.entity.Entity;
 import net.minecraft.util.MathHelper;
@@ -30,14 +32,17 @@ public class FreelookMod extends Mod {
 	
 	private BooleanSetting invertYawSetting = new BooleanSetting(TranslateText.INVERT_YAW, this, false);
 	private BooleanSetting invertPitchSetting = new BooleanSetting(TranslateText.INVERT_PITCH, this, false);
+	private BooleanSetting lockPitchSetting = new BooleanSetting(TranslateText.LOCK_CAMERA, this, true);
+	private BooleanSetting customFovSetting = new BooleanSetting(TranslateText.CUSTOM, this, false);
+	private NumberSetting fovSetting = new NumberSetting(TranslateText.FOV, this, 90, 10, 150, true);
 	private ComboSetting modeSetting = new ComboSetting(TranslateText.MODE, this, TranslateText.KEYDOWN, new ArrayList<Option>(Arrays.asList(
 			new Option(TranslateText.TOGGLE), new Option(TranslateText.KEYDOWN))));
 	private KeybindSetting keybindSetting = new KeybindSetting(TranslateText.KEYBIND, this, Keyboard.KEY_V);
-	
+
 	public FreelookMod() {
-		super(TranslateText.FREELOOK, TranslateText.FREELOOK_DESCRIPTION, ModCategory.PLAYER,"perspectivemod", true);
+		super(TranslateText.FREELOOK, TranslateText.FREELOOK_DESCRIPTION, ModCategory.GHOST);
 	}
-	
+
 	@EventTarget
 	public void onTick(EventTick event) {
 		
@@ -99,15 +104,34 @@ public class FreelookMod extends Mod {
 			}
 			
 			if(invertYawSetting.isToggled()) {
-				 yaw = -yaw;
+				yaw = -yaw;
 			}
 			
 			this.yaw += yaw * 0.15F;
-			this.pitch = MathHelper.clamp_float(this.pitch + (pitch * 0.15F), -90, 90);
+			if(lockPitchSetting.isToggled()) {
+				this.pitch = MathHelper.clamp_float(this.pitch + (pitch * 0.15F), -90, 90);
+			} else {
+				this.pitch += pitch * 0.15F;
+			}
 			mc.renderGlobal.setDisplayListEntitiesDirty();
 		}
 	}
-	
+
+	@EventTarget
+	public void onFovUpdate(EventFovUpdate event) {
+		if(active && customFovSetting.isToggled()) {
+			event.setFov((float) fovSetting.getValue());
+		}
+	}
+
+	@Override
+	public void onDisable() {
+		stop();
+		super.onDisable();
+	}
+
+	// GUI visibility handled by the settings UI; no override available.
+
 	private void start() {
 		if(!active) {
 			active = true;
@@ -118,7 +142,7 @@ public class FreelookMod extends Mod {
 			pitch = renderView.rotationPitch;
 		}
 	}
-	
+
 	private void stop() {
 		if(active) {
 			active = false;
@@ -127,3 +151,4 @@ public class FreelookMod extends Mod {
 		}
 	}
 }
+

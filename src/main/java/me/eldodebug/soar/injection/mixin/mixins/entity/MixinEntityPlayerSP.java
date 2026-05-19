@@ -13,9 +13,12 @@ import net.minecraft.client.entity.EntityPlayerSP;
 @Mixin(EntityPlayerSP.class)
 public class MixinEntityPlayerSP {
 
+	private final EventUpdate glide$eventUpdate = new EventUpdate();
+	private final EventMotionUpdate glide$eventMotionUpdate = new EventMotionUpdate();
+
 	@Inject(method = "onUpdate", at = @At("HEAD"))
 	public void preOnUpdate(CallbackInfo ci) {
-		new EventUpdate().call();
+		glide$eventUpdate.call();
 	}
 	
 	@Inject(method = "sendChatMessage", at = @At("HEAD"), cancellable = true)
@@ -31,6 +34,6 @@ public class MixinEntityPlayerSP {
 	
 	@Inject(method = "onUpdateWalkingPlayer", at = @At("HEAD"))
 	private void preOnUpdateWalkingPlayer(CallbackInfo ci) {
-		new EventMotionUpdate().call();
+		glide$eventMotionUpdate.call();
 	}
 }

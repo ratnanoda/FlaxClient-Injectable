@@ -10,6 +10,7 @@ public class OptifineUtils {
 
     private static Field gameSettings_ofFastRender;
     private static Minecraft mc = Minecraft.getMinecraft();
+    private static long nextApplyMillis;
     
     static {
         try {
@@ -22,14 +23,25 @@ public class OptifineUtils {
     }
     
     public static void disableFastRender() {
+		long now = System.currentTimeMillis();
+		if(now < nextApplyMillis) {
+			return;
+		}
+		nextApplyMillis = now + 1000L;
     	
 		if(GlideTweaker.hasOptifine) {
 			try {
-				OptifineUtils.gameSettings_ofFastRender.set(mc.gameSettings, false);
+				if(OptifineUtils.gameSettings_ofFastRender != null && OptifineUtils.gameSettings_ofFastRender.getBoolean(mc.gameSettings)) {
+					OptifineUtils.gameSettings_ofFastRender.setBoolean(mc.gameSettings, false);
+				}
 			} catch (IllegalArgumentException | IllegalAccessException e) {}
 		}
 		
-		mc.gameSettings.useVbo = true;
-		mc.gameSettings.fboEnable = true;
+		if(!mc.gameSettings.useVbo) {
+			mc.gameSettings.useVbo = true;
+		}
+		if(!mc.gameSettings.fboEnable) {
+			mc.gameSettings.fboEnable = true;
+		}
     }
 }

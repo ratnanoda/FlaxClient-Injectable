@@ -19,6 +19,7 @@ public class FPSBoostMod extends Mod {
 	private BooleanSetting chunkDelaySetting = new BooleanSetting(TranslateText.CHUNK_DELAY, this, false);
 	private NumberSetting delaySetting = new NumberSetting(TranslateText.DELAY, this, 5, 1, 12, true);
 	private BooleanSetting removeBotSetting = new BooleanSetting(TranslateText.REMOVE_BOT, this, false);
+	private int removeBotTickCounter;
 	
 	public FPSBoostMod() {
 		super(TranslateText.FPS_BOOST, TranslateText.FPS_BOOST_DESCRIPTION, ModCategory.OTHER);
@@ -30,11 +31,19 @@ public class FPSBoostMod extends Mod {
 	public void onUpdate(EventUpdate event) {
 		
 		if(removeBotSetting.isToggled()) {
+			removeBotTickCounter++;
+			if(removeBotTickCounter < 10) {
+				return;
+			}
+			removeBotTickCounter = 0;
+
 			for(Entity entity : mc.theWorld.loadedEntityList) {
 				if(entity.isInvisible() && !ServerUtils.isInTablist(entity)) {
 					mc.theWorld.removeEntity(entity);
 				}
 			}
+		} else {
+			removeBotTickCounter = 0;
 		}
 	}
     

@@ -4,6 +4,7 @@ import eu.shoroa.contrib.render.ShBlur;
 import me.eldodebug.soar.utils.MacOSUtils;
 import net.minecraft.util.Util;
 import org.apache.commons.lang3.SystemUtils;
+import org.lwjgl.LWJGLException;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.Display;
@@ -11,6 +12,7 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.gen.Accessor;
 import org.spongepowered.asm.mixin.gen.Invoker;
 import org.spongepowered.asm.mixin.injection.At;
@@ -55,7 +57,6 @@ import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.util.MouseHelper;
 import net.minecraft.util.Session;
 import net.minecraft.util.Timer;
-import org.lwjgl.LWJGLException;
 
 @Mixin(Minecraft.class)
 public abstract class MixinMinecraft implements IMixinMinecraft {
@@ -104,6 +105,30 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
 
 	@Shadow
 	public boolean inGameHasFocus;
+
+	@Unique
+	private boolean glide$cursorForcedVisible;
+
+	@Unique
+	private long glide$focusCooldownUntil;
+
+	@Unique
+	private static volatile boolean glide$cursorShutdownHookRegistered;
+
+	@Unique
+	private final EventTick glide$eventTick = new EventTick();
+
+	@Unique
+	private final EventPreRenderTick glide$eventPreRenderTick = new EventPreRenderTick();
+
+	@Unique
+	private final EventRenderTick glide$eventRenderTick = new EventRenderTick();
+
+	@Unique
+	private final EventUpdateDisplay glide$eventUpdateDisplay = new EventUpdateDisplay();
+
+	@Unique
+	private final EventUpdateFramebufferSize glide$eventUpdateFramebufferSize = new EventUpdateFramebufferSize();
     
     @Shadow
     private boolean fullscreen;
@@ -148,20 +173,19 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
     
 	@Redirect(method = "runTick", at = @At(value = "INVOKE", target = "Lorg/lwjgl/input/Mouse;next()Z"))
 	public boolean nextMouse() {
-		
-		boolean next = Mouse.next();
+		while(true) {
+			boolean next = Mouse.next();
+			if(!next) {
+				return false;
+			}
 
-		if(next) {
-			
 			EventClickMouse event = new EventClickMouse(Mouse.getEventButton());
 			event.call();
-			
-			if(event.isCancelled()) {
-				next = nextMouse();
+
+			if(!event.isCancelled()) {
+				return true;
 			}
 		}
-
-		return next;
 	}
 	
     @Inject(method = "run", at = @At("HEAD"))
@@ -174,10 +198,13 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
         if (displayHeight < 630) {
         	displayHeight = 630;
         }
+
+		registerCursorRecoveryHook();
     }
     
     @Inject(method = "shutdownMinecraftApplet", at = @At("HEAD"))
     public void preShutdown(CallbackInfo ci) {
+		restoreSystemCursorSafely();
     	Glide.getInstance().stop();
     }
 
@@ -187,6 +214,7 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
 	 */
 	@Redirect(method = "shutdownMinecraftApplet", at = @At(value = "INVOKE", target = "Ljava/lang/System;exit(I)V", remap = false))
 	private void ignoreGcCall(int i) {
+		restoreSystemCursorSafely();
 		try{Thread.sleep(2530);} catch (Exception ignored) {}
 		System.exit(i);
 	}
@@ -229,44 +257,117 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
 		}
 	}
 	
-    @Inject(method = "runTick", at = @At("TAIL"))
-    private void onTick(final CallbackInfo ci) {
-    	new EventTick().call();
+	    @Inject(method = "runTick", at = @At("TAIL"))
+	    private void onTick(final CallbackInfo ci) {
+			// Keep cursor state sane after focus switching (alt-tab) and GUI transitions.
+			boolean windowActive = Display.isActive();
+			boolean hasGui = this.currentScreen != null;
+			long now = System.currentTimeMillis();
 
-		// Keep cursor state sane after focus switching (alt-tab).
-		if(!Display.isActive() && this.inGameHasFocus) {
-			this.setIngameNotInFocus();
-		}
-
-		if(this.currentScreen != null) {
-			if(this.inGameHasFocus) {
-				this.setIngameNotInFocus();
+			if(windowActive) {
+				this.glide$eventTick.call();
 			}
-			if(Mouse.isGrabbed()) {
-				this.mouseHelper.ungrabMouseCursor();
-				if(Mouse.isGrabbed()) {
-					Mouse.setGrabbed(false);
+
+			if(!windowActive || hasGui) {
+				if(!windowActive) {
+					this.glide$focusCooldownUntil = now + 170L;
 				}
+
+				if(this.inGameHasFocus) {
+					this.setIngameNotInFocus();
+				}
+
+				// Force cursor visibility only once per unfocused/gui state to avoid
+				// repeatedly poking LWJGL state (can hitch/freeze on some systems).
+				if(!this.glide$cursorForcedVisible) {
+					forceVisibleCursor();
+					this.glide$cursorForcedVisible = true;
+				}
+				return;
 			}
 
-			// Some systems keep an invisible native cursor after focus restore.
-			try {
-				Mouse.setNativeCursor(null);
-			} catch (LWJGLException ignored) {}
-		}
-    }
+			this.glide$cursorForcedVisible = false;
+
+			// In gameplay, ensure cursor is grabbed again if something released it unexpectedly.
+			if(now < this.glide$focusCooldownUntil) {
+				return;
+			}
+
+			if(this.inGameHasFocus && !Mouse.isGrabbed()) {
+				this.mouseHelper.grabMouseCursor();
+			}
+	    }
 
 	@Inject(method = "displayGuiScreen", at = @At("TAIL"))
 	private void forceCursorVisibleOnGuiOpen(GuiScreen guiScreenIn, CallbackInfo ci) {
 		if(guiScreenIn != null) {
+			if(!this.glide$cursorForcedVisible) {
+				forceVisibleCursor();
+				this.glide$cursorForcedVisible = true;
+			}
+		} else {
+			this.glide$cursorForcedVisible = false;
+		}
+	}
+
+	private void forceVisibleCursor() {
+		this.inGameHasFocus = false;
+		try {
 			if(Mouse.isGrabbed()) {
 				this.mouseHelper.ungrabMouseCursor();
+			}
+			if(Mouse.isGrabbed()) {
 				Mouse.setGrabbed(false);
 			}
-			try {
+			if(Display.isCreated()) {
 				Mouse.setNativeCursor(null);
-			} catch (LWJGLException ignored) {}
+			}
 		}
+		catch(LWJGLException ignored) {
+			if(Mouse.isGrabbed()) {
+				Mouse.setGrabbed(false);
+			}
+		}
+	}
+
+	@Unique
+	private static void registerCursorRecoveryHook() {
+		if(glide$cursorShutdownHookRegistered) {
+			return;
+		}
+
+		synchronized(MixinMinecraft.class) {
+			if(glide$cursorShutdownHookRegistered) {
+				return;
+			}
+
+			glide$cursorShutdownHookRegistered = true;
+			Thread shutdownHook = new Thread(MixinMinecraft::restoreSystemCursorSafely, "FlaxClient-CursorRestore");
+			shutdownHook.setDaemon(true);
+			try {
+				Runtime.getRuntime().addShutdownHook(shutdownHook);
+			}
+			catch(IllegalStateException ignored) {
+				// JVM is already shutting down.
+			}
+		}
+	}
+
+	@Unique
+	private static void restoreSystemCursorSafely() {
+		try {
+			if(Mouse.isGrabbed()) {
+				Mouse.setGrabbed(false);
+			}
+		}
+		catch(Throwable ignored) {}
+
+		try {
+			if(Display.isCreated()) {
+				Mouse.setNativeCursor(null);
+			}
+		}
+		catch(Throwable ignored) {}
 	}
     
     @Inject(method = "sendClickBlockToController", at = @At("HEAD"))
@@ -296,7 +397,7 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
     @Inject(method = "updateDisplay", at = @At("HEAD"))
     public void onUpdateDisplay(CallbackInfo ci) {
     	if(Glide.getInstance().getEventManager() != null) {
-    		new EventUpdateDisplay().call();
+    		this.glide$eventUpdateDisplay.call();
     	}
     }
     
@@ -308,7 +409,7 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
     @Inject(method = "updateFramebufferSize", at = @At("HEAD"))
     private void onUpdateFramebufferSize(CallbackInfo ci) {
     	if(Glide.getInstance().getEventManager() != null) {
-        	new EventUpdateFramebufferSize().call();
+        	this.glide$eventUpdateFramebufferSize.call();
     	}
     }
     
@@ -331,12 +432,12 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
 	
 	@Inject(method = "runGameLoop", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/achievement/GuiAchievement;updateAchievementWindow()V", shift = At.Shift.BEFORE))
 	public void preRenderTick(CallbackInfo ci) {
-		new EventPreRenderTick().call();
+		this.glide$eventPreRenderTick.call();
 	}
 	
 	@Inject(method = "runGameLoop", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/achievement/GuiAchievement;updateAchievementWindow()V", shift = At.Shift.AFTER))
 	public void postRenderTick(CallbackInfo ci) {
-		new EventRenderTick().call();
+		this.glide$eventRenderTick.call();
 	}
 	
 	@Overwrite

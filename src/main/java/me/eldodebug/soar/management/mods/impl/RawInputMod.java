@@ -1,6 +1,7 @@
 package me.eldodebug.soar.management.mods.impl;
 
 import java.util.ArrayList;
+import java.util.concurrent.locks.LockSupport;
 
 import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.mods.Mod;
@@ -62,6 +63,9 @@ public class RawInputMod extends Mod {
 	public void onDisable() {
 		super.onDisable();
 		running = false;
+		if(thread != null) {
+			thread.interrupt();
+		}
 	}
 	
 	public static RawInputMod getInstance() {
@@ -89,6 +93,7 @@ public class RawInputMod extends Mod {
 		@Override
 		public void run() {
 			while(running) {
+				boolean processedInput = false;
 				
 				available = !mouseList.isEmpty();
 				
@@ -104,7 +109,13 @@ public class RawInputMod extends Mod {
 					if (org.lwjgl.input.Mouse.isGrabbed()) {
 						RawInputMod.this.dx += dx;
 						RawInputMod.this.dy += dy;
+						processedInput = processedInput || dx != 0.0F || dy != 0.0F;
 					}
+				}
+
+				// Prevent a busy-spin loop from eating a full CPU core when no input arrives.
+				if(!processedInput) {
+					LockSupport.parkNanos(1_000_000L);
 				}
 			}
 		}

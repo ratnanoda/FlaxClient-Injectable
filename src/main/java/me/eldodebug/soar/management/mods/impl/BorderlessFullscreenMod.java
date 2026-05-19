@@ -25,14 +25,14 @@ public class BorderlessFullscreenMod extends Mod {
 
 	@EventTarget
 	public void onRenderTick(EventPreRenderTick event) {
-		if(fullscreenTime != -1 && System.currentTimeMillis() - fullscreenTime >= 100) {
-			fullscreenTime = -1;
-			
-			if(mc.inGameHasFocus) {
-				mc.mouseHelper.grabMouseCursor();
+			if(fullscreenTime != -1 && System.currentTimeMillis() - fullscreenTime >= 100) {
+				fullscreenTime = -1;
+				
+				if(mc.inGameHasFocus && mc.currentScreen == null) {
+					mc.mouseHelper.grabMouseCursor();
+				}
 			}
 		}
-	}
 	
 	@EventTarget
 	public void onFullscreenToggle(EventToggleFullscreen event) {

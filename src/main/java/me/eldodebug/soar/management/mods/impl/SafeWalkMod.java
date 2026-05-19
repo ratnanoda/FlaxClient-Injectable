@@ -18,7 +18,7 @@ import org.lwjgl.input.Mouse;
 public class SafeWalkMod extends Mod {
 
 	private final BooleanSetting blocksOnlySetting = new BooleanSetting(TranslateText.BLOCK, this, true);
-	private final NumberSetting sneakDelaySetting = new NumberSetting(TranslateText.DELAY, this, 2, 0, 10, true);
+	private final NumberSetting sneakDelaySetting = new NumberSetting(TranslateText.DELAY, this, 1, 0, 10, true);
 	private final NumberSetting edgeMotionSetting = new NumberSetting(TranslateText.MOVEMENT, this, 1.0D, 0.5D, 1.0D, false);
 
 	private boolean forcedSneak;
@@ -37,13 +37,7 @@ public class SafeWalkMod extends Mod {
 
 	@EventTarget
 	public void onUpdate(EventUpdate event) {
-		if(!canRun()) {
-			releaseForcedSneak();
-			unsneakDelayTicks = 0;
-			return;
-		}
-
-		if(!settingsMet()) {
+		if(!canRun() || !settingsMet()) {
 			releaseForcedSneak();
 			unsneakDelayTicks = 0;
 			return;
@@ -51,18 +45,12 @@ public class SafeWalkMod extends Mod {
 
 		boolean edge = isEdgeOfBlock();
 		if(edge) {
-			forceSneakIfNeeded();
+			forceSneak();
 			unsneakDelayTicks = sneakDelaySetting.getValueInt();
 			applyEdgeMotionLimit();
-			return;
-		}
-
-		if(unsneakDelayTicks > 0) {
+		} else if(unsneakDelayTicks > 0) {
 			unsneakDelayTicks--;
-			return;
-		}
-
-		if(forcedSneak) {
+		} else {
 			releaseForcedSneak();
 		}
 	}
@@ -83,54 +71,56 @@ public class SafeWalkMod extends Mod {
 			return false;
 		}
 
-		if(mc.thePlayer.isInWater() || mc.thePlayer.isInLava() || mc.thePlayer.isOnLadder()) {
-			return false;
-		}
-
-		return true;
+		return !mc.thePlayer.isInWater() && !mc.thePlayer.isInLava() && !mc.thePlayer.isOnLadder();
 	}
 
 	private boolean settingsMet() {
-		if(blocksOnlySetting.isToggled()) {
-			ItemStack heldItem = mc.thePlayer.getHeldItem();
-			if(heldItem == null || !(heldItem.getItem() instanceof ItemBlock)) {
-				return false;
-			}
+		if(!blocksOnlySetting.isToggled()) {
+			return true;
 		}
 
-		return true;
+		ItemStack heldItem = mc.thePlayer.getHeldItem();
+		return heldItem != null && heldItem.getItem() instanceof ItemBlock;
 	}
 
 	private boolean isEdgeOfBlock() {
-		if(!mc.thePlayer.onGround) {
-			return false;
-		}
-
 		AxisAlignedBB bb = mc.thePlayer.getEntityBoundingBox();
-		if(bb == null) {
+		double y = bb.minY - 0.5D;
+
+		double moveX = mc.thePlayer.motionX;
+		double moveZ = mc.thePlayer.motionZ;
+
+		if(Math.abs(moveX) < 0.001D && Math.abs(moveZ) < 0.001D) {
 			return false;
 		}
 
-		double y = bb.minY - 0.05D;
-		double inset = 0.001D;
+		double threshold = 0.125D;
 
-		boolean supportMinMin = hasSupport(bb.minX + inset, y, bb.minZ + inset);
-		boolean supportMinMax = hasSupport(bb.minX + inset, y, bb.maxZ - inset);
-		boolean supportMaxMin = hasSupport(bb.maxX - inset, y, bb.minZ + inset);
-		boolean supportMaxMax = hasSupport(bb.maxX - inset, y, bb.maxZ - inset);
+		if(moveX > 0.001D) {
+			if(!hasSupport(bb.maxX + threshold, y, bb.minZ + 0.01D) || !hasSupport(bb.maxX + threshold, y, bb.maxZ - 0.01D)) {
+				return true;
+			}
+		} else if(moveX < -0.001D) {
+			if(!hasSupport(bb.minX - threshold, y, bb.minZ + 0.01D) || !hasSupport(bb.minX - threshold, y, bb.maxZ - 0.01D)) {
+				return true;
+			}
+		}
 
-		int supportCount = 0;
-		if(supportMinMin) supportCount++;
-		if(supportMinMax) supportCount++;
-		if(supportMaxMin) supportCount++;
-		if(supportMaxMax) supportCount++;
+		if(moveZ > 0.001D) {
+			if(!hasSupport(bb.minX + 0.01D, y, bb.maxZ + threshold) || !hasSupport(bb.maxX - 0.01D, y, bb.maxZ + threshold)) {
+				return true;
+			}
+		} else if(moveZ < -0.001D) {
+			if(!hasSupport(bb.minX + 0.01D, y, bb.minZ - threshold) || !hasSupport(bb.maxX - 0.01D, y, bb.minZ - threshold)) {
+				return true;
+			}
+		}
 
-		return supportCount > 0 && supportCount < 4;
+		return false;
 	}
 
 	private boolean hasSupport(double x, double y, double z) {
-		BlockPos below = new BlockPos(x, y, z);
-		return !mc.theWorld.isAirBlock(below);
+		return !mc.theWorld.isAirBlock(new BlockPos(x, y, z));
 	}
 
 	private void applyEdgeMotionLimit() {
@@ -139,30 +129,19 @@ public class SafeWalkMod extends Mod {
 			return;
 		}
 
-		if(!isMoving()) {
-			return;
-		}
-
 		mc.thePlayer.motionX *= edgeMotion;
 		mc.thePlayer.motionZ *= edgeMotion;
 	}
 
-	private boolean isMoving() {
-		if(mc.thePlayer.movementInput == null) {
-			return false;
+	private void forceSneak() {
+		if(isPhysicalSneakPressed()) {
+			forcedSneak = false;
+			return;
 		}
 
-		return Math.abs(mc.thePlayer.movementInput.moveForward) > 0.01F || Math.abs(mc.thePlayer.movementInput.moveStrafe) > 0.01F;
-	}
-
-	private void forceSneakIfNeeded() {
-		if(!isPhysicalSneakPressed()) {
-			if(!forcedSneak) {
-				setSneak(true);
-				forcedSneak = true;
-			}
-		} else {
-			forcedSneak = false;
+		if(!forcedSneak) {
+			setSneak(true);
+			forcedSneak = true;
 		}
 	}
 
@@ -176,17 +155,16 @@ public class SafeWalkMod extends Mod {
 
 	private void setSneak(boolean state) {
 		KeyBinding.setKeyBindState(mc.gameSettings.keyBindSneak.getKeyCode(), state);
-		if(state) {
-			KeyBinding.onTick(mc.gameSettings.keyBindSneak.getKeyCode());
-		}
 	}
 
 	private void releaseForcedSneak() {
-		if(forcedSneak) {
-			if(!isPhysicalSneakPressed()) {
-				setSneak(false);
-			}
-			forcedSneak = false;
+		if(!forcedSneak) {
+			return;
 		}
+
+		if(!isPhysicalSneakPressed()) {
+			setSneak(false);
+		}
+		forcedSneak = false;
 	}
 }

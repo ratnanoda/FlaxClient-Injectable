@@ -30,6 +30,19 @@ windows (working well) <br>
 linux (working but some issues noticed that can be fixed by using the fps limit mod) <br>
 mac os (working with some limitations)
 
+## Launch with FlaxClientLauncher
+1. Run `FlaxClientLauncher.bat` in the repository root.
+2. Select **1.8.9** or **1.21.11** from the version dropdown.
+3. Click `Launch` (or `Launch Offline`) to start FlaxClient.
+
+## Build 1.21.11 Fabric mod
+Requires Java 21+:
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Java\jdk-21.0.11"
+cd FlaxClient-1.21.11
+.\gradlew.bat build
+```
+
 
 
 

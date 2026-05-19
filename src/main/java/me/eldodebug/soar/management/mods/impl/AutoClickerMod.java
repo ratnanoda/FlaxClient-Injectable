@@ -68,7 +68,7 @@ public class AutoClickerMod extends Mod {
 	}
 
 	private boolean canAutoClick() {
-		return mc.thePlayer != null && mc.theWorld != null && mc.inGameHasFocus && mc.currentScreen == null && Mouse.isButtonDown(0);
+		return mc.thePlayer != null && mc.theWorld != null && mc.inGameHasFocus && mc.currentScreen == null && Mouse.isButtonDown(0) && !mc.thePlayer.isUsingItem();
 	}
 
 	private long getNextDelay() {

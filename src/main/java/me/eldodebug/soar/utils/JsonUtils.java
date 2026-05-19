@@ -87,6 +87,8 @@ public class JsonUtils {
 		
 		if(key == null) {
 			throw new IllegalArgumentException("Property key cannot be null");
+		}else if(jsonObject == null) {
+			return null;
 		}else if(key.isEmpty()) {
 			return jsonObject;
 		}
@@ -95,6 +97,9 @@ public class JsonUtils {
         JsonObject parent = jsonObject;
         
         for (int i = 0; i < tokens.length; i++) {
+        	if(parent == null) {
+        		return null;
+        	}
 
             JsonElement child = parent.get(tokens[i].replace("\\.", ","));
             

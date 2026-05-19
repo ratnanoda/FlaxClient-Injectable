@@ -62,13 +62,14 @@ public class ModManager {
 		mods.add(new FPSDisplayMod());
 		mods.add(new FPSLimiterMod());
 		mods.add(new FPSSpooferMod());
-		mods.add(new FreelookMod());
+		mods.add(new GhostFreelookMod());
 		mods.add(new FullbrightMod());
-		mods.add(new GlintColorMod());
-			mods.add(new InternalSettingsMod());
-			mods.add(new GodbridgeAssistMod());
-			mods.add(new GhostNametagsMod());
-			mods.add(new HealthbarMod());
+			mods.add(new GlintColorMod());
+				mods.add(new InternalSettingsMod());
+				mods.add(new GodbridgeAssistMod());
+				mods.add(new SafeWalkMod());
+				mods.add(new GhostNametagsMod());
+				mods.add(new HealthbarMod());
 			mods.add(new HealthDisplayMod());
 		mods.add(new HitBoxMod());
 		mods.add(new HitColorMod());
@@ -118,7 +119,6 @@ public class ModManager {
 		mods.add(new ReachDisplayMod());
 		mods.add(new RearviewMod());
 		mods.add(new ScoreboardMod());
-		mods.add(new SafeWalkMod());
 		mods.add(new ServerIPDisplayMod());
 		mods.add(new SessionInfoMod());
 		mods.add(new ShinyPotsMod());
