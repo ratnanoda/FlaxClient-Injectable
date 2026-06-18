@@ -31,15 +31,15 @@ linux (working but some issues noticed that can be fixed by using the fps limit 
 mac os (working with some limitations)
 
 ## Launch with FlaxClientLauncher
-1. Run `FlaxClientLauncher.bat` in the repository root.
-2. The launcher is now fixed to **Minecraft 1.8.9**.
-3. Click `Launch FlaxClient` to start with your Microsoft account or offline profile.
+1. On Windows, run `FlaxClientLauncher.bat` in the repository root.
+2. On Linux, run `FlaxClientLauncher.sh` in the repository root after building the Rust launcher.
+3. The launcher is now fixed to **Minecraft 1.8.9**.
+4. Click `Launch FlaxClient` to start with your Microsoft account or offline profile.
 
-## Single-exe distribution
+## Single-binary distribution
 - The launcher can now embed `FlaxClient-Release.jar` at build time.
-- Build the client first with `.\gradlew.bat build`, then build the launcher in `FlaxClientLauncher`.
-- The resulting launcher exe can bootstrap FlaxClient by itself on another Windows machine.
-
+- Build the client first with `./gradlew build` on Linux/macOS or `.\gradlew.bat build` on Windows, then build the launcher in `FlaxClientLauncher`.
+- The resulting launcher binary can bootstrap FlaxClient by itself on another machine of the same OS/architecture.
 
 
 

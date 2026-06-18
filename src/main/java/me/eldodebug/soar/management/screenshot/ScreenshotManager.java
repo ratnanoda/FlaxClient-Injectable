@@ -122,7 +122,6 @@ public class ScreenshotManager {
 				if(FileUtils.getExtension(f).equals("png")) {
 					if(!removeScreenshots.contains(f) && getScreenshotByFile(f) == null) {
 						screenshots.add(new Screenshot(f));
-						Glide.getInstance().getNanoVGManager().loadImage(f);
 					}
 				}
 			}

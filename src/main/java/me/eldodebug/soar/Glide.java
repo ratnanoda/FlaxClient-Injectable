@@ -100,22 +100,17 @@ public class Glide {
 		colorManager = new ColorManager();
 		profileManager = new ProfileManager();
 
-		modMenu = new GuiModMenu();
-		mainMenu = new GuiGlideMainMenu();
 		launchTime = System.currentTimeMillis();
 
 		commandManager = new CommandManager();
-		screenshotManager = new ScreenshotManager();
 		notificationManager = new NotificationManager();
 		securityFeatureManager = new SecurityFeatureManager();
-		quickPlayManager = new QuickPlayManager();
 		changelogManager = new ChangelogManager();
 		newsManager = new NewsManager();
 		discordStats = new DiscordStats();
 		discordStats.check();
 		update = new Update();
 		update.check();
-		waypointManager = new WaypointManager();
 
 		eventManager.register(new GlideHandler());
 
@@ -196,6 +191,9 @@ public class Glide {
 	}
 
 	public ScreenshotManager getScreenshotManager() {
+		if(screenshotManager == null) {
+			screenshotManager = new ScreenshotManager();
+		}
 		return screenshotManager;
 	}
 
@@ -212,6 +210,9 @@ public class Glide {
 	}
 
 	public QuickPlayManager getQuickPlayManager() {
+		if(quickPlayManager == null) {
+			quickPlayManager = new QuickPlayManager();
+		}
 		return quickPlayManager;
 	}
 
@@ -225,14 +226,23 @@ public class Glide {
 	}
 
 	public WaypointManager getWaypointManager() {
+		if(waypointManager == null) {
+			waypointManager = new WaypointManager();
+		}
 		return waypointManager;
 	}
 
 	public GuiModMenu getModMenu() {
+		if(modMenu == null) {
+			modMenu = new GuiModMenu();
+		}
 		return modMenu;
 	}
 
 	public GuiGlideMainMenu getMainMenu() {
+		if(mainMenu == null) {
+			mainMenu = new GuiGlideMainMenu();
+		}
 		return mainMenu;
 	}
 

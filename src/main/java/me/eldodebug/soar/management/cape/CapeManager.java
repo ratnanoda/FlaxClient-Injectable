@@ -131,29 +131,6 @@ public class CapeManager {
 			}
 		}
 		
-		for(Cape c : capes) {
-			
-			if(c instanceof NormalCape) {
-				
-				NormalCape cape = (NormalCape) c;
-				
-				if(cape.getSample() != null) {
-					instance.getNanoVGManager().loadImage(cape.getSample());
-				}
-			}
-			
-			if(c instanceof CustomCape) {
-				
-				CustomCape cape = (CustomCape) c;
-				
-				if(cape.getSample() != null) {
-					instance.getNanoVGManager().loadImage(cape.getSample());
-				}
-			}
-			if(c.getCape() != null) {
-				mc.getTextureManager().bindTexture(c.getCape());
-			}
-		}
 	}
 	
 	private void add(String name, String samplePath, String capePath, CapeCategory category) {

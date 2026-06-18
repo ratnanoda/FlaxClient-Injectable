@@ -1,12 +1,9 @@
 package me.eldodebug.soar.injection.mixin.mixins.gui;
 
 import java.io.IOException;
-import java.awt.Color;
-
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.management.mods.impl.InternalSettingsMod;
 import me.eldodebug.soar.utils.Sound;
-import me.eldodebug.soar.utils.render.RenderUtils;
 import org.lwjgl.LWJGLException;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
@@ -39,8 +36,6 @@ public abstract class MixinGuiScreen {
 		if(InternalSettingsMod.getInstance().getClickEffectsSetting().isToggled()) {
 			Glide.getInstance().getClickEffects().drawClickEffects();
 		}
-
-		drawFullscreenCursorFallback(mouseX, mouseY);
 	}
 	
 	@Inject(method = "mouseClicked", at = @At("HEAD"))
@@ -86,21 +81,4 @@ public abstract class MixinGuiScreen {
 		}
 	}
 
-	private void drawFullscreenCursorFallback(int mouseX, int mouseY) {
-		if(mc == null || mc.currentScreen == null || !mc.isFullScreen()) {
-			return;
-		}
-
-		final int x = mouseX;
-		final int y = mouseY;
-
-		// Software cursor fallback for drivers/OS setups where native cursor can disappear
-		// in exclusive fullscreen (LWJGL2 limitation).
-		RenderUtils.drawRect(x, y, 1, 1, new Color(255, 255, 255, 255));
-		RenderUtils.drawRect(x + 1, y + 1, 1, 1, new Color(255, 255, 255, 255));
-		RenderUtils.drawRect(x + 2, y + 2, 1, 1, new Color(255, 255, 255, 255));
-		RenderUtils.drawRect(x + 1, y, 1, 1, new Color(0, 0, 0, 220));
-		RenderUtils.drawRect(x + 2, y + 1, 1, 1, new Color(0, 0, 0, 220));
-		RenderUtils.drawRect(x + 3, y + 2, 1, 1, new Color(0, 0, 0, 220));
-	}
 }
