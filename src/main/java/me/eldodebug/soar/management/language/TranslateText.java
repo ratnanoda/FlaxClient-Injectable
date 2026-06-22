@@ -2,6 +2,14 @@ package me.eldodebug.soar.management.language;
 
 public enum TranslateText {
 
+	BED_ESP("text.bedesp.name"), BED_ESP_DESCRIPTION("text.bedesp.description"),
+	SHOW_BED_COLOR("text.showbedcolor"), BOX("text.box"),
+	FAST_CLOSE_ESC("text.fastcloseesc"), FAST_CLOSE_ESC_DESCRIPTION("text.fastcloseesc.description"),
+	BREAK_PROGRESS("text.breakprogress.name"), BREAK_PROGRESS_DESCRIPTION("text.breakprogress.description"), OFFSET("text.offset"),
+	BAR("text.bar"), CIRCLE("text.circle"), CHECK_DEF_BLOCK("text.checkdefblock"),
+	CLASSIC("text.classic"), MINIMAL("text.minimal"), OUTLINED("text.outlined"),
+	BACKGROUND_OPACITY("text.backgroundopacity"), TEXT_SHADOW("text.textshadow"), NAME_COLOR("text.namecolor"),
+	CUSTOM_NAME_COLOR("text.customnamecolor"), AUTO("text.auto"), ON_HIT("text.onhit"), RESET_MODE("text.resetmode"),
 	FPS_DISPLAY("text.fpsdisplay.name"), FPS_DISPLAY_DESCRIPTION("text.fpsdisplay.description"),
 	CLOCK("text.clock.name"), CLOCK_DESCRIPTION("text.clock.description"),
 	POTION_COUNTER("text.potioncounter.name"), POTION_COUNTER_DESCRIPTION("text.potioncounter.description"),

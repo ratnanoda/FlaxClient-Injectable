@@ -129,6 +129,71 @@ public class RenderUtils {
         ColorUtils.resetColor();
 	}
 	
+    public static void drawRoundedRect(float x, float y, float width, float height, float radius, Color color) {
+
+        float right = x + width;
+        float bottom = y + height;
+        radius = Math.min(radius, Math.min(width, height) / 2.0F);
+
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glEnable(GL11.GL_POLYGON_SMOOTH);
+        GL11.glHint(GL11.GL_POLYGON_SMOOTH_HINT, GL11.GL_NICEST);
+        GL11.glPushMatrix();
+        ColorUtils.setColor(color.getRGB());
+
+        GL11.glBegin(GL11.GL_POLYGON);
+        roundedCorner(x + radius, y + radius, radius, 180.0F, 270.0F);
+        roundedCorner(right - radius, y + radius, radius, 270.0F, 360.0F);
+        roundedCorner(right - radius, bottom - radius, radius, 0.0F, 90.0F);
+        roundedCorner(x + radius, bottom - radius, radius, 90.0F, 180.0F);
+        GL11.glEnd();
+
+        GL11.glPopMatrix();
+        GL11.glDisable(GL11.GL_POLYGON_SMOOTH);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glDisable(GL11.GL_BLEND);
+        ColorUtils.resetColor();
+    }
+
+    public static void drawRoundedOutline(float x, float y, float width, float height, float radius, float lineWidth, Color color) {
+
+        float right = x + width;
+        float bottom = y + height;
+        radius = Math.min(radius, Math.min(width, height) / 2.0F);
+
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glEnable(GL11.GL_LINE_SMOOTH);
+        GL11.glHint(GL11.GL_LINE_SMOOTH_HINT, GL11.GL_NICEST);
+        GL11.glLineWidth(lineWidth);
+        GL11.glPushMatrix();
+        ColorUtils.setColor(color.getRGB());
+
+        GL11.glBegin(GL11.GL_LINE_LOOP);
+        roundedCorner(x + radius, y + radius, radius, 180.0F, 270.0F);
+        roundedCorner(right - radius, y + radius, radius, 270.0F, 360.0F);
+        roundedCorner(right - radius, bottom - radius, radius, 0.0F, 90.0F);
+        roundedCorner(x + radius, bottom - radius, radius, 90.0F, 180.0F);
+        GL11.glEnd();
+
+        GL11.glPopMatrix();
+        GL11.glDisable(GL11.GL_LINE_SMOOTH);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glDisable(GL11.GL_BLEND);
+        ColorUtils.resetColor();
+    }
+
+    private static void roundedCorner(float centerX, float centerY, float radius, float startDeg, float endDeg) {
+        int segments = 10;
+        for(int i = 0; i <= segments; i++) {
+            double angle = Math.toRadians(startDeg + (endDeg - startDeg) * i / segments);
+            GL11.glVertex2d(centerX + Math.cos(angle) * radius, centerY + Math.sin(angle) * radius);
+        }
+    }
+
     public static void drawOutline(float x, float y, float width, float height, float lineWidth, Color color) {
 		
         GL11.glEnable(3042);

@@ -16,6 +16,7 @@ import org.apache.commons.lang3.ArrayUtils;
 
 import me.eldodebug.soar.injection.mixin.GlideTweaker;
 import me.eldodebug.soar.logger.GlideLogger;
+import me.eldodebug.soar.management.altmanager.AltManager;
 import me.eldodebug.soar.management.cape.CapeManager;
 import me.eldodebug.soar.management.remote.changelog.ChangelogManager;
 import me.eldodebug.soar.management.color.ColorManager;
@@ -71,6 +72,7 @@ public class Glide {
 	private ClickEffects clickEffects;
 	private BlacklistManager blacklistManager;
 	private RestrictedMod restrictedMod;
+	private AltManager altManager;
 	
 	public Glide() {
 		name = "FlaxClient";
@@ -207,6 +209,13 @@ public class Glide {
 
 	public SecurityFeatureManager getSecurityFeatureManager() {
 		return securityFeatureManager;
+	}
+
+	public AltManager getAltManager() {
+		if(altManager == null) {
+			altManager = new AltManager();
+		}
+		return altManager;
 	}
 
 	public QuickPlayManager getQuickPlayManager() {

@@ -3,6 +3,7 @@ package me.eldodebug.soar.gui.mainmenu.impl;
 import java.awt.Color;
 
 import me.eldodebug.soar.Glide;
+import me.eldodebug.soar.gui.altmanager.GuiAltManager;
 import me.eldodebug.soar.gui.mainmenu.GuiGlideMainMenu;
 import me.eldodebug.soar.gui.mainmenu.MainMenuScene;
 import me.eldodebug.soar.management.language.TranslateText;
@@ -56,6 +57,9 @@ public class MainScene extends MainMenuScene {
 		
 		nvg.drawRoundedRect(sr.getScaledWidth() / 2 - (180 / 2), yPos + (26 * 2), 180, 20, 4.5F, this.getBackgroundColor());
 		nvg.drawCenteredText(TranslateText.SETTINGS.getText(), sr.getScaledWidth() / 2, yPos + 6.5F + (26 * 2), Color.WHITE, 9.5F, Fonts.REGULAR);
+
+		nvg.drawRoundedRect(sr.getScaledWidth() / 2 - (180 / 2), yPos + (26 * 3), 180, 20, 4.5F, this.getBackgroundColor());
+		nvg.drawCenteredText("Alt Manager", sr.getScaledWidth() / 2, yPos + 6.5F + (26 * 3), Color.WHITE, 9.5F, Fonts.REGULAR);
 	}
 	
 	@Override
@@ -77,6 +81,10 @@ public class MainScene extends MainMenuScene {
 			
 			if(MouseUtils.isInside(mouseX, mouseY, sr.getScaledWidth() / 2 - (180 / 2), yPos + (26 * 2), 180, 20)) {
 				mc.displayGuiScreen(new GuiOptions(this.getParent(), mc.gameSettings));
+			}
+
+			if(MouseUtils.isInside(mouseX, mouseY, sr.getScaledWidth() / 2 - (180 / 2), yPos + (26 * 3), 180, 20)) {
+				mc.displayGuiScreen(new GuiAltManager(this.getParent()));
 			}
 		}
 	}

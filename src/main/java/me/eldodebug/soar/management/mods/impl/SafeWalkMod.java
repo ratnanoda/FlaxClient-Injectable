@@ -21,8 +21,15 @@ public class SafeWalkMod extends Mod {
 	private final NumberSetting sneakDelaySetting = new NumberSetting(TranslateText.DELAY, this, 1, 0, 10, true);
 	private final NumberSetting edgeMotionSetting = new NumberSetting(TranslateText.MOVEMENT, this, 1.0D, 0.5D, 1.0D, false);
 
+	// How far past the player's leading edge we probe for missing support.
+	// Kept small so the forced sneak engages as late as possible - right at
+	// the lip of the block. Vanilla's own sneak edge-clamp prevents the fall,
+	// so a tight look-ahead is safe and lets the player walk further out.
+	private static final double EDGE_LOOKAHEAD = 0.05D;
+
 	private boolean forcedSneak;
 	private int unsneakDelayTicks;
+	private BlockPos edgeGapPos;
 
 	public SafeWalkMod() {
 		super(TranslateText.SAFE_WALK, TranslateText.SAFE_WALK_DESCRIPTION, ModCategory.GHOST);
@@ -33,6 +40,7 @@ public class SafeWalkMod extends Mod {
 		super.onEnable();
 		forcedSneak = false;
 		unsneakDelayTicks = 0;
+		edgeGapPos = null;
 	}
 
 	@EventTarget
@@ -40,6 +48,18 @@ public class SafeWalkMod extends Mod {
 		if(!canRun() || !settingsMet()) {
 			releaseForcedSneak();
 			unsneakDelayTicks = 0;
+			edgeGapPos = null;
+			return;
+		}
+
+		// If the gap we were sneaking over just got filled (e.g. a block was
+		// placed while bridging), drop the forced sneak immediately for this
+		// tick - don't wait out the unsneak delay. SafeWalk re-engages on the
+		// next tick once the player reaches a new edge.
+		if(wasGapJustFilled()) {
+			releaseForcedSneak();
+			unsneakDelayTicks = 0;
+			edgeGapPos = null;
 			return;
 		}
 
@@ -52,6 +72,7 @@ public class SafeWalkMod extends Mod {
 			unsneakDelayTicks--;
 		} else {
 			releaseForcedSneak();
+			edgeGapPos = null;
 		}
 	}
 
@@ -60,6 +81,7 @@ public class SafeWalkMod extends Mod {
 		super.onDisable();
 		releaseForcedSneak();
 		unsneakDelayTicks = 0;
+		edgeGapPos = null;
 	}
 
 	private boolean canRun() {
@@ -94,24 +116,24 @@ public class SafeWalkMod extends Mod {
 			return false;
 		}
 
-		double threshold = 0.125D;
+		double threshold = EDGE_LOOKAHEAD;
 
 		if(moveX > 0.001D) {
-			if(!hasSupport(bb.maxX + threshold, y, bb.minZ + 0.01D) || !hasSupport(bb.maxX + threshold, y, bb.maxZ - 0.01D)) {
+			if(checkGap(bb.maxX + threshold, y, bb.minZ + 0.01D) || checkGap(bb.maxX + threshold, y, bb.maxZ - 0.01D)) {
 				return true;
 			}
 		} else if(moveX < -0.001D) {
-			if(!hasSupport(bb.minX - threshold, y, bb.minZ + 0.01D) || !hasSupport(bb.minX - threshold, y, bb.maxZ - 0.01D)) {
+			if(checkGap(bb.minX - threshold, y, bb.minZ + 0.01D) || checkGap(bb.minX - threshold, y, bb.maxZ - 0.01D)) {
 				return true;
 			}
 		}
 
 		if(moveZ > 0.001D) {
-			if(!hasSupport(bb.minX + 0.01D, y, bb.maxZ + threshold) || !hasSupport(bb.maxX - 0.01D, y, bb.maxZ + threshold)) {
+			if(checkGap(bb.minX + 0.01D, y, bb.maxZ + threshold) || checkGap(bb.maxX - 0.01D, y, bb.maxZ + threshold)) {
 				return true;
 			}
 		} else if(moveZ < -0.001D) {
-			if(!hasSupport(bb.minX + 0.01D, y, bb.minZ - threshold) || !hasSupport(bb.maxX - 0.01D, y, bb.minZ - threshold)) {
+			if(checkGap(bb.minX + 0.01D, y, bb.minZ - threshold) || checkGap(bb.maxX - 0.01D, y, bb.minZ - threshold)) {
 				return true;
 			}
 		}
@@ -119,8 +141,21 @@ public class SafeWalkMod extends Mod {
 		return false;
 	}
 
-	private boolean hasSupport(double x, double y, double z) {
-		return !mc.theWorld.isAirBlock(new BlockPos(x, y, z));
+	// Returns true when the probed point has no block under it, and remembers
+	// the empty block position so we can later tell when it gets filled in.
+	private boolean checkGap(double x, double y, double z) {
+		BlockPos pos = new BlockPos(x, y, z);
+		if(mc.theWorld.isAirBlock(pos)) {
+			edgeGapPos = pos;
+			return true;
+		}
+		return false;
+	}
+
+	// True if the gap we last forced sneak over is now solid - i.e. a block
+	// was just placed there.
+	private boolean wasGapJustFilled() {
+		return forcedSneak && edgeGapPos != null && !mc.theWorld.isAirBlock(edgeGapPos);
 	}
 
 	private void applyEdgeMotionLimit() {

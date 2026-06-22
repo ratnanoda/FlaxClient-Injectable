@@ -22,6 +22,7 @@ public class ModManager {
 		mods.add(new ArrayListMod());
 		mods.add(new AsyncScreenshotMod());
 		mods.add(new AutoTextMod());
+		mods.add(new BedESPMod());
 		mods.add(new BlockInfoMod());
 		mods.add(new BlockOverlayMod());
 		mods.add(new BloodParticlesMod());
@@ -29,6 +30,7 @@ public class ModManager {
 		mods.add(new BossHealthMod());
 		mods.add(new BowZoomMod());
 		mods.add(new BreadcrumbsMod());
+		mods.add(new BreakProgressMod());
 		mods.add(new CalendarMod());
 		mods.add(new ChatMod());
 		mods.add(new ChatTranslateMod());

@@ -40,6 +40,8 @@ public class InternalSettingsMod extends Mod {
 
 	private final BooleanSetting soundsUISetting = new BooleanSetting(TranslateText.UI_SOUNDS, this, true);
 
+	private final BooleanSetting fastCloseEscSetting = new BooleanSetting(TranslateText.FAST_CLOSE_ESC, this, false);
+
 	public InternalSettingsMod() {
 		super(TranslateText.NONE, TranslateText.NONE, ModCategory.OTHER);
 
@@ -81,6 +83,8 @@ public class InternalSettingsMod extends Mod {
 	public BooleanSetting getClickEffectsSetting(){return clickEffectsSetting;}
 
 	public BooleanSetting getSoundsUISetting(){return soundsUISetting;}
+
+	public BooleanSetting getFastCloseEscSetting(){return fastCloseEscSetting;}
 
 	public NumberSetting getVolumeSetting() {return volumeSetting;}
 

@@ -9,6 +9,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import me.eldodebug.soar.injection.interfaces.IMixinPlayerControllerMP;
 import me.eldodebug.soar.management.mods.impl.AnimationsMod;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.PlayerControllerMP;
@@ -18,7 +19,7 @@ import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumFacing;
 
 @Mixin(PlayerControllerMP.class)
-public class MixinPlayerControllerMP {
+public class MixinPlayerControllerMP implements IMixinPlayerControllerMP {
 
     @Final
     @Shadow
@@ -62,5 +63,10 @@ public class MixinPlayerControllerMP {
     	if(mod.isToggled() && mod.getPushingSetting().isToggled() && mod.getBlockHitSetting().isToggled()) {
     		cir.setReturnValue(false);
     	}
+    }
+
+    @Override
+    public float getCurBlockDamageMP() {
+    	return curBlockDamageMP;
     }
 }

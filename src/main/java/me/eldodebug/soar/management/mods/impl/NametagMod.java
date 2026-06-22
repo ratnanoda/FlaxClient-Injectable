@@ -14,8 +14,8 @@ import me.eldodebug.soar.management.mods.settings.impl.combo.Option;
 public class NametagMod extends Mod {
 
 	private static NametagMod instance;
-	private ComboSetting themeSetting = new ComboSetting(TranslateText.THEME, this, TranslateText.NORMAL, new ArrayList<Option>(Arrays.asList(
-			new Option(TranslateText.NORMAL), new Option(TranslateText.FANCY))));
+	private ComboSetting themeSetting = new ComboSetting(TranslateText.STYLE, this, TranslateText.MODERN, new ArrayList<Option>(Arrays.asList(
+			new Option(TranslateText.CLASSIC), new Option(TranslateText.MODERN), new Option(TranslateText.MINIMAL), new Option(TranslateText.OUTLINED))));
 
 	public NametagMod() {
 		super(TranslateText.NAMETAG, TranslateText.NAMETAG_DESCRIPTION, ModCategory.PLAYER);

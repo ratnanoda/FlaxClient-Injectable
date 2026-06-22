@@ -272,7 +272,12 @@ public class GuiModMenu extends GuiScreen {
 	
 	@Override
 	public void keyTyped(char typedChar, int keyCode) {
-		
+
+		if(keyCode == Keyboard.KEY_ESCAPE && canClose && InternalSettingsMod.getInstance().getFastCloseEscSetting().isToggled()) {
+			mc.displayGuiScreen(toEditHUD ? new GuiEditHUD(true) : null);
+			return;
+		}
+
 		currentCategory.keyTyped(typedChar, keyCode);
 		searchBox.keyTyped(typedChar, keyCode);
 		

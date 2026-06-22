@@ -39,6 +39,7 @@ def readBuildNumber = {
 }
 
 ext.currentBuildNumber = readBuildNumber()
+ext.clientVersionName = "2.5"
 
 task bumpBuildNumber {
     doLast {
@@ -49,7 +50,7 @@ task bumpBuildNumber {
     }
 }
 
-ext.devVersionName = "dev 1.${project.ext.currentBuildNumber}"
+ext.devVersionName = project.ext.clientVersionName
 def generatedVersionSourceDir = file("$buildDir/generated/sources/version/java")
 
 sourceCompatibility = targetCompatibility = 1.8
@@ -70,7 +71,7 @@ task generateBuildVersionSource {
     doLast {
         def latest = readBuildNumber()
         project.ext.currentBuildNumber = latest
-        project.ext.devVersionName = "dev 1.${latest}"
+        project.ext.devVersionName = project.ext.clientVersionName
         def outFile = file("$generatedVersionSourceDir/me/eldodebug/soar/BuildVersion.java")
         outFile.parentFile.mkdirs()
         outFile.text = """package me.eldodebug.soar;
@@ -166,7 +167,7 @@ jar {
     doFirst {
         def latest = readBuildNumber()
         project.ext.currentBuildNumber = latest
-        project.ext.devVersionName = "dev 1.${latest}"
+        project.ext.devVersionName = project.ext.clientVersionName
         manifest.attributes("Implementation-Version": project.ext.devVersionName)
     }
 }
@@ -174,5 +175,5 @@ jar {
 compileJava.dependsOn generateBuildVersionSource
 
 bumpBuildNumber.doLast {
-    project.ext.devVersionName = "dev 1.${project.ext.currentBuildNumber}"
+    project.ext.devVersionName = project.ext.clientVersionName
 }

@@ -37,4 +37,8 @@ bin/
 .vscode/
 
 ### Mac OS ###
-.DS_Store.tooling/
+.DS_Store
+
+### Local tooling / agent ###
+.tooling/
+.claude/
