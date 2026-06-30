@@ -39,7 +39,7 @@ def readBuildNumber = {
 }
 
 ext.currentBuildNumber = readBuildNumber()
-ext.clientVersionName = "2.5"
+ext.clientVersionName = "2.5.1"
 
 task bumpBuildNumber {
     doLast {

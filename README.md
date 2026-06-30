@@ -32,14 +32,29 @@ mac os (working with some limitations)
 
 ## Launch with FlaxClientLauncher
 1. On Windows, run `FlaxClientLauncher.bat` in the repository root.
-2. On Linux, run `FlaxClientLauncher.sh` in the repository root after building the Rust launcher.
-3. The launcher is now fixed to **Minecraft 1.8.9**.
+2. On Linux/macOS, run `FlaxClientLauncher.sh` in the repository root after building the Rust launcher.
+3. The launcher is fixed to **Minecraft 1.8.9**.
 4. Click `Launch FlaxClient` to start with your Microsoft account or offline profile.
 
 ## Single-binary distribution
-- The launcher can now embed `FlaxClient-Release.jar` at build time.
-- Build the client first with `./gradlew build` on Linux/macOS or `.\gradlew.bat build` on Windows, then build the launcher in `FlaxClientLauncher`.
-- The resulting launcher binary can bootstrap FlaxClient by itself on another machine of the same OS/architecture.
+- The launcher embeds `FlaxClient-Release.jar` at build time and downloads its own Java 8 runtime on first launch.
+- End users only need the single launcher executable for their OS — no JDK, no extra files.
+- Prebuilt binaries are attached to GitHub Releases:
+  - Windows (10/11, x86_64): `FlaxClientLauncher-windows-x86_64.exe`
+  - macOS (Intel + Apple Silicon, universal): `FlaxClientLauncher-macos-universal`
+  - Linux x86_64 (Ubuntu / Fedora / Arch Linux / Debian / openSUSE): `FlaxClientLauncher-linux-x86_64`
+- On macOS/Linux, run `chmod +x FlaxClientLauncher-*` once before the first launch.
+
+## Building all platform binaries
+- GitHub Actions builds all four binaries natively for each OS:
+  - `.github/workflows/build.yml` runs on every push to `main` and uploads artifacts.
+  - `.github/workflows/release.yml` runs on tags (`v*`) and publishes a GitHub Release with the binaries attached.
+- To produce a release locally, push a tag:
+  ```
+  git tag v0.2.0
+  git push origin v0.2.0
+  ```
+- Or run the `Release launcher binaries` workflow manually from the Actions tab.
 
 
 

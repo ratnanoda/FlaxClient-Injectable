@@ -396,13 +396,9 @@ public class BedESPMod extends Mod {
 		int baseAlpha = (int) (panel.appear * background.getAlpha());
 		int glossAlpha = (int) (panel.appear * 14);
 
-		Color accent = colorSetting.getColor();
-
 		nvg.drawRoundedRect(x - 1.5F, y - 1.5F, w + 3.0F, h + 3.0F, radius + 1.5F, new Color(0, 0, 0, shadowAlpha));
 		nvg.drawRoundedRect(x, y, w, h, radius, new Color(background.getRed(), background.getGreen(), background.getBlue(), baseAlpha));
 		nvg.drawRoundedRect(x, y, w, h / 2.0F, radius, new Color(255, 255, 255, glossAlpha));
-		nvg.drawRoundedRect(x, y + h - 1.6F * scale, w, 1.6F * scale, radius * 0.5F,
-				new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), (int) (panel.appear * 220)));
 	}
 
 	private void drawPanelItems(Panel panel) {

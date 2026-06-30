@@ -26,31 +26,31 @@ import me.eldodebug.soar.Glide;
  * -> Minecraft access token -> profile (name + uuid). Everything here uses the
  * standard, Microsoft-hosted sign-in - the user authenticates in their own
  * browser and this app never sees a password or session cookie.
+ *
+ * Uses the Live Connect (legacy MSA) endpoints with Mojang's public launcher
+ * client id, matching the working FlaxClientLauncher Rust flow. This avoids the
+ * need for end users to register their own Azure AD application.
  */
 public class MicrosoftAuth {
 
 	/*
-	 * Azure AD application (client) ID.
+	 * Microsoft account client id.
 	 *
-	 * Register a public-client application at https://portal.azure.com:
-	 *   - Supported account types: "Personal Microsoft accounts"
-	 *   - Authentication -> Advanced -> "Allow public client flows" = Yes
-	 *   - API permissions -> add the delegated permission "XboxLive.signin"
-	 * then put the Application (client) ID either here, or - without recompiling -
-	 * in '.minecraft/glide/msa_client_id.txt' (a template is created on first run),
-	 * or via the system property 'flax.msa.client_id' / env 'FLAX_MSA_CLIENT_ID'.
-	 *
-	 * The all-zeros placeholder is rejected with a clear message instead of being
-	 * sent to Microsoft (which returns AADSTS900038).
+	 * This is Mojang's public launcher id and is shared with the Live Connect
+	 * device-code endpoint. It's the same id the FlaxClientLauncher Rust app
+	 * uses, so end users do not need to register their own Azure AD app to
+	 * sign in. To override (e.g. with a private Azure AD app id and the v2.0
+	 * endpoint), drop the new id in '.minecraft/glide/msa_client_id.txt', or
+	 * pass '-Dflax.msa.client_id=...', or set the FLAX_MSA_CLIENT_ID env var.
 	 */
-	private static final String CLIENT_ID = "00000000-0000-0000-0000-000000000000";
+	private static final String CLIENT_ID = "00000000402b5328";
 	private static final String CLIENT_ID_FILE = "msa_client_id.txt";
-	private static final String SCOPE = "XboxLive.signin offline_access";
+	private static final String SCOPE = "service::user.auth.xboxlive.com::MBI_SSL offline_access";
 
 	private final String clientId = resolveClientId();
 
-	private static final String DEVICE_CODE_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode";
-	private static final String TOKEN_URL = "https://login.microsoftonline.com/consumers/oauth2/v2.0/token";
+	private static final String DEVICE_CODE_URL = "https://login.live.com/oauth20_connect.srf";
+	private static final String TOKEN_URL = "https://login.live.com/oauth20_token.srf";
 	private static final String XBL_URL = "https://user.auth.xboxlive.com/user/authenticate";
 	private static final String XSTS_URL = "https://xsts.auth.xboxlive.com/xsts/authorize";
 	private static final String MC_LOGIN_URL = "https://api.minecraftservices.com/authentication/login_with_xbox";
@@ -74,7 +74,9 @@ public class MicrosoftAuth {
 	/** Step 1 - ask Microsoft for a code the user types in their browser. */
 	public DeviceCode requestDeviceCode() throws IOException {
 		requireClientId();
-		String body = "client_id=" + enc(clientId) + "&scope=" + enc(SCOPE);
+		String body = "client_id=" + enc(clientId)
+				+ "&scope=" + enc(SCOPE)
+				+ "&response_type=device_code";
 		JsonObject o = json(post(DEVICE_CODE_URL, "application/x-www-form-urlencoded", body, null));
 
 		if (o == null || !o.has("device_code")) {
@@ -175,12 +177,13 @@ public class MicrosoftAuth {
 	// Xbox Live -> XSTS -> Minecraft -> profile
 	private void completeMinecraftLogin(Account account, String msAccessToken) throws IOException {
 
-		// 3) Xbox Live
+		// 3) Xbox Live. Live Connect tokens are passed through verbatim; the
+		// "d=" prefix is only required for AAD v2.0 access tokens.
 		JsonObject xblReq = new JsonObject();
 		JsonObject xblProps = new JsonObject();
 		xblProps.addProperty("AuthMethod", "RPS");
 		xblProps.addProperty("SiteName", "user.auth.xboxlive.com");
-		xblProps.addProperty("RpsTicket", "d=" + msAccessToken);
+		xblProps.addProperty("RpsTicket", msAccessToken);
 		xblReq.add("Properties", xblProps);
 		xblReq.addProperty("RelyingParty", "http://auth.xboxlive.com");
 		xblReq.addProperty("TokenType", "JWT");
@@ -351,9 +354,8 @@ public class MicrosoftAuth {
 
 	private void requireClientId() throws IOException {
 		if (isPlaceholder(clientId)) {
-			throw new IOException("No Microsoft application ID is set. Register an Azure app "
-					+ "(public client, permission XboxLive.signin) and paste its client ID into "
-					+ "glide/" + CLIENT_ID_FILE + ", then try again.");
+			throw new IOException("No Microsoft client id is set. Restore the bundled default by "
+					+ "deleting glide/" + CLIENT_ID_FILE + ", or paste your own client id into that file.");
 		}
 	}
 
@@ -401,11 +403,11 @@ public class MicrosoftAuth {
 
 	private static void writeTemplate(File cfg) {
 		try {
-			String template = "# Paste your Azure AD application (client) ID below on its own line.\n"
-					+ "# Register a free public-client app at https://portal.azure.com:\n"
-					+ "#   Authentication -> Allow public client flows = Yes\n"
-					+ "#   API permissions  -> add delegated \"XboxLive.signin\"\n"
-					+ "# Then put the Application (client) ID here and restart the game.\n";
+			String template = "# Optional: override the Microsoft client id used for sign-in.\n"
+					+ "# Leave this file empty to use the bundled Live Connect default\n"
+					+ "# (the same id the Rust FlaxClientLauncher uses; works out of the box).\n"
+					+ "# To use your own Azure AD app instead, paste its Application (client)\n"
+					+ "# ID below on its own line and restart the game.\n";
 			Files.write(cfg.toPath(), template.getBytes(StandardCharsets.UTF_8));
 		} catch (Exception ignored) {
 		}
