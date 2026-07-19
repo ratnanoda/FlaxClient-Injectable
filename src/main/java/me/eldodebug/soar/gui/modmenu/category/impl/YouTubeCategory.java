@@ -1,0 +1,322 @@
+package me.eldodebug.soar.gui.modmenu.category.impl;
+
+import java.awt.Color;
+import java.util.List;
+
+import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
+
+import me.eldodebug.soar.Glide;
+import me.eldodebug.soar.gui.modmenu.GuiModMenu;
+import me.eldodebug.soar.gui.modmenu.category.Category;
+import me.eldodebug.soar.management.color.AccentColor;
+import me.eldodebug.soar.management.color.palette.ColorPalette;
+import me.eldodebug.soar.management.color.palette.ColorType;
+import me.eldodebug.soar.management.language.TranslateText;
+import me.eldodebug.soar.management.nanovg.NanoVGManager;
+import me.eldodebug.soar.management.nanovg.font.Fonts;
+import me.eldodebug.soar.management.nanovg.font.Icons;
+import me.eldodebug.soar.management.nanovg.font.LegacyIcon;
+import me.eldodebug.soar.management.youtube.YouTubeEntry;
+import me.eldodebug.soar.management.youtube.YouTubeManager;
+import me.eldodebug.soar.ui.comp.impl.field.CompTextBox;
+import me.eldodebug.soar.utils.ColorUtils;
+import me.eldodebug.soar.utils.animation.simple.SimpleAnimation;
+import me.eldodebug.soar.utils.mouse.MouseUtils;
+
+public final class YouTubeCategory extends Category {
+
+    private static final float PADDING = 12.0F;
+    private static final float ROW_HEIGHT = 31.0F;
+    private final CompTextBox urlBox = new CompTextBox();
+    private final SimpleAnimation listScrollAnimation = new SimpleAnimation();
+    private float listScrollTarget;
+    private boolean draggingProgress;
+    private boolean draggingVolume;
+    private float seekPreview;
+
+    public YouTubeCategory(GuiModMenu parent) {
+        super(parent, TranslateText.YOUTUBE, Icons.YOUTUBE, Fonts.GLICONIC, false, true);
+        urlBox.setDefaultText("Paste a YouTube URL...");
+        urlBox.setMaxStringLength(512);
+    }
+
+    @Override
+    public void initGui() {
+        listScrollTarget = 0.0F;
+        listScrollAnimation.setValue(0.0F);
+        draggingProgress = false;
+        draggingVolume = false;
+        urlBox.setFocused(false);
+    }
+
+    @Override
+    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+        Glide instance = Glide.getInstance();
+        YouTubeManager youtube = instance.getYouTubeManager();
+        NanoVGManager nvg = instance.getNanoVGManager();
+        ColorPalette palette = instance.getColorManager().getPalette();
+        AccentColor accent = instance.getColorManager().getCurrentColor();
+
+        float pageX = getX() + PADDING;
+        float pageY = getY() + 9.0F;
+        float pageWidth = getWidth() - PADDING * 2.0F;
+        float pageHeight = getHeight() - 18.0F;
+        float inputHeight = 25.0F;
+        float addWidth = 48.0F;
+        urlBox.setPosition(pageX, pageY, pageWidth - addWidth - 7.0F, inputHeight);
+        urlBox.draw(mouseX, mouseY, partialTicks);
+        drawAddButton(nvg, palette, accent, pageX + pageWidth - addWidth, pageY, addWidth, inputHeight);
+
+        float panelsY = pageY + inputHeight + 9.0F;
+        float panelsHeight = pageHeight - inputHeight - 9.0F;
+        float listWidth = Math.max(230.0F, pageWidth * 0.55F);
+        float playerX = pageX + listWidth + 10.0F;
+        float playerWidth = pageWidth - listWidth - 10.0F;
+        drawPanel(nvg, palette, pageX, panelsY, listWidth, panelsHeight);
+        drawPanel(nvg, palette, playerX, panelsY, playerWidth, panelsHeight);
+        drawPlaylist(nvg, palette, accent, youtube, pageX, panelsY, listWidth, panelsHeight, mouseX, mouseY);
+        drawPlayer(nvg, palette, accent, youtube, playerX, panelsY, playerWidth, panelsHeight, mouseX);
+    }
+
+    private void drawAddButton(NanoVGManager nvg, ColorPalette palette, AccentColor accent,
+            float x, float y, float width, float height) {
+        nvg.drawGradientRoundedRect(x, y, width, height, 7.0F,
+                ColorUtils.applyAlpha(accent.getColor1(), 190), ColorUtils.applyAlpha(accent.getColor2(), 190));
+        nvg.drawCenteredText("Add", x + width / 2.0F, y + 8.0F,
+                palette.getFontColor(ColorType.DARK), 8.5F, Fonts.SEMIBOLD);
+    }
+
+    private void drawPlaylist(NanoVGManager nvg, ColorPalette palette, AccentColor accent,
+            YouTubeManager youtube, float x, float y, float width, float height, int mouseX, int mouseY) {
+        List<YouTubeEntry> entries = youtube.getPlaylist();
+        nvg.drawText("Playlist", x + 11.0F, y + 9.0F,
+                palette.getFontColor(ColorType.DARK), 10.0F, Fonts.SEMIBOLD);
+        String count = entries.size() + (entries.size() == 1 ? " video" : " videos");
+        float countWidth = nvg.getTextWidth(count, 7.5F, Fonts.REGULAR);
+        nvg.drawText(count, x + width - countWidth - 11.0F, y + 10.5F,
+                palette.getFontColor(ColorType.NORMAL, 150), 7.5F, Fonts.REGULAR);
+
+        float listY = y + 29.0F;
+        float listHeight = height - 35.0F;
+        float maxScroll = Math.max(0.0F, entries.size() * ROW_HEIGHT - listHeight);
+        if(MouseUtils.isInside(mouseX, mouseY, x, listY, width, listHeight)) {
+            int wheel = Mouse.getDWheel();
+            if(wheel != 0) listScrollTarget += wheel / 2.4F;
+        }
+        listScrollTarget = Math.max(-maxScroll, Math.min(0.0F, listScrollTarget));
+        listScrollAnimation.setAnimation(listScrollTarget, 18);
+
+        nvg.save();
+        nvg.scissor(x + 3.0F, listY, width - 6.0F, listHeight);
+        nvg.translate(0.0F, listScrollAnimation.getValue());
+        if(entries.isEmpty()) {
+            nvg.drawCenteredText("Paste a link above to create your playlist", x + width / 2.0F, listY + 24.0F,
+                    palette.getFontColor(ColorType.NORMAL, 165), 8.0F, Fonts.REGULAR);
+        }
+        for(int i = 0; i < entries.size(); i++) {
+            YouTubeEntry entry = entries.get(i);
+            float rowY = listY + i * ROW_HEIGHT;
+            float screenY = rowY + listScrollAnimation.getValue();
+            if(screenY + ROW_HEIGHT < listY || screenY > listY + listHeight) continue;
+            boolean selected = entry == youtube.getCurrent();
+            boolean hovered = MouseUtils.isInside(mouseX, mouseY, x + 5.0F, screenY + 2.0F, width - 10.0F, ROW_HEIGHT - 4.0F);
+            if(selected || hovered) {
+                nvg.drawRoundedRect(x + 5.0F, rowY + 2.0F, width - 10.0F, ROW_HEIGHT - 4.0F, 6.0F,
+                        translucent(palette.getBackgroundColor(ColorType.NORMAL), selected ? 105 : 58));
+            }
+            if(selected) {
+                nvg.drawGradientRoundedRect(x + 6.0F, rowY + 7.0F, 3.0F, 17.0F, 1.5F,
+                        ColorUtils.applyAlpha(accent.getColor1(), 235), ColorUtils.applyAlpha(accent.getColor2(), 235));
+            }
+            nvg.drawText(Icons.YOUTUBE, x + 14.0F, rowY + 9.5F,
+                    selected ? new Color(255, 85, 85) : palette.getFontColor(ColorType.NORMAL), 10.0F, Fonts.GLICONIC);
+            String title = nvg.getLimitText(entry.getTitle(), 8.5F, Fonts.MEDIUM, width - 90.0F);
+            nvg.drawText(title, x + 32.0F, rowY + 9.5F,
+                    palette.getFontColor(selected ? ColorType.DARK : ColorType.NORMAL), 8.5F, Fonts.MEDIUM);
+            String duration = formatTime(entry.getDurationMillis());
+            float durationWidth = nvg.getTextWidth(duration, 7.0F, Fonts.REGULAR);
+            nvg.drawText(duration, x + width - durationWidth - 12.0F, rowY + 10.5F,
+                    palette.getFontColor(ColorType.NORMAL, 140), 7.0F, Fonts.REGULAR);
+        }
+        nvg.restore();
+    }
+
+    private void drawPlayer(NanoVGManager nvg, ColorPalette palette, AccentColor accent,
+            YouTubeManager youtube, float x, float y, float width, float height, int mouseX) {
+        YouTubeEntry current = youtube.getCurrent();
+        nvg.drawText("Picture in Picture", x + 12.0F, y + 9.0F,
+                palette.getFontColor(ColorType.NORMAL, 165), 8.0F, Fonts.MEDIUM);
+        String title = current == null ? "Nothing is playing"
+                : nvg.getLimitText(current.getTitle(), 9.2F, Fonts.SEMIBOLD, width - 24.0F);
+        nvg.drawText(title, x + 12.0F, y + 31.0F,
+                palette.getFontColor(ColorType.DARK), 9.2F, Fonts.SEMIBOLD);
+        nvg.drawText(nvg.getLimitText(youtube.getStatus(), 7.2F, Fonts.REGULAR, width - 24.0F),
+                x + 12.0F, y + 48.0F, palette.getFontColor(ColorType.NORMAL, 145), 7.2F, Fonts.REGULAR);
+
+        float progressX = x + 12.0F;
+        float progressY = y + 69.0F;
+        float sliderWidth = width - 24.0F;
+        if(draggingProgress) updateProgressPreview(mouseX, progressX, sliderWidth);
+        float progress = draggingProgress ? seekPreview : youtube.getDurationMillis() <= 0L ? 0.0F
+                : Math.min(1.0F, youtube.getPositionMillis() / (float) youtube.getDurationMillis());
+        drawSlider(nvg, accent, progressX, progressY, sliderWidth, progress, draggingProgress);
+        nvg.drawText(formatTime(youtube.getPositionMillis()), progressX, progressY + 8.0F,
+                palette.getFontColor(ColorType.NORMAL, 150), 7.0F, Fonts.REGULAR);
+        String total = formatTime(youtube.getDurationMillis());
+        nvg.drawText(total, progressX + sliderWidth - nvg.getTextWidth(total, 7.0F, Fonts.REGULAR), progressY + 8.0F,
+                palette.getFontColor(ColorType.NORMAL, 150), 7.0F, Fonts.REGULAR);
+
+        float controlsY = y + 101.0F;
+        float center = x + width / 2.0F;
+        drawControl(nvg, palette, center - 57.0F, controlsY, LegacyIcon.BACK, false);
+        drawControl(nvg, palette, center - 21.0F, controlsY,
+                youtube.isPaused() || !youtube.isPlaying() ? LegacyIcon.PLAY : LegacyIcon.PAUSE, true);
+        drawControl(nvg, palette, center + 15.0F, controlsY, LegacyIcon.FORWARD, false);
+        drawControl(nvg, palette, center + 51.0F, controlsY, LegacyIcon.X, false);
+
+        float volumeY = y + Math.min(height - 39.0F, 151.0F);
+        nvg.drawText(LegacyIcon.VOLUME_2, x + 12.0F, volumeY - 4.0F,
+                palette.getFontColor(ColorType.NORMAL), 10.0F, Fonts.LEGACYICON);
+        String percent = Math.round(youtube.getVolume() * 100.0F) + "%";
+        nvg.drawText(percent, x + width - nvg.getTextWidth(percent, 8.0F, Fonts.MEDIUM) - 12.0F, volumeY - 3.0F,
+                palette.getFontColor(ColorType.DARK), 8.0F, Fonts.MEDIUM);
+        float volumeX = x + 30.0F;
+        float volumeWidth = width - 75.0F;
+        if(draggingVolume) updateVolume(youtube, mouseX, volumeX, volumeWidth);
+        drawSlider(nvg, accent, volumeX, volumeY, volumeWidth, youtube.getVolume() / 2.0F, draggingVolume);
+        nvg.drawCenteredText("Right-click a playlist item to remove it", x + width / 2.0F, y + height - 15.0F,
+                palette.getFontColor(ColorType.NORMAL, 110), 6.8F, Fonts.REGULAR);
+    }
+
+    private void drawPanel(NanoVGManager nvg, ColorPalette palette, float x, float y, float width, float height) {
+        nvg.drawRoundedRect(x, y, width, height, 10.0F,
+                translucent(palette.getBackgroundColor(ColorType.DARK), 78));
+        nvg.drawOutlineRoundedRect(x + 0.5F, y + 0.5F, width - 1.0F, height - 1.0F,
+                10.0F, 0.65F, new Color(255, 255, 255, 26));
+    }
+
+    private void drawSlider(NanoVGManager nvg, AccentColor accent, float x, float y,
+            float width, float value, boolean active) {
+        float clamped = Math.max(0.0F, Math.min(1.0F, value));
+        nvg.drawRoundedRect(x, y, width, 4.0F, 2.0F, new Color(255, 255, 255, 42));
+        nvg.drawGradientRoundedRect(x, y, width * clamped, 4.0F, 2.0F,
+                ColorUtils.applyAlpha(accent.getColor1(), 220), ColorUtils.applyAlpha(accent.getColor2(), 220));
+        nvg.drawCircle(x + width * clamped, y + 2.0F, active ? 4.0F : 3.2F, new Color(255, 255, 255, 225));
+    }
+
+    private void drawControl(NanoVGManager nvg, ColorPalette palette,
+            float x, float y, String icon, boolean primary) {
+        nvg.drawRoundedRect(x, y, 28.0F, 25.0F, 7.0F,
+                translucent(palette.getBackgroundColor(primary ? ColorType.NORMAL : ColorType.DARK), primary ? 150 : 92));
+        nvg.drawCenteredText(icon, x + 14.0F, y + 6.5F,
+                palette.getFontColor(ColorType.DARK), 10.0F, Fonts.LEGACYICON);
+    }
+
+    @Override
+    public void mouseClicked(int mouseX, int mouseY, int mouseButton) {
+        YouTubeManager youtube = Glide.getInstance().getYouTubeManager();
+        float pageX = getX() + PADDING;
+        float pageY = getY() + 9.0F;
+        float pageWidth = getWidth() - PADDING * 2.0F;
+        float pageHeight = getHeight() - 18.0F;
+        float addWidth = 48.0F;
+        urlBox.mouseClicked(mouseX, mouseY, mouseButton);
+        if(mouseButton == 0 && MouseUtils.isInside(mouseX, mouseY,
+                pageX + pageWidth - addWidth, pageY, addWidth, 25.0F)) {
+            submitUrl();
+            return;
+        }
+
+        float panelsY = pageY + 34.0F;
+        float panelsHeight = pageHeight - 34.0F;
+        float listWidth = Math.max(230.0F, pageWidth * 0.55F);
+        float playerX = pageX + listWidth + 10.0F;
+        float playerWidth = pageWidth - listWidth - 10.0F;
+        float listY = panelsY + 29.0F;
+        float listHeight = panelsHeight - 35.0F;
+        if(MouseUtils.isInside(mouseX, mouseY, pageX, listY, listWidth, listHeight)) {
+            List<YouTubeEntry> entries = youtube.getPlaylist();
+            for(int i = 0; i < entries.size(); i++) {
+                float rowY = listY + i * ROW_HEIGHT + listScrollAnimation.getValue();
+                if(MouseUtils.isInside(mouseX, mouseY, pageX + 5.0F, rowY + 2.0F, listWidth - 10.0F, ROW_HEIGHT - 4.0F)) {
+                    if(mouseButton == 0) youtube.play(entries.get(i));
+                    else if(mouseButton == 1) youtube.remove(entries.get(i));
+                    return;
+                }
+            }
+        }
+        if(mouseButton != 0) return;
+
+        float progressX = playerX + 12.0F;
+        float progressY = panelsY + 69.0F;
+        float sliderWidth = playerWidth - 24.0F;
+        if(MouseUtils.isInside(mouseX, mouseY, progressX - 3.0F, progressY - 5.0F, sliderWidth + 6.0F, 14.0F)) {
+            draggingProgress = true;
+            updateProgressPreview(mouseX, progressX, sliderWidth);
+            return;
+        }
+
+        float controlsY = panelsY + 101.0F;
+        float center = playerX + playerWidth / 2.0F;
+        if(insideControl(mouseX, mouseY, center - 57.0F, controlsY)) youtube.playPrevious();
+        else if(insideControl(mouseX, mouseY, center - 21.0F, controlsY)) youtube.togglePause();
+        else if(insideControl(mouseX, mouseY, center + 15.0F, controlsY)) youtube.playNext();
+        else if(insideControl(mouseX, mouseY, center + 51.0F, controlsY)) youtube.stop();
+
+        float volumeY = panelsY + Math.min(panelsHeight - 39.0F, 151.0F);
+        float volumeX = playerX + 30.0F;
+        float volumeWidth = playerWidth - 75.0F;
+        if(MouseUtils.isInside(mouseX, mouseY, volumeX - 3.0F, volumeY - 5.0F, volumeWidth + 6.0F, 14.0F)) {
+            draggingVolume = true;
+            updateVolume(youtube, mouseX, volumeX, volumeWidth);
+        }
+    }
+
+    private void submitUrl() {
+        String url = urlBox.getText();
+        if(url == null || url.trim().isEmpty()) return;
+        Glide.getInstance().getYouTubeManager().addUrl(url);
+        urlBox.setText("");
+        urlBox.setFocused(false);
+    }
+
+    private boolean insideControl(int mouseX, int mouseY, float x, float y) {
+        return MouseUtils.isInside(mouseX, mouseY, x, y, 28.0F, 25.0F);
+    }
+
+    private void updateProgressPreview(int mouseX, float x, float width) {
+        seekPreview = Math.max(0.0F, Math.min(1.0F, (mouseX - x) / width));
+    }
+
+    private void updateVolume(YouTubeManager manager, int mouseX, float x, float width) {
+        manager.setVolume(Math.max(0.0F, Math.min(1.0F, (mouseX - x) / width)) * 2.0F);
+    }
+
+    @Override
+    public void mouseReleased(int mouseX, int mouseY, int mouseButton) {
+        if(mouseButton == 0) {
+            if(draggingProgress) Glide.getInstance().getYouTubeManager().seekToFraction(seekPreview);
+            draggingProgress = false;
+            draggingVolume = false;
+        }
+    }
+
+    @Override
+    public void keyTyped(char typedChar, int keyCode) {
+        if(urlBox.isFocused() && keyCode == Keyboard.KEY_RETURN) {
+            submitUrl();
+            return;
+        }
+        urlBox.keyTyped(typedChar, keyCode);
+    }
+
+    private Color translucent(Color color, int alpha) {
+        return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
+    }
+
+    private String formatTime(long millis) {
+        long seconds = Math.max(0L, millis / 1000L);
+        return String.format("%d:%02d", seconds / 60L, seconds % 60L);
+    }
+}

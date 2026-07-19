@@ -2,8 +2,14 @@ package me.eldodebug.soar.gui.modmenu.category.impl;
 
 import java.awt.Color;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
 
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.gui.modmenu.GuiModMenu;
@@ -39,704 +45,614 @@ import me.eldodebug.soar.ui.comp.impl.CompSoundSelect;
 import me.eldodebug.soar.ui.comp.impl.CompToggleButton;
 import me.eldodebug.soar.ui.comp.impl.field.CompModTextBox;
 import me.eldodebug.soar.utils.ColorUtils;
-import me.eldodebug.soar.utils.MathUtils;
 import me.eldodebug.soar.utils.SearchUtils;
-import me.eldodebug.soar.utils.animation.normal.Animation;
-import me.eldodebug.soar.utils.animation.normal.Direction;
-import me.eldodebug.soar.utils.animation.normal.other.SmoothStepAnimation;
 import me.eldodebug.soar.utils.animation.simple.SimpleAnimation;
 import me.eldodebug.soar.utils.mouse.MouseUtils;
-import me.eldodebug.soar.utils.mouse.Scroll;
 
+/**
+ * Module browser presented as five independent alphabetical dropdowns.
+ * Ghost modules are classified exclusively by ModCategory.GHOST and can never
+ * leak into one of the regular alphabetical sections.
+ */
 public class ModuleCategory extends Category {
 
-	private ModCategory currentCategory;
+	private static final float PANEL_GAP = 7.0F;
+	private static final float PANEL_MARGIN = 11.0F;
+	private static final float HEADER_HEIGHT = 28.0F;
+	private static final float ROW_HEIGHT = 25.0F;
+	private static final float INLINE_SETTINGS_PADDING = 5.0F;
+	private static final float DEFAULT_SECTION_OFFSET_Y = -62.0F;
+	private static final float SCREEN_EDGE_MARGIN = 8.0F;
+
 	private final ModCategory defaultCategory;
-	private final boolean showCategoryTabs;
-	
-	private Scroll settingScroll = new Scroll();
+	private final boolean showAlphabetSections;
+	private final ArrayList<DropdownSection> sections = new ArrayList<DropdownSection>();
+	private final ArrayList<ModuleSetting> comps = new ArrayList<ModuleSetting>();
+	private final Map<DropdownSection, List<Mod>> moduleCache = new HashMap<DropdownSection, List<Mod>>();
+	private String cachedSearch = null;
+
 	private boolean openSetting;
-	private Animation settingAnimation;
 	private Mod currentMod;
 	private Mod bindingMod;
-	Color noColour = new Color(0, 0, 0, 0);
-	
-	private ArrayList<ModuleSetting> comps = new ArrayList<ModuleSetting>();
-	
+	private DropdownSection draggingSection;
+	private float sectionDragX, sectionDragY;
+	private float sectionPressX, sectionPressY;
+	private boolean sectionPositionsInitialized;
+	private DropdownSection settingsSection;
+
 	public ModuleCategory(GuiModMenu parent) {
 		this(parent, TranslateText.MODULE, LegacyIcon.ARCHIVE, Fonts.LEGACYICON, ModCategory.ALL, true);
 	}
 
-	protected ModuleCategory(GuiModMenu parent, TranslateText name, String icon, Font iconFont, ModCategory defaultCategory, boolean showCategoryTabs) {
+	protected ModuleCategory(GuiModMenu parent, TranslateText name, String icon, Font iconFont,
+			ModCategory defaultCategory, boolean showAlphabetSections) {
 		super(parent, name, icon, iconFont, true, true);
 		this.defaultCategory = defaultCategory;
-		this.showCategoryTabs = showCategoryTabs;
+		this.showAlphabetSections = showAlphabetSections;
+		createSections();
 	}
-	
+
+	private void createSections() {
+		sections.clear();
+		if(showAlphabetSections) {
+			sections.add(new DropdownSection("A ~ G", 'A', 'G', false));
+			sections.add(new DropdownSection("H ~ N", 'H', 'N', false));
+			sections.add(new DropdownSection("O ~ U", 'O', 'U', false));
+			sections.add(new DropdownSection("V ~ Z", 'V', 'Z', false));
+			sections.add(new DropdownSection("Ghost", 'A', 'Z', true));
+		} else {
+			sections.add(new DropdownSection(defaultCategory == ModCategory.GHOST ? "Ghost" : defaultCategory.getName(), 'A', 'Z', defaultCategory == ModCategory.GHOST));
+		}
+	}
+
 	@Override
 	public void initGui() {
-		currentCategory = defaultCategory;
-		openSetting = false;
-		bindingMod = null;
-		settingAnimation = new SmoothStepAnimation(260, 1.0);
-		settingAnimation.setValue(1.0);
+		resetScene();
 	}
 
 	@Override
 	public void initCategory() {
-		scroll.resetAll();
-		openSetting = false;
-		bindingMod = null;
-		settingAnimation = new SmoothStepAnimation(260, 1.0);
-		settingAnimation.setValue(1.0);
+		resetScene();
 	}
-	
+
+	private void resetScene() {
+		scroll.resetAll();
+		cachedSearch = null;
+		moduleCache.clear();
+		openSetting = false;
+		currentMod = null;
+		settingsSection = null;
+		bindingMod = null;
+		for(DropdownSection section : sections) {
+			section.open = true;
+			section.openAnimation.setValue(0.0F);
+			section.scrollTarget = 0.0F;
+			section.scrollAnimation.setValue(0.0F);
+		}
+		draggingSection = null;
+	}
+
 	@Override
 	public void drawScreen(int mouseX, int mouseY, float partialTicks) {
-		
 		Glide instance = Glide.getInstance();
 		NanoVGManager nvg = instance.getNanoVGManager();
-		ModManager modManager = instance.getModManager();
 		ColorManager colorManager = instance.getColorManager();
 		ColorPalette palette = colorManager.getPalette();
 		AccentColor accentColor = colorManager.getCurrentColor();
 
-		int offsetX = 0;
-		float offsetY = 13;
-		int index = 1;
-		float scrollValue = scroll.getValue();
-		
-		settingAnimation.setDirection(openSetting ? Direction.BACKWARDS : Direction.FORWARDS);
-		
-		if(settingAnimation.isDone(Direction.FORWARDS)) {
-			this.setCanClose(bindingMod == null);
-			currentMod = null;
+		if(!getSearchBox().getText().isEmpty()) {
+			nvg.drawCenteredText(getSearchBox().getText(), getScreenWidth() / 2.0F,
+					getScreenHeight() / 2.0F - 18.0F, new Color(255, 255, 255, 28), 42.0F, Fonts.SEMIBOLD);
 		}
-		
-		nvg.save();
-		nvg.translate((float) -(600 - (settingAnimation.getValue() * 600)), 0);
-		
-		//Draw mod scene
-		
-		nvg.save();
-		nvg.translate(0, scrollValue);
-		
-			if(showCategoryTabs) {
-				for(ModCategory c : ModCategory.values()) {
-					if(c.equals(ModCategory.GHOST)) {
-						continue;
-					}
-					
-					float textWidth = nvg.getTextWidth(c.getName(), 9, Fonts.MEDIUM);
-					float chipWidth = textWidth + 20;
-					boolean isCurrentCategory = c.equals(currentCategory);
-					
-					c.getBackgroundAnimation().setAnimation(isCurrentCategory ? 1.0F : 0.0F, 16);
-					
-					Color defaultColor = palette.getBackgroundColor(ColorType.DARK);
-					Color color1 = ColorUtils.applyAlpha(accentColor.getColor1(), (int) (c.getBackgroundAnimation().getValue() * 255));
-					Color color2 = ColorUtils.applyAlpha(accentColor.getColor2(), (int) (c.getBackgroundAnimation().getValue() * 255));
-					Color textColor = c.getTextColorAnimation().getColor(isCurrentCategory ? Color.WHITE : palette.getFontColor(ColorType.DARK), 20);
+		drawDropdowns(nvg, palette, accentColor, mouseX, mouseY, partialTicks);
 
-					nvg.drawRoundedRect(this.getX() + 15 + offsetX, this.getY() + offsetY - 3, chipWidth, 16, 6, defaultColor);
-					nvg.drawGradientRoundedRect(this.getX() + 15 + offsetX, this.getY() + offsetY - 3, chipWidth, 16, 6, color1, color2);
-					nvg.drawText(c.getName(), this.getX() + 15 + offsetX + ((chipWidth - textWidth) / 2), this.getY() + offsetY + 1.5F, textColor, 9, Fonts.MEDIUM);
-					
-					offsetX += chipWidth + 8;
-				}
-				offsetY = offsetY + 23;
-			}
-		
-		for(Mod m : modManager.getMods()) {
-
-			
-			if(filterMod(m)) {
-				continue;
-			}
-			
-			if(offsetY + scrollValue + 45 > 0 && offsetY + scrollValue < this.getHeight()) {
-				
-				nvg.drawRoundedRect(this.getX() + 15, this.getY() + offsetY, this.getWidth() - 30, 40, 8, palette.getBackgroundColor(ColorType.DARK));
-				nvg.drawRoundedRect(this.getX() + 21, this.getY() + offsetY + 6, 28, 28, 6, palette.getBackgroundColor(ColorType.NORMAL));
-				if(m.isRestricted()){
-					nvg.drawText(m.getName(), this.getX() + 56, this.getY() + offsetY + 9F, palette.getFontColor(ColorType.DARK), 13, Fonts.MEDIUM);
-					nvg.drawText(m.getDescription(), this.getX() + 56 + (nvg.getTextWidth(m.getName(), 13, Fonts.MEDIUM)) + 5, this.getY() + offsetY + 12, palette.getFontColor(ColorType.NORMAL), 9, Fonts.REGULAR);
-					nvg.drawText(LegacyIcon.INFO, this.getX() + 56, this.getY() + offsetY + 23, new Color(255, 145, 0), 9, Fonts.LEGACYICON);
-					nvg.drawText("This mod may be restricted on some servers", this.getX() + 57 + (nvg.getTextWidth(LegacyIcon.INFO, 9, Fonts.LEGACYICON)) , this.getY() + offsetY + 24, new Color(255, 145, 0), 9, Fonts.REGULAR);
-				} else {
-					nvg.drawText(m.getName(), this.getX() + 56, this.getY() + offsetY + 15F, palette.getFontColor(ColorType.DARK), 13, Fonts.MEDIUM);
-					nvg.drawText(m.getDescription(), this.getX() + 56 + (nvg.getTextWidth(m.getName(), 13, Fonts.MEDIUM)) + 5, this.getY() + offsetY + 17, palette.getFontColor(ColorType.NORMAL), 9, Fonts.REGULAR);
-				}
-
-				m.getAnimation().setAnimation(m.isToggled() ? 1.0F : 0.0F, 16);
-				
-				nvg.save();
-				nvg.scale(this.getX() + 21, this.getY() + offsetY + 6, 28, 28, m.getAnimation().getValue());
-				
-				nvg.drawGradientRoundedRect(this.getX() + 21, this.getY() + offsetY + 6, 28, 28, 6, ColorUtils.applyAlpha(accentColor.getColor1(), (int) (m.getAnimation().getValue() * 255)), ColorUtils.applyAlpha(accentColor.getColor2(), (int) (m.getAnimation().getValue() * 255)));
-				
-				nvg.restore();
-				
-				if(modManager.getSettingsByMod(m) != null) {
-					nvg.drawText(LegacyIcon.SETTINGS, this.getX() + this.getWidth() - 39, this.getY() + offsetY + 13.5F, palette.getFontColor(ColorType.NORMAL), 13, Fonts.LEGACYICON);
-				}
-
-				if(m.getKeyCode() != Keyboard.KEY_NONE) {
-					String keyName = formatKeyName(Keyboard.getKeyName(m.getKeyCode()));
-					float keyTextWidth = nvg.getTextWidth(keyName, 8, Fonts.SEMIBOLD);
-					float keyBadgeWidth = Math.min(72.0F, Math.max(20.0F, keyTextWidth + 12.0F));
-					float keyX = this.getX() + this.getWidth() - 48 - keyBadgeWidth;
-					float keyY = this.getY() + offsetY + 13.0F;
-
-					nvg.drawRoundedRect(keyX, keyY, keyBadgeWidth, 13, 4, palette.getBackgroundColor(ColorType.NORMAL));
-					nvg.drawOutlineRoundedRect(keyX, keyY, keyBadgeWidth, 13, 4, 0.6F, ColorUtils.applyAlpha(accentColor.getColor1(), 150));
-					nvg.drawCenteredText(keyName, keyX + (keyBadgeWidth / 2), keyY + 6.6F, palette.getFontColor(ColorType.DARK), 8, Fonts.SEMIBOLD);
-				}
-			}
-			
-			index++;
-			offsetY+=50;
+		if(bindingMod != null) {
+			drawBindingPrompt(nvg, palette, accentColor);
 		}
-		
-		nvg.restore();
-		nvg.drawVerticalGradientRect(getX() + 15,  this.getY(), getWidth() - 30, 12,  palette.getBackgroundColor(ColorType.NORMAL), noColour); //top
-		nvg.drawVerticalGradientRect(getX() + 15,  this.getY()+ this.getHeight() - 12, getWidth() - 30, 12, noColour, palette.getBackgroundColor(ColorType.NORMAL)); // bottom
-		nvg.restore();
-
-
-		
-		//Draw mod setting scene
-		
-		nvg.save();
-		nvg.translate((float) (settingAnimation.getValue() * 600), 0);
-		
-		if(currentMod != null) {
-			
-			int setIndex = 0;
-			
-			if(MouseUtils.isInside(mouseX, mouseY, this.getX(), this.getY(), this.getWidth(), this.getHeight())) {
-				settingScroll.onScroll();
-				settingScroll.onAnimation();
-			}
-			
-			offsetY = 15;
-			offsetX = 0;
-			
-			nvg.save();
-			
-			nvg.drawRoundedRect(this.getX() + 15, this.getY() + offsetY, this.getWidth() - 30, this.getHeight() - 30, 10, palette.getBackgroundColor(ColorType.DARK));
-			nvg.drawText(LegacyIcon.CHEVRON_LEFT, this.getX() + 25, this.getY() + offsetY + 8, palette.getFontColor(ColorType.DARK), 13, Fonts.LEGACYICON);
-			nvg.drawText(currentMod.getName(), this.getX() + 42, this.getY() + offsetY + 9, palette.getFontColor(ColorType.DARK), 13, Fonts.MEDIUM);
-			nvg.drawText(LegacyIcon.REFRESH, this.getX() + this.getWidth() - 39, this.getY() + offsetY + 7.5F, palette.getFontColor(ColorType.DARK), 13, Fonts.LEGACYICON);
-			
-			offsetY = 44;
-			
-			nvg.scissor(this.getX() + 15, this.getY() + offsetY, this.getWidth() - 30, this.getHeight() - 59);
-			nvg.translate(0, settingScroll.getValue());
-			
-			for(ModuleSetting s : comps) {
-				
-				s.openAnimation.setAnimation(s.openY, 16);
-				
-				nvg.drawText(s.setting.getName(), this.getX() + offsetX + 26, this.getY() + offsetY + 15F + s.openAnimation.getValue(), palette.getFontColor(ColorType.DARK), 10, Fonts.MEDIUM);
-				
-				if(s.comp instanceof CompToggleButton) {
-					
-					CompToggleButton toggleButton = (CompToggleButton) s.comp;
-					
-					toggleButton.setX(this.getX() + offsetX + 168);
-					toggleButton.setY(this.getY() + offsetY + 12 + s.openAnimation.getValue());
-					toggleButton.setScale(0.85F);
-				}
-				
-				if(s.comp instanceof CompSlider) {
-					
-					CompSlider slider = (CompSlider) s.comp;
-					
-					slider.setX(this.getX() + offsetX + 122);
-					slider.setY(this.getY() + offsetY + 17 + s.openAnimation.getValue());
-					slider.setWidth(75);
-				}
-				
-				if(s.comp instanceof CompComboBox) {
-					
-					CompComboBox comboBox = (CompComboBox) s.comp;
-					
-					comboBox.setX(this.getX() + offsetX + 122);
-					comboBox.setY(this.getY() + offsetY + 11 + s.openAnimation.getValue());
-				}
-				
-				if(s.comp instanceof CompKeybind) {
-					
-					CompKeybind keybind = (CompKeybind) s.comp;
-					
-					keybind.setX(this.getX() + offsetX + 122);
-					keybind.setY(this.getY() + offsetY + 11 + s.openAnimation.getValue());
-				}
-				
-				if(s.comp instanceof CompModTextBox) {
-					
-					CompModTextBox textBox = (CompModTextBox) s.comp;
-					
-					textBox.setX(this.getX() + offsetX + 122);
-					textBox.setY(this.getY() + offsetY + 11 + s.openAnimation.getValue());
-					textBox.setWidth(75);
-					textBox.setHeight(16);
-				}
-				
-				if(s.comp instanceof CompColorPicker) {
-					
-					CompColorPicker picker = (CompColorPicker) s.comp;
-					
-					picker.setX(this.getX() + offsetX + 98);
-					picker.setY(this.getY() + offsetY + 12.5F + s.openAnimation.getValue());
-					picker.setScale(0.8F);
-				}
-				
-				if(s.comp instanceof CompImageSelect) {
-					
-					CompImageSelect imageSelect = (CompImageSelect) s.comp;
-					
-					imageSelect.setX(this.getX() + offsetX + 181);
-					imageSelect.setY(this.getY() + offsetY + 11 + s.openAnimation.getValue());
-				}
-				
-				if(s.comp instanceof CompSoundSelect) {
-					
-					CompSoundSelect soundSelect = (CompSoundSelect) s.comp;
-					
-					soundSelect.setX(this.getX() + offsetX + 181);
-					soundSelect.setY(this.getY() + offsetY + 11 + s.openAnimation.getValue());
-				}
-				
-				s.comp.draw(mouseX, (int) (mouseY - settingScroll.getValue()), partialTicks);
-				
-				offsetX+=194;
-				setIndex++;
-				
-				if(setIndex % 2 == 0) {
-					offsetY+=29;
-					offsetX = 0;
-				}
-			}
-			
-			nvg.restore();
-			
-			settingScroll.setMaxScroll(this.getModuleSettingHeight());
-		}
-		
-		nvg.restore();
-
-		if(bindingMod != null && !openSetting) {
-			float promptWidth = 230;
-			float promptHeight = 28;
-			float promptX = this.getX() + (this.getWidth() / 2.0F) - (promptWidth / 2.0F);
-			float promptY = this.getY() + this.getHeight() - 36;
-			String bindText = "Waiting Type Key....  " + bindingMod.getName();
-
-			nvg.drawRoundedRect(promptX, promptY, promptWidth, promptHeight, 8, palette.getBackgroundColor(ColorType.DARK));
-			nvg.drawOutlineRoundedRect(promptX, promptY, promptWidth, promptHeight, 8, 0.8F, ColorUtils.applyAlpha(accentColor.getColor1(), 205));
-			nvg.drawGradientRoundedRect(promptX + 1.2F, promptY + 1.2F, promptWidth - 2.4F, 3.3F, 6, ColorUtils.applyAlpha(accentColor.getColor1(), 200), ColorUtils.applyAlpha(accentColor.getColor2(), 200));
-			nvg.drawCenteredText(bindText, promptX + (promptWidth / 2), promptY + (promptHeight / 2), palette.getFontColor(ColorType.DARK), 10, Fonts.MEDIUM);
-		}
-
-		scroll.setMaxScroll((index - (index > 5 ? 5.18F : index)) * 50);
 	}
-	
+
+	private void drawDropdowns(NanoVGManager nvg, ColorPalette palette, AccentColor accentColor,
+			int mouseX, int mouseY, float partialTicks) {
+		float availableWidth = getWidth() - PANEL_MARGIN * 2.0F;
+		float panelWidth = (availableWidth - PANEL_GAP * (sections.size() - 1)) / sections.size();
+		initializeSectionPositions(panelWidth);
+
+		if(draggingSection != null) {
+			draggingSection.offsetX = mouseX - getX() - sectionDragX;
+			draggingSection.offsetY = mouseY - getY() - sectionDragY;
+			draggingSection.moved = draggingSection.moved
+					|| Math.abs(mouseX - sectionPressX) > 3 || Math.abs(mouseY - sectionPressY) > 3;
+		}
+
+		int wheel = 0;
+
+		for(int i = sections.size() - 1; i >= 0; i--) {
+			DropdownSection section = sections.get(i);
+			float panelX = getX() + section.offsetX;
+			float panelY = getY() + section.offsetY;
+			if(MouseUtils.isInside(mouseX, mouseY, panelX, panelY, panelWidth,
+					HEADER_HEIGHT + Math.max(42.0F, section.visibleBodyHeight))) {
+				wheel = Mouse.getDWheel();
+				break;
+			}
+		}
+
+		for(int i = 0; i < sections.size(); i++) {
+			DropdownSection section = sections.get(i);
+			List<Mod> modules = getSectionModules(section);
+			float panelX = getX() + section.offsetX;
+			float panelY = getY() + section.offsetY;
+			float defaultPanelY = Math.max(SCREEN_EDGE_MARGIN, getY() + DEFAULT_SECTION_OFFSET_Y);
+			float maxBodyHeight = Math.max(42.0F,
+					getScreenHeight() - defaultPanelY * 2.0F - HEADER_HEIGHT);
+			boolean headerHovered = MouseUtils.isInside(mouseX, mouseY, panelX, panelY, panelWidth, HEADER_HEIGHT);
+
+			section.openAnimation.setAnimation(section.open ? 1.0F : 0.0F, 18);
+			section.hoverAnimation.setAnimation(headerHovered ? 1.0F : 0.0F, 18);
+
+			float contentHeight = getSectionContentHeight(modules);
+			float expandedHeight = Math.min(maxBodyHeight, contentHeight);
+			float bodyHeight = expandedHeight * section.openAnimation.getValue();
+			section.visibleBodyHeight = bodyHeight;
+			section.maxScroll = Math.max(0.0F, contentHeight - maxBodyHeight);
+
+			if(wheel != 0 && section.open && MouseUtils.isInside(mouseX, mouseY, panelX, panelY + HEADER_HEIGHT, panelWidth, maxBodyHeight)) {
+				section.scrollTarget += wheel / 2.4F;
+			}
+			section.scrollTarget = Math.max(-section.maxScroll, Math.min(0.0F, section.scrollTarget));
+			section.scrollAnimation.setAnimation(section.scrollTarget, 18);
+
+			float totalHeight = HEADER_HEIGHT + bodyHeight;
+			nvg.drawShadow(panelX, panelY, panelWidth, totalHeight, 9, 3);
+			nvg.drawRoundedRect(panelX, panelY, panelWidth, totalHeight, 8,
+					translucent(palette.getBackgroundColor(ColorType.DARK), 62));
+			nvg.drawOutlineRoundedRect(panelX + 0.5F, panelY + 0.5F, panelWidth - 1, totalHeight - 1,
+					8, 0.55F, new Color(255, 255, 255, headerHovered ? 30 : 18));
+				if(headerHovered) {
+				nvg.drawRoundedRect(panelX + 3, panelY + 3, panelWidth - 6, HEADER_HEIGHT - 5, 6,
+						translucent(palette.getBackgroundColor(ColorType.NORMAL), 34));
+			}
+
+			nvg.drawText(section.title, panelX + 10, panelY + 8.5F, Color.WHITE, 10.5F, Fonts.SEMIBOLD);
+			String count = String.valueOf(modules.size());
+			float countWidth = Math.max(17.0F, nvg.getTextWidth(count, 7.5F, Fonts.SEMIBOLD) + 9.0F);
+			float arrowX = panelX + panelWidth - 13.0F;
+			nvg.drawRoundedRect(arrowX - countWidth - 7.0F, panelY + 7.0F, countWidth, 14.0F, 7.0F, new Color(9, 13, 24, 55));
+			nvg.drawCenteredText(count, arrowX - 7.0F - countWidth / 2.0F, panelY + 11.0F, Color.WHITE, 7.5F, Fonts.SEMIBOLD);
+			nvg.drawCenteredText(section.open ? LegacyIcon.CHEVRON_UP : LegacyIcon.CHEVRON_DOWN,
+					arrowX, panelY + 9.0F, Color.WHITE, 8.0F, Fonts.LEGACYICON);
+
+			if(bodyHeight <= 0.5F) continue;
+			float bodyY = panelY + HEADER_HEIGHT;
+			nvg.save();
+			nvg.scissor(panelX, bodyY, panelWidth, bodyHeight);
+			nvg.translate(0, section.scrollAnimation.getValue());
+
+			if(modules.isEmpty()) {
+				nvg.drawCenteredText("No modules", panelX + panelWidth / 2.0F, bodyY + 12.0F,
+						palette.getFontColor(ColorType.NORMAL), 8.0F, Fonts.REGULAR);
+			} else {
+				float rowY = bodyY;
+				for(int moduleIndex = 0; moduleIndex < modules.size(); moduleIndex++) {
+					Mod mod = modules.get(moduleIndex);
+					drawModuleRow(nvg, palette, accentColor, mod, panelX, rowY, panelWidth, mouseX, mouseY, section);
+					rowY += ROW_HEIGHT;
+					if(openSetting && currentMod == mod) {
+						drawInlineSettings(nvg, palette, panelX, rowY, panelWidth,
+								mouseX, mouseY, partialTicks, section);
+						rowY += getInlineSettingsHeight();
+					}
+				}
+			}
+
+			nvg.restore();
+		}
+	}
+
+	private void drawModuleRow(NanoVGManager nvg, ColorPalette palette, AccentColor accentColor, Mod mod,
+			float x, float y, float width, int mouseX, int mouseY, DropdownSection section) {
+		float screenY = y + section.scrollAnimation.getValue();
+		float visibleTop = getY() + section.offsetY + HEADER_HEIGHT;
+		float visibleBottom = visibleTop + section.visibleBodyHeight;
+		if(screenY + ROW_HEIGHT <= visibleTop || screenY >= visibleBottom) return;
+		boolean hovered = MouseUtils.isInside(mouseX, mouseY, x, screenY, width, ROW_HEIGHT);
+		if(hovered) {
+			nvg.drawRoundedRect(x + 3, y + 2, width - 6, ROW_HEIGHT - 4, 5,
+					translucent(palette.getBackgroundColor(ColorType.NORMAL), 82));
+		}
+		nvg.drawRect(x + 7, y + ROW_HEIGHT - 0.6F, width - 14, 0.6F, new Color(127, 135, 155, 22));
+
+		mod.getAnimation().setAnimation(mod.isToggled() ? 1.0F : 0.0F, 18);
+		float active = mod.getAnimation().getValue();
+		nvg.drawGradientRoundedRect(x + 4, y + 5, 3.0F, 15.0F, 1.5F,
+				ColorUtils.applyAlpha(accentColor.getColor1(), (int) (active * 255)),
+				ColorUtils.applyAlpha(accentColor.getColor2(), (int) (active * 255)));
+
+		String bindName = mod.getKeyCode() == Keyboard.KEY_NONE ? "" : Keyboard.getKeyName(mod.getKeyCode());
+		if(bindName == null) bindName = "";
+		float bindWidth = bindName.isEmpty() ? 0.0F : nvg.getTextWidth(bindName, 7.5F, Fonts.MEDIUM);
+		float reserved = bindName.isEmpty() ? 28.0F : 37.0F + bindWidth;
+		String name = nvg.getLimitText(mod.getName(), 9.0F, Fonts.MEDIUM, Math.max(28.0F, width - reserved));
+		Color nameColor = mod.isToggled() ? palette.getFontColor(ColorType.DARK) : palette.getFontColor(ColorType.NORMAL);
+		nvg.drawText(name, x + 12, y + 8.0F, nameColor, 9.0F, Fonts.MEDIUM);
+
+		float bindX = x + width - 7.0F - bindWidth;
+		if(!bindName.isEmpty()) {
+			nvg.drawText(bindName, bindX, y + 8.8F, palette.getFontColor(ColorType.NORMAL, 180), 7.5F, Fonts.MEDIUM);
+		}
+		float stateX = bindName.isEmpty() ? x + width - 11.0F : bindX - 9.0F;
+		nvg.drawCircle(stateX, y + 12.5F, 3.2F,
+				translucent(palette.getBackgroundColor(ColorType.NORMAL), 140));
+		nvg.drawGradientCircle(stateX, y + 12.5F, 3.2F,
+				ColorUtils.applyAlpha(accentColor.getColor1(), (int) (active * 255)),
+				ColorUtils.applyAlpha(accentColor.getColor2(), (int) (active * 255)));
+	}
+
+	private float getSectionContentHeight(List<Mod> modules) {
+		float height = modules.isEmpty() ? 34.0F : modules.size() * ROW_HEIGHT;
+		if(openSetting && currentMod != null && modules.contains(currentMod)) height += getInlineSettingsHeight();
+		return height;
+	}
+
+	private float getInlineSettingsHeight() {
+		float greatestShift = 0.0F;
+		for(ModuleSetting entry : comps) greatestShift = Math.max(greatestShift, entry.openY);
+		return INLINE_SETTINGS_PADDING * 2.0F + comps.size() * 31.0F + greatestShift;
+	}
+
+	private void drawInlineSettings(NanoVGManager nvg, ColorPalette palette, float x, float y,
+			float width, int mouseX, int mouseY, float partialTicks, DropdownSection section) {
+		float height = getInlineSettingsHeight();
+		nvg.drawRect(x + 6.0F, y + 1.0F, 1.2F, height - 2.0F, new Color(255, 255, 255, 145));
+
+		float cellX = x + 12.0F;
+		float cellWidth = width - 18.0F;
+		float visibleTop = getY() + section.offsetY + HEADER_HEIGHT;
+		float visibleBottom = visibleTop + section.visibleBodyHeight;
+		for(int i = 0; i < comps.size(); i++) {
+			ModuleSetting entry = comps.get(i);
+			entry.openAnimation.setAnimation(entry.openY, 16);
+			float rowY = y + INLINE_SETTINGS_PADDING + i * 31.0F + entry.openAnimation.getValue();
+			float screenRowY = rowY + section.scrollAnimation.getValue();
+			if(screenRowY + 31.0F <= visibleTop || screenRowY >= visibleBottom) continue;
+			nvg.drawText(nvg.getLimitText(entry.setting.getName(), 8.5F, Fonts.MEDIUM,
+					Math.max(24.0F, cellWidth - 88.0F)), cellX, rowY + 10.0F,
+					palette.getFontColor(ColorType.NORMAL), 8.5F, Fonts.MEDIUM);
+			positionSettingComponent(entry.comp, cellX, rowY, cellWidth);
+			entry.comp.draw(mouseX, (int) (mouseY - section.scrollAnimation.getValue()), partialTicks);
+		}
+	}
+
+	private List<Mod> getSectionModules(final DropdownSection section) {
+		String search = getSearchBox().getText();
+		if(cachedSearch == null || !cachedSearch.equals(search) || !moduleCache.containsKey(section)) {
+			rebuildModuleCache(search);
+		}
+		List<Mod> result = moduleCache.get(section);
+		return result == null ? Collections.<Mod>emptyList() : result;
+	}
+
+	private void rebuildModuleCache(String search) {
+		moduleCache.clear();
+		for(DropdownSection section : sections) moduleCache.put(section, new ArrayList<Mod>());
+
+		ModManager manager = Glide.getInstance().getModManager();
+		final Map<Mod, String> sortNames = new HashMap<Mod, String>();
+
+		for(Mod mod : manager.getMods()) {
+			if(mod.isHide() || !mod.getAllowed()) continue;
+			if(!search.isEmpty() && !SearchUtils.isSimillar(manager.getWords(mod), search)) continue;
+
+			boolean ghost = mod.getCategory() == ModCategory.GHOST;
+			String sortName = getSortName(mod);
+			sortNames.put(mod, sortName);
+			char initial = firstAsciiLetter(sortName);
+
+			for(DropdownSection section : sections) {
+				if(section.ghost != ghost) continue;
+				if(!showAlphabetSections && !section.ghost && defaultCategory != ModCategory.ALL
+						&& mod.getCategory() != defaultCategory) continue;
+				if(section.ghost || (initial >= section.start && initial <= section.end)) {
+					moduleCache.get(section).add(mod);
+					break;
+				}
+			}
+		}
+
+		Comparator<Mod> comparator = new Comparator<Mod>() {
+			@Override public int compare(Mod first, Mod second) {
+				return sortNames.get(first).compareToIgnoreCase(sortNames.get(second));
+			}
+		};
+		for(List<Mod> modules : moduleCache.values()) Collections.sort(modules, comparator);
+		cachedSearch = search;
+	}
+
+	private String getSortName(Mod mod) {
+		return Glide.getInstance().getLanguageManager().getBaseTranslation(mod.getNameKey()).trim();
+	}
+
+	private char firstAsciiLetter(String text) {
+		for(int i = 0; i < text.length(); i++) {
+			char c = Character.toUpperCase(text.charAt(i));
+			if(c >= 'A' && c <= 'Z') return c;
+		}
+		return 'Z';
+	}
+
+	private void initializeSectionPositions(float panelWidth) {
+		if(sectionPositionsInitialized) return;
+		for(int i = 0; i < sections.size(); i++) {
+			DropdownSection section = sections.get(i);
+			section.offsetX = PANEL_MARGIN + i * (panelWidth + PANEL_GAP);
+			section.offsetY = Math.max(DEFAULT_SECTION_OFFSET_Y, SCREEN_EDGE_MARGIN - getY());
+		}
+		sectionPositionsInitialized = true;
+	}
+
+	private Color translucent(Color color, int alpha) {
+		return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
+	}
+
+	private void positionSettingComponent(Comp comp, float cellX, float rowY, float cellWidth) {
+		float controlX = cellX + cellWidth - 84.0F;
+		if(comp instanceof CompToggleButton) {
+			CompToggleButton toggle = (CompToggleButton) comp;
+			toggle.setX(cellX + cellWidth - 34.0F);
+			toggle.setY(rowY + 7.0F);
+			toggle.setScale(0.85F);
+		} else if(comp instanceof CompSlider) {
+			CompSlider slider = (CompSlider) comp;
+			slider.setX(controlX);
+			slider.setY(rowY + 13.0F);
+			slider.setWidth(72);
+		} else if(comp instanceof CompComboBox || comp instanceof CompKeybind) {
+			comp.setX(controlX);
+			comp.setY(rowY + 6.0F);
+		} else if(comp instanceof CompModTextBox) {
+			CompModTextBox textBox = (CompModTextBox) comp;
+			textBox.setX(controlX);
+			textBox.setY(rowY + 6.0F);
+			textBox.setWidth(75);
+			textBox.setHeight(16);
+		} else if(comp instanceof CompColorPicker) {
+			CompColorPicker picker = (CompColorPicker) comp;
+			picker.setX(cellX + cellWidth - 102.0F);
+			picker.setY(rowY + 6.0F);
+			picker.setScale(0.8F);
+		} else if(comp instanceof CompImageSelect || comp instanceof CompSoundSelect) {
+			comp.setX(cellX + cellWidth - 18.0F);
+			comp.setY(rowY + 6.0F);
+		}
+	}
+
+	private void drawBindingPrompt(NanoVGManager nvg, ColorPalette palette, AccentColor accentColor) {
+		float promptWidth = 250;
+		float promptHeight = 30;
+		float promptX = getX() + getWidth() / 2.0F - promptWidth / 2.0F;
+		float promptY = getY() + getHeight() - 39;
+		String bindText = "Press a key for " + bindingMod.getName() + "  •  right click to clear";
+		nvg.drawShadow(promptX, promptY, promptWidth, promptHeight, 8);
+		nvg.drawRoundedRect(promptX, promptY, promptWidth, promptHeight, 8,
+				translucent(palette.getBackgroundColor(ColorType.DARK), 145));
+		nvg.drawGradientOutlineRoundedRect(promptX, promptY, promptWidth, promptHeight, 8, 0.8F,
+				accentColor.getColor1(), accentColor.getColor2());
+		nvg.drawCenteredText(bindText, promptX + promptWidth / 2.0F, promptY + 10.5F,
+				palette.getFontColor(ColorType.DARK), 9, Fonts.MEDIUM);
+	}
+
 	@Override
 	public void mouseClicked(int mouseX, int mouseY, int mouseButton) {
-		
-		Glide instance = Glide.getInstance();
-		NanoVGManager nvg = instance.getNanoVGManager();
-		ModManager modManager = instance.getModManager();
-		
-		int offsetX = 0;
-		float offsetY = 13 + scroll.getValue();
-
 		if(bindingMod != null) {
 			if(mouseButton == 1) {
 				bindingMod.setKeyCode(Keyboard.KEY_NONE);
 				bindingMod = null;
-				this.setCanClose(true);
+				setCanClose(true);
 				return;
 			}
-
 			if(mouseButton == 2) {
 				bindingMod = null;
-				this.setCanClose(true);
+				setCanClose(true);
 				return;
 			}
 		}
-		
-			if(!openSetting) {
-				if(showCategoryTabs) {
-					for(ModCategory c : ModCategory.values()) {
-						if(c.equals(ModCategory.GHOST)) {
-							continue;
-						}
-						
-						float textWidth = nvg.getTextWidth(c.getName(), 9, Fonts.MEDIUM);
-						float chipWidth = textWidth + 20;
-						
-						if(MouseUtils.isInside(mouseX, mouseY, this.getX() + 15 + offsetX, this.getY() + offsetY - 3, chipWidth, 16) && mouseButton == 0) {
-							currentCategory = c;
-							scroll.reset();
-						}
-						
-						offsetX += chipWidth + 8;
-					}
-					offsetY = offsetY + 23;
-				}
-			
-			for(Mod m : modManager.getMods()) {
-				
-				if(filterMod(m)) {
-					continue;
-				}
-				
-				if(MouseUtils.isInside(mouseX, mouseY, this.getX(), this.getY(), this.getWidth(), this.getHeight()) && mouseButton == 0) {
-					if(MouseUtils.isInside(mouseX, mouseY, this.getX() + 15, this.getY() + offsetY, this.getWidth() - 60, 40)) {
-						m.toggle();
-					}
-					
-					if(MouseUtils.isInside(mouseX, mouseY, this.getX() + this.getWidth() - 44, this.getY() + offsetY + 9, 22, 22) && !openSetting) {
-						
-						ArrayList<Setting> settings = modManager.getSettingsByMod(m);
-						int setIndex = 0;
-						
-						offsetX = 0;
-						offsetY = 44;
-						
-						if(settings != null) {
 
-							comps.clear();
-							
-							for(Setting s : settings) {
-								
-								if(s instanceof BooleanSetting) {
-									
-									BooleanSetting bSetting = (BooleanSetting) s;
-									
-									CompToggleButton toggleButton = new CompToggleButton(bSetting);
-									
-									toggleButton.setX(this.getX() + offsetX + 168);
-									toggleButton.setY(this.getY() + offsetY + 8);
-									toggleButton.setScale(0.85F);
-									
-									comps.add(new ModuleSetting(s, toggleButton));
-								}
-								
-								if(s instanceof NumberSetting) {
-									
-									NumberSetting nSetting = (NumberSetting)s;
-									
-									CompSlider slider = new CompSlider(nSetting);
-									
-									slider.setX(this.getX() + offsetX + 122);
-									slider.setY(this.getY() + offsetY + 13);
-									slider.setWidth(75);
-									
-									comps.add(new ModuleSetting(s, slider));
-								}
-								
-								if(s instanceof ComboSetting) {
-									
-									ComboSetting cSetting = (ComboSetting) s;
-									
-									CompComboBox comboBox = new CompComboBox(75, cSetting);
-									
-									comboBox.setX(this.getX() + offsetX + 122);
-									comboBox.setY(this.getY() + offsetY + 11);
-									
-									comps.add(new ModuleSetting(s, comboBox));
-								}
-								
-								if(s instanceof ImageSetting) {
-									
-									ImageSetting iSetting = (ImageSetting) s;
-									CompImageSelect imageSelect = new CompImageSelect(iSetting);
-									
-									imageSelect.setX(this.getX() + offsetX + 181);
-									imageSelect.setY(this.getY() + offsetY + 11);
-									
-									comps.add(new ModuleSetting(s, imageSelect));
-								}
-								
-								if(s instanceof SoundSetting) {
-									
-									SoundSetting sSetting = (SoundSetting) s;
-									CompSoundSelect soundSelect = new CompSoundSelect(sSetting);
-									
-									soundSelect.setX(this.getX() + offsetX + 181);
-									soundSelect.setY(this.getY() + offsetY + 11);
-									
-									comps.add(new ModuleSetting(s, soundSelect));
-								}
-								
-								if(s instanceof KeybindSetting) {
-									
-									KeybindSetting kSetting = (KeybindSetting) s;
-									CompKeybind keybind = new CompKeybind(75, kSetting);
-									
-									keybind.setX(this.getX() + offsetX + 122);
-									keybind.setY(this.getY() + offsetY + 7);
-									
-									comps.add(new ModuleSetting(s, keybind));
-								}
-								
-								if(s instanceof TextSetting) {
-									
-									TextSetting tSetting = (TextSetting) s;
-									
-									CompModTextBox textBox = new CompModTextBox(tSetting);
-									
-									textBox.setX(this.getX() + offsetX + 122);
-									textBox.setY(this.getY() + offsetY + 7);
-									textBox.setWidth(75);
-									textBox.setHeight(16);
-									
-									comps.add(new ModuleSetting(s, textBox));
-								}
-								
-								if(s instanceof ColorSetting) {
-									
-									ColorSetting cSetting = (ColorSetting) s;
-									CompColorPicker picker = new CompColorPicker(cSetting);
-									
-									picker.setX(this.getX() + offsetX + 98);
-									picker.setY(this.getY() + offsetY + 8.5F);
-									picker.setScale(0.8F);
-									
-									comps.add(new ModuleSetting(s, picker));
-								}
-								
-								offsetX+=194;
-								setIndex++;
-								
-								if(setIndex % 2 == 0) {
-									offsetY+=29;
-									offsetX = 0;
-								}
-							}
-							
-							settingScroll.resetAll();
-							currentMod = m;
-							openSetting = true;
-							this.setCanClose(false);
-						}
+		handleDropdownClick(mouseX, mouseY, mouseButton);
+	}
+
+	private boolean handleDropdownClick(int mouseX, int mouseY, int mouseButton) {
+		float availableWidth = getWidth() - PANEL_MARGIN * 2.0F;
+		float panelWidth = (availableWidth - PANEL_GAP * (sections.size() - 1)) / sections.size();
+		initializeSectionPositions(panelWidth);
+
+		for(int i = sections.size() - 1; i >= 0; i--) {
+			DropdownSection section = sections.get(i);
+			float panelX = getX() + section.offsetX;
+			float panelY = getY() + section.offsetY;
+			float bodyY = panelY + HEADER_HEIGHT;
+			if(MouseUtils.isInside(mouseX, mouseY, panelX, panelY, panelWidth, HEADER_HEIGHT) && mouseButton == 0) {
+				draggingSection = section;
+				sectionDragX = mouseX - panelX;
+				sectionDragY = mouseY - panelY;
+				sectionPressX = mouseX;
+				sectionPressY = mouseY;
+				section.moved = false;
+				// The grabbed panel is rendered above overlapping panels.
+				sections.remove(section);
+				sections.add(section);
+				return true;
+			}
+
+			if(!section.open || !MouseUtils.isInside(mouseX, mouseY, panelX, bodyY, panelWidth, section.visibleBodyHeight)) continue;
+			List<Mod> modules = getSectionModules(section);
+			float rowY = bodyY;
+			for(Mod mod : modules) {
+				float screenRowY = rowY + section.scrollAnimation.getValue();
+				if(MouseUtils.isInside(mouseX, mouseY, panelX, screenRowY, panelWidth, ROW_HEIGHT)) {
+					if(mouseButton == 0) {
+						mod.toggle();
+						return true;
+					}
+					if(mouseButton == 1 && Glide.getInstance().getModManager().getSettingsByMod(mod) != null) {
+						if(openSetting && currentMod == mod) closeSettings();
+						else openSettings(mod, section);
+						return true;
+					}
+					if(mouseButton == 2) {
+						bindingMod = mod;
+						setCanClose(false);
+						return true;
 					}
 				}
 
-				if(MouseUtils.isInside(mouseX, mouseY, this.getX(), this.getY(), this.getWidth(), this.getHeight()) && mouseButton == 2) {
-					if(MouseUtils.isInside(mouseX, mouseY, this.getX() + 15, this.getY() + offsetY, this.getWidth() - 30, 40)) {
-						bindingMod = m;
-						this.setCanClose(false);
-						return;
-					}
-				}
-				
-				offsetY+=50;
-			}
-		}
-		
-		if(openSetting && settingAnimation.isDone(Direction.BACKWARDS)) {
-			if(MouseUtils.isInside(mouseX, mouseY, this.getX() + 22, this.getY() + 20,  18,18)  && mouseButton == 0) {
-				openSetting = false;
-			}
-			int x = getX() - 32, y = getY() - 31, width = getWidth() + 32, height = getHeight() + 31;
-			if(!MouseUtils.isInside(mouseX, mouseY,  x - 5, y - 5, width + 10, height + 10) && mouseButton == 0 ) {
-				openSetting = false;
-			}
-			
-			for(ModuleSetting s: comps) {
-				
-				if(MouseUtils.isInside(mouseX, mouseY, this.getX(), this.getY(), this.getWidth(), this.getHeight()) && mouseButton == 0) {
-					
-					s.comp.mouseClicked(mouseX, (int) (mouseY - settingScroll.getValue()), mouseButton);
-					
-					if(s.comp instanceof CompColorPicker) {
-						
-						CompColorPicker picker = (CompColorPicker) s.comp;
-						int openIndex = 1;
-						
-						if(!picker.isInsideOpen(mouseX, (int) (mouseY - settingScroll.getValue()))) {
-							continue;
-						}
-						
-						for(int i = 0; i < comps.size(); i++) {
-							
-							if((openIndex * 2) + (comps.indexOf(s)) < comps.size()) {
-								
-								ModuleSetting s2 = comps.get((openIndex * 2) + (comps.indexOf(s)));
-								int add = picker.isShowAlpha() ? 100 : 85;
-								
-								s2.openY+= picker.isOpen() ? add : -add;
+				rowY += ROW_HEIGHT;
+				if(openSetting && currentMod == mod) {
+					float inlineHeight = getInlineSettingsHeight();
+					float screenInlineY = rowY + section.scrollAnimation.getValue();
+					if(MouseUtils.isInside(mouseX, mouseY, panelX, screenInlineY, panelWidth, inlineHeight)) {
+						if(mouseButton == 0) {
+							int componentMouseY = (int) (mouseY - section.scrollAnimation.getValue());
+							for(ModuleSetting entry : comps) {
+								entry.comp.mouseClicked(mouseX, componentMouseY, mouseButton);
+								if(entry.comp instanceof CompColorPicker) {
+									CompColorPicker picker = (CompColorPicker) entry.comp;
+									if(picker.isInsideOpen(mouseX, componentMouseY)) {
+										shiftRowsBelowColorPicker(entry, picker.isOpen() ?
+												(picker.isShowAlpha() ? 100 : 85) : -(picker.isShowAlpha() ? 100 : 85));
+									}
+								}
 							}
-							
-							openIndex++;
 						}
+						return true;
 					}
-				}
-			}
-			
-			if(MouseUtils.isInside(mouseX, mouseY, this.getX() + this.getWidth() - 41, this.getY() + 15 + 6F, 16, 16) && mouseButton == 0) {
-				
-				for(ModuleSetting s : comps) {
-					s.setting.reset();
+					rowY += inlineHeight;
 				}
 			}
 		}
+		return false;
+	}
 
-		if(openSetting && mouseButton == 3) {
-			openSetting = false;
+	private void openSettings(Mod mod, DropdownSection section) {
+		ArrayList<Setting> settings = Glide.getInstance().getModManager().getSettingsByMod(mod);
+		if(settings == null) return;
+		comps.clear();
+
+		for(Setting setting : settings) {
+			Comp comp = createComponent(setting);
+			if(comp != null) comps.add(new ModuleSetting(setting, comp));
+		}
+
+		getSearchBox().setFocused(false);
+		currentMod = mod;
+		settingsSection = section;
+		openSetting = true;
+		setCanClose(false);
+	}
+
+	private void closeSettings() {
+		openSetting = false;
+		currentMod = null;
+		settingsSection = null;
+		setCanClose(bindingMod == null);
+	}
+
+	private Comp createComponent(Setting setting) {
+		if(setting instanceof BooleanSetting) return new CompToggleButton((BooleanSetting) setting);
+		if(setting instanceof NumberSetting) return new CompSlider((NumberSetting) setting);
+		if(setting instanceof ComboSetting) return new CompComboBox(75, (ComboSetting) setting);
+		if(setting instanceof ImageSetting) return new CompImageSelect((ImageSetting) setting);
+		if(setting instanceof SoundSetting) return new CompSoundSelect((SoundSetting) setting);
+		if(setting instanceof KeybindSetting) return new CompKeybind(75, (KeybindSetting) setting);
+		if(setting instanceof TextSetting) return new CompModTextBox((TextSetting) setting);
+		if(setting instanceof ColorSetting) return new CompColorPicker((ColorSetting) setting);
+		return null;
+	}
+
+	private void shiftRowsBelowColorPicker(ModuleSetting source, int amount) {
+		int sourceIndex = comps.indexOf(source);
+		for(int i = sourceIndex + 1; i < comps.size(); i++) {
+			comps.get(i).openY += amount;
 		}
 	}
-	
+
 	@Override
 	public void mouseReleased(int mouseX, int mouseY, int mouseButton) {
-		
-		for(ModuleSetting s : comps) {
-			
-			if(MouseUtils.isInside(mouseX, mouseY, this.getX(), this.getY(), this.getWidth(), this.getHeight()) && mouseButton == 0) {
-				s.comp.mouseReleased(mouseX, mouseY, mouseButton);
+		if(mouseButton == 0 && draggingSection != null) {
+			if(!draggingSection.moved) draggingSection.open = !draggingSection.open;
+			draggingSection = null;
+		}
+		if(openSetting && settingsSection != null && mouseButton == 0) {
+			for(ModuleSetting entry : comps) {
+				entry.comp.mouseReleased(mouseX,
+						(int) (mouseY - settingsSection.scrollAnimation.getValue()), mouseButton);
 			}
 		}
 	}
-	
+
 	@Override
 	public void keyTyped(char typedChar, int keyCode) {
 		if(bindingMod != null) {
 			if(keyCode == Keyboard.KEY_ESCAPE) {
 				bindingMod = null;
-				this.setCanClose(false);
+				setCanClose(true);
 				return;
 			}
-
 			if(keyCode == Keyboard.KEY_DELETE || keyCode == Keyboard.KEY_BACK) {
 				bindingMod.setKeyCode(Keyboard.KEY_NONE);
 				bindingMod = null;
-				this.setCanClose(true);
+				setCanClose(true);
 				return;
 			}
-
 			if(keyCode != Keyboard.KEY_NONE) {
 				bindingMod.setKeyCode(keyCode);
 				bindingMod = null;
-				this.setCanClose(true);
+				setCanClose(true);
 			}
-			return;
-		}
-		
-		boolean binding = false;
-		
-		for(ModuleSetting s : comps) {
-			
-			if(s.comp instanceof CompKeybind) {
-				
-				CompKeybind keybind = (CompKeybind) s.comp;
-				
-				if(keybind.isBinding()) {
-					binding = true;
-				}
-			}
-			
-			s.comp.keyTyped(typedChar, keyCode);
-		}
-		
-		if(binding) {
 			return;
 		}
 
 		if(openSetting && keyCode == Keyboard.KEY_ESCAPE) {
-			openSetting = false;
+			closeSettings();
+			return;
 		}
-		if(!openSetting) {
-			scroll.onKey(keyCode);
-			if(keyCode != 0xD0 && keyCode != 0xC8 && keyCode != Keyboard.KEY_ESCAPE) this.getSearchBox().setFocused(true);
+
+		if(openSetting) {
+			for(ModuleSetting entry : comps) entry.comp.keyTyped(typedChar, keyCode);
+			return;
 		}
 	}
 
-	private String formatKeyName(String keyName) {
-		if(keyName == null || keyName.trim().isEmpty()) {
-			return "NONE";
-		}
+	private static final class DropdownSection {
+		private final String title;
+		private final char start, end;
+		private final boolean ghost;
+		private final SimpleAnimation openAnimation = new SimpleAnimation();
+		private final SimpleAnimation hoverAnimation = new SimpleAnimation();
+		private final SimpleAnimation scrollAnimation = new SimpleAnimation();
+		private boolean open = true;
+		private float scrollTarget;
+		private float maxScroll;
+		private float visibleBodyHeight;
+		private float offsetX, offsetY;
+		private boolean moved;
 
-		String result = keyName.replace("NUMPAD", "NP").replace("CONTROL", "CTRL").replace("MENU", "ALT");
-		return result.length() > 9 ? result.substring(0, 9) : result;
+		private DropdownSection(String title, char start, char end, boolean ghost) {
+			this.title = title;
+			this.start = start;
+			this.end = end;
+			this.ghost = ghost;
+		}
 	}
-	
-	private boolean filterMod(Mod m) {
-		
-		if(m.isHide()) {
-			return true;
-		}
 
-		// Keep ghost-only modules out of the normal module list.
-		if(showCategoryTabs && m.getCategory().equals(ModCategory.GHOST)) {
-			return true;
-		}
-
-		if (!m.getAllowed()) {
-			return true;
-		}
-		
-		if(!currentCategory.equals(ModCategory.ALL) && !m.getCategory().equals(currentCategory)) {
-			return true;
-		}
-		
-		if(!this.getSearchBox().getText().isEmpty() && !SearchUtils.isSimillar(Glide.getInstance().getModManager().getWords(m), this.getSearchBox().getText())) {
-			return true;
-		}
-		
-		return false;
-	}
-	
-	private int getModuleSettingHeight() {
-		
-	    int oddOutput = 0;
-	    int evenOutput = 0;
-	    int oddTotal = 0;
-	    int evenTotal = 0;
-
-	    for (int i = 0; i < comps.size(); i++) {
-	    	
-	        if (MathUtils.isOdd(i + 1)) {
-	            oddOutput += 29;
-	        } else {
-	            evenOutput += 29;
-	        }
-
-	        ModuleSetting s = comps.get(i);
-	        if (s.comp instanceof CompColorPicker) {
-	            CompColorPicker picker = (CompColorPicker) s.comp;
-	            if (picker.isOpen()) {
-	                int add = picker.isShowAlpha() ? 100 : 85;
-	                if (MathUtils.isOdd(i + 1)) {
-	                    oddTotal += add;
-	                } else {
-	                    evenTotal += add;
-	                }
-	            }
-	        }
-	    }
-
-	    int output = Math.max(oddOutput, evenOutput) + Math.max(oddTotal, evenTotal);
-	    
-	    return Math.max(0, output - (this.getHeight() - 72));
-	}
-	
-	private class ModuleSetting {
-		
-		private SimpleAnimation openAnimation = new SimpleAnimation();
-		
-		private Setting setting;
-		private Comp comp;
+	private static final class ModuleSetting {
+		private final SimpleAnimation openAnimation = new SimpleAnimation();
+		private final Setting setting;
+		private final Comp comp;
 		private float openY;
-		
-		public ModuleSetting(Setting setting, Comp comp) {
+
+		private ModuleSetting(Setting setting, Comp comp) {
 			this.setting = setting;
 			this.comp = comp;
-			this.openY = 0;
 		}
 	}
 }

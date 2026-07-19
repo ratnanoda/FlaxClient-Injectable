@@ -6,6 +6,12 @@ fn main() {
     println!("cargo:rerun-if-env-changed=FLAX_EMBED_JAR");
     println!("cargo:rerun-if-changed=FlaxClient-Release.jar");
     println!("cargo:rerun-if-changed=../build/libs/FlaxClient-Release.jar");
+    println!("cargo:rerun-if-changed=assets/tools/yt-dlp-linux-x86_64");
+    println!("cargo:rerun-if-changed=assets/tools/yt-dlp-windows-x86_64.exe");
+    println!("cargo:rerun-if-changed=assets/tools/yt-dlp-macos");
+    println!("cargo:rerun-if-changed=assets/tools/ffmpeg-linux-x86_64.zip");
+    println!("cargo:rerun-if-changed=assets/tools/ffmpeg-windows-x86_64.zip");
+    println!("cargo:rerun-if-changed=assets/tools/ffmpeg-macos-x86_64.zip");
 
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let env_override = env::var_os("FLAX_EMBED_JAR").map(PathBuf::from);
@@ -40,5 +46,29 @@ fn main() {
             source.display(),
             dest.display()
         )
+    });
+
+    let target_os = env::var("CARGO_CFG_TARGET_OS").expect("target os");
+    let tool_name = match target_os.as_str() {
+        "windows" => "yt-dlp-windows-x86_64.exe",
+        "macos" => "yt-dlp-macos",
+        _ => "yt-dlp-linux-x86_64",
+    };
+    let tool_source = manifest_dir.join("assets").join("tools").join(tool_name);
+    fs::copy(&tool_source, out_dir.join("yt-dlp-embedded")).unwrap_or_else(|error| {
+        panic!("failed to copy {}: {error}", tool_source.display())
+    });
+
+    let ffmpeg_name = match target_os.as_str() {
+        "windows" => "ffmpeg-windows-x86_64.zip",
+        "macos" => "ffmpeg-macos-x86_64.zip",
+        _ => "ffmpeg-linux-x86_64.zip",
+    };
+    let ffmpeg_source = manifest_dir
+        .join("assets")
+        .join("tools")
+        .join(ffmpeg_name);
+    fs::copy(&ffmpeg_source, out_dir.join("ffmpeg-embedded.zip")).unwrap_or_else(|error| {
+        panic!("failed to copy {}: {error}", ffmpeg_source.display())
     });
 }

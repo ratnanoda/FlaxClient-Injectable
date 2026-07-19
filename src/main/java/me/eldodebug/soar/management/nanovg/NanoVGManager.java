@@ -425,6 +425,16 @@ public class NanoVGManager {
 		
 		drawText(text, x - (textWidth >> 1), y, color, size, font);
 	}
+
+	/** Centers icon glyphs by NanoVG alignment instead of font advance bounds. */
+	public void drawCenteredGlyph(String text, float centerX, float centerY, Color color, float size, Font font) {
+		NanoVG.nvgBeginPath(nvg);
+		NanoVG.nvgFontSize(nvg, size);
+		NanoVG.nvgFontFace(nvg, font.getName());
+		NanoVG.nvgTextAlign(nvg, NanoVG.NVG_ALIGN_CENTER | NanoVG.NVG_ALIGN_MIDDLE);
+		NanoVG.nvgFillColor(nvg, getColor(color));
+		NanoVG.nvgText(nvg, centerX, centerY, text);
+	}
 	
 	public float getTextWidth(String text, float size, Font font) {
 		

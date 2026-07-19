@@ -144,6 +144,7 @@ public class ModManager {
 		mods.add(new WaypointMod());
 		mods.add(new WeatherChangerMod());
 		mods.add(new WeatherDisplayMod());
+		mods.add(new YouTubePipMod());
 		mods.add(new ZoomMod());
 	}
 	
@@ -242,4 +243,3 @@ public class ModManager {
 	}
 
 }
-

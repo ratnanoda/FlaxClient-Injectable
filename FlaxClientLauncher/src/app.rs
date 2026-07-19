@@ -1,5 +1,5 @@
 use crate::auth;
-use crate::config::{FLAX_VERSION, LauncherConfig, app_dir, clean_player_name, minecraft_dir};
+use crate::config::{FLAX_VERSION, RELEASE_LABEL, LauncherConfig, app_dir, clean_player_name, minecraft_dir};
 use crate::events::WorkerEvent;
 use crate::launcher;
 use eframe::egui::{
@@ -347,7 +347,7 @@ impl FlaxLauncherApp {
             ui.horizontal(|ui| {
                 ui.image((self.icon.id(), Vec2::splat(16.0)));
                 ui.label(
-                    RichText::new("Flax Launcher")
+                    RichText::new(format!("Flax Launcher - {RELEASE_LABEL}"))
                         .size(13.0)
                         .strong()
                         .color(TEXT),

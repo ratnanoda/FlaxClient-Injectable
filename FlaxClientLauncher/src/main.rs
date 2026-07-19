@@ -72,7 +72,7 @@ fn main() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "FlaxClient Launcher",
+        "FlaxClient Launcher - Releases 1.0",
         options,
         Box::new(|cc| Ok(Box::new(FlaxLauncherApp::new(cc, ICON_BYTES)))),
     )

@@ -16,6 +16,7 @@ import me.eldodebug.soar.management.color.palette.ColorType;
 import me.eldodebug.soar.management.event.impl.EventRender2D;
 import me.eldodebug.soar.management.event.impl.EventRenderNotification;
 import me.eldodebug.soar.management.mods.HUDMod;
+import me.eldodebug.soar.management.mods.impl.YouTubePipMod;
 import me.eldodebug.soar.management.nanovg.NanoVGManager;
 import me.eldodebug.soar.management.nanovg.font.Fonts;
 import me.eldodebug.soar.utils.MathUtils;
@@ -233,8 +234,12 @@ public class GuiEditHUD extends GuiScreen {
 				// right click to remove
 				if(mouseButton == 1) {
 					if(isInside) {
-						m.toggle();
-						initGui();
+						if(m instanceof YouTubePipMod) {
+							((YouTubePipMod) m).cycleQuality();
+						} else {
+							m.toggle();
+							initGui();
+						}
 						return;
 					}
 				}
@@ -284,6 +289,7 @@ public class GuiEditHUD extends GuiScreen {
 				// backspace to remove
 				if(keyCode == Keyboard.KEY_BACK || keyCode == Keyboard.KEY_DELETE) {
 					if(isInside) {
+						if(m instanceof YouTubePipMod) return;
 						m.toggle();
 						initGui();
 						return;
@@ -296,5 +302,10 @@ public class GuiEditHUD extends GuiScreen {
 	@Override
 	public boolean doesGuiPauseGame() {
 		return false;
+	}
+
+	@Override
+	public void onGuiClosed() {
+		Glide.getInstance().getProfileManager().save();
 	}
 }

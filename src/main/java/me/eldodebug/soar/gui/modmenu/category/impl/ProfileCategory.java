@@ -84,7 +84,8 @@ public class ProfileCategory extends Category {
 		
 		// Draw profile scene
 		nvg.save();
-		nvg.translate((float) -(600 - (profileAnimation.getValue() * 600)), 0);
+		float slideDistance = this.getWidth() + 80.0F;
+		nvg.translate((float) -(slideDistance - (profileAnimation.getValue() * slideDistance)), 0);
 		
 		for(ProfileType t : ProfileType.values()) {
 			
@@ -152,7 +153,7 @@ public class ProfileCategory extends Category {
 		// Draw profile add scene
 		
 		nvg.save();
-		nvg.translate((float) (profileAnimation.getValue() * 600), 0);
+		nvg.translate((float) (profileAnimation.getValue() * slideDistance), 0);
 		
 		offsetY = 15;
 		offsetX = 0;

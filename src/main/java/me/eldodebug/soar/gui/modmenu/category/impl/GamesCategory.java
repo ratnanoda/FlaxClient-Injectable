@@ -67,7 +67,8 @@ public class GamesCategory extends Category {
 		}
 		
 		nvg.save();
-		nvg.translate((float) -(600 - (sceneAnimation.getValue() * 600)), 0);
+		float slideDistance = this.getWidth() + 80.0F;
+		nvg.translate((float) -(slideDistance - (sceneAnimation.getValue() * slideDistance)), 0);
 		
 		for(GameScene scene : scenes) {
 			
@@ -84,7 +85,7 @@ public class GamesCategory extends Category {
 		nvg.restore();
 		
 		nvg.save();
-		nvg.translate((float) (sceneAnimation.getValue() * 600), 0);
+		nvg.translate((float) (sceneAnimation.getValue() * slideDistance), 0);
 		
 		if(currentScene != null) {
 			currentScene.drawScreen(mouseX, mouseY, partialTicks);

@@ -92,6 +92,10 @@ public class Category {
 		return parent.getHeight() - yOff;
 	}
 
+	public int getScreenWidth() { return parent.getScaledWidth(); }
+
+	public int getScreenHeight() { return parent.getScaledHeight(); }
+
 	public ColorAnimation getTextColorAnimation() {
 		return textColorAnimation;
 	}

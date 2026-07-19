@@ -13,7 +13,7 @@ use reqwest::blocking::Client;
 use sha1::{Digest, Sha1};
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::Sender;
@@ -27,6 +27,9 @@ use std::os::windows::process::CommandExt;
 const FLAX_VERSION_JSON_1_8_9: &str = include_str!("../FlaxClient.json");
 const EMBEDDED_FLAX_CLIENT_JAR: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/FlaxClient-Release.jar"));
+const EMBEDDED_YT_DLP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/yt-dlp-embedded"));
+const EMBEDDED_FFMPEG_ARCHIVE: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/ffmpeg-embedded.zip"));
 const EMBEDDED_FLAX_CLIENT_COORDINATE: &str = "me.eldodebug:FlaxClient:Release";
 const VERSION_MANIFEST_URL: &str =
     "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json";
@@ -35,6 +38,12 @@ const ASSET_BASE_URL: &str = "https://resources.download.minecraft.net/";
 const JAVA_RUNTIME_ALL_URL: &str = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+struct FeatureRuntime {
+    music_dir: PathBuf,
+    yt_dlp: PathBuf,
+    ffmpeg: PathBuf,
+}
 
 pub fn prepare_and_launch(
     mut config: LauncherConfig,
@@ -57,7 +66,7 @@ pub fn prepare_and_launch(
     };
 
     let client = Client::builder()
-        .user_agent("FlaxClientLauncher/0.2")
+        .user_agent("FlaxClientLauncher/1.0")
         .build()
         .context("failed to build HTTP client")?;
 
@@ -74,8 +83,10 @@ pub fn prepare_and_launch(
         config.java_path = crate::config::find_default_java_for_version(&config.version);
     }
 
+    let feature_runtime = ensure_feature_runtime(&tx)?;
+
     let session = config.active_session();
-    let pid = launch_game(&resolved, &session, &config, &tx)?;
+    let pid = launch_game(&resolved, &session, &config, &feature_runtime, &tx)?;
     let _ = tx.send(WorkerEvent::LaunchStarted(pid));
 
     Ok(updated_account)
@@ -85,7 +96,7 @@ pub fn prepare_only(mut config: LauncherConfig, tx: Sender<WorkerEvent>) -> Resu
     fs::create_dir_all(app_dir()).context("failed to create .flaxclient")?;
     ensure_resourcepacks_link(&tx)?;
     let client = Client::builder()
-        .user_agent("FlaxClientLauncher/0.2")
+        .user_agent("FlaxClientLauncher/1.0")
         .build()
         .context("failed to build HTTP client")?;
 
@@ -99,6 +110,7 @@ pub fn prepare_only(mut config: LauncherConfig, tx: Sender<WorkerEvent>) -> Resu
         )?;
         config.java_path = java.to_string_lossy().to_string();
     }
+    ensure_feature_runtime(&tx)?;
     let _ = tx.send(WorkerEvent::Finished("Prepare complete.".to_owned()));
     Ok(())
 }
@@ -464,10 +476,116 @@ fn copy_asset_to_named_path(source: &Path, root: &Path, name: &str) -> Result<()
     Ok(())
 }
 
+fn ensure_feature_runtime(tx: &Sender<WorkerEvent>) -> Result<FeatureRuntime> {
+    let music_dir = std::env::var_os("FLAX_MUSIC_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| app_dir().join("Musics"));
+    fs::create_dir_all(&music_dir)
+        .with_context(|| format!("failed to create {}", music_dir.display()))?;
+    fs::create_dir_all(app_dir().join("glide/cache/custom-cape"))?;
+
+    let tools_dir = app_dir().join("tools");
+    fs::create_dir_all(&tools_dir)?;
+
+    let yt_dlp = if let Some(path) = std::env::var_os("FLAX_YTDLP") {
+        PathBuf::from(path)
+    } else {
+        let path = tools_dir.join(if cfg!(windows) { "yt-dlp.exe" } else { "yt-dlp" });
+        ensure_embedded_tool(EMBEDDED_YT_DLP, &path, "yt-dlp", "--version", tx)?;
+        path
+    };
+
+    let ffmpeg = if let Some(path) = std::env::var_os("FLAX_FFMPEG") {
+        PathBuf::from(path)
+    } else {
+        let path = tools_dir.join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+        ensure_ffmpeg(&path, tx)?;
+        path
+    };
+
+    let _ = tx.send(WorkerEvent::Log(format!(
+        "Music, capes and YouTube tools are ready in {}.",
+        app_dir().display()
+    )));
+    Ok(FeatureRuntime { music_dir, yt_dlp, ffmpeg })
+}
+
+fn ensure_embedded_tool(
+    bytes: &[u8],
+    path: &Path,
+    label: &str,
+    version_argument: &str,
+    tx: &Sender<WorkerEvent>,
+) -> Result<()> {
+    let embedded_hash = sha1_bytes(bytes);
+    let needs_install = !path.exists()
+        || sha1_file(path)
+            .map(|hash| hash != embedded_hash)
+            .unwrap_or(true);
+    if needs_install {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, bytes).with_context(|| format!("failed to install {label}"))?;
+        let _ = tx.send(WorkerEvent::Log(format!("Installed embedded {label}.")));
+    }
+    ensure_executable(path)?;
+    if !tool_runs(path, version_argument) {
+        bail!("downloaded {label} could not be started: {}", path.display());
+    }
+    Ok(())
+}
+
+fn ensure_ffmpeg(ffmpeg_path: &Path, tx: &Sender<WorkerEvent>) -> Result<()> {
+    if !ffmpeg_path.exists() || !tool_runs(ffmpeg_path, "-version") {
+        if ffmpeg_path.exists() {
+            fs::remove_file(ffmpeg_path)?;
+        }
+        let mut archive = ZipArchive::new(Cursor::new(EMBEDDED_FFMPEG_ARCHIVE))
+            .context("failed to read embedded ffmpeg archive")?;
+        let expected_name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+        let mut extracted = false;
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index)?;
+            if entry.is_dir() || Path::new(entry.name()).file_name().and_then(|name| name.to_str()) != Some(expected_name) {
+                continue;
+            }
+            let mut output = File::create(ffmpeg_path)
+                .with_context(|| format!("failed to create {}", ffmpeg_path.display()))?;
+            io::copy(&mut entry, &mut output)?;
+            output.flush()?;
+            extracted = true;
+            break;
+        }
+        if !extracted {
+            bail!("ffmpeg was not found inside the embedded archive");
+        }
+        let _ = tx.send(WorkerEvent::Log("Installed embedded ffmpeg.".to_owned()));
+    }
+
+    ensure_executable(ffmpeg_path)?;
+    if !tool_runs(ffmpeg_path, "-version") {
+        bail!("downloaded ffmpeg could not be started: {}", ffmpeg_path.display());
+    }
+    Ok(())
+}
+
+fn tool_runs(path: &Path, version_argument: &str) -> bool {
+    let mut command = Command::new(path);
+    command
+        .arg(version_argument)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    matches!(command.status(), Ok(status) if status.success())
+}
+
 fn launch_game(
     resolved: &ResolvedVersion,
     session: &GameSession,
     config: &LauncherConfig,
+    feature_runtime: &FeatureRuntime,
     tx: &Sender<WorkerEvent>,
 ) -> Result<u32> {
     let game_dir = app_dir();
@@ -560,6 +678,9 @@ fn launch_game(
     command
         .args(args)
         .current_dir(&game_dir)
+        .env("FLAX_MUSIC_DIR", &feature_runtime.music_dir)
+        .env("FLAX_YTDLP", &feature_runtime.yt_dlp)
+        .env("FLAX_FFMPEG", &feature_runtime.ffmpeg)
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
 

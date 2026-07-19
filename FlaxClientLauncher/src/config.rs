@@ -8,6 +8,7 @@ use uuid::Uuid;
 pub const APP_DIR_NAME: &str = ".flaxclient";
 pub const DEFAULT_CLIENT_ID: &str = "00000000402b5328";
 pub const FLAX_VERSION: &str = "1.8.9";
+pub const RELEASE_LABEL: &str = "Releases 1.0";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LauncherConfig {
