@@ -49,8 +49,15 @@ public abstract class MixinGuiScreen {
 	@Overwrite
     public void handleKeyboardInput() throws IOException {
         char c = Keyboard.getEventCharacter();
-        
-        if ((Keyboard.getEventKey() == 0 && c >= ' ') || Keyboard.getEventKeyState()) {
+
+        boolean disableMusic = Keyboard.getEventKeyState()
+				&& Keyboard.getEventKey() == Keyboard.KEY_DELETE
+				&& (Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) || Keyboard.isKeyDown(Keyboard.KEY_RSHIFT))
+				&& Glide.getInstance().getMusicManager() != null
+				&& Glide.getInstance().getMusicManager().isPlaying();
+		if(disableMusic) Glide.getInstance().getMusicManager().disable();
+
+        if (!disableMusic && ((Keyboard.getEventKey() == 0 && c >= ' ') || Keyboard.getEventKeyState())) {
             this.keyTyped(c, Keyboard.getEventKey());
         }
         

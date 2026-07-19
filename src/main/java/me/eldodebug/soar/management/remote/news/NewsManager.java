@@ -1,27 +1,31 @@
 package me.eldodebug.soar.management.remote.news;
 
-import me.eldodebug.soar.utils.Multithreading;
-
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.ArrayList;
+import java.util.List;
 
 public class NewsManager {
 
-	private final CopyOnWriteArrayList<News> news = new CopyOnWriteArrayList<News>();
+	private final List<News> news = new ArrayList<News>();
 	
 	public NewsManager() {
-		Multithreading.runAsync(this::loadNews);
+		loadNews();
 	}
 	
 	private void loadNews() {
 		news.clear();
 		news.add(new News(
-				"Flax Client dev 1.0",
-				"Development release",
-				"This is the dev 1.0 build. Branding has been refreshed for Flax, legacy feed content was removed, and the client is now aligned to local Flax release notes."
+				"Flax Client Releases 1.0",
+				"Release build",
+				"Japanese text rendering has been repaired, module lists are taller, and the Windows launcher now ships as one client-embedded executable."
+		));
+		news.add(new News(
+				"Smoother client experience",
+				"Performance pass",
+				"Repeated module filtering and sorting are now cached, off-screen ClickGUI rows are skipped, and static home data no longer starts unnecessary worker threads."
 		));
 	}
 
-	public CopyOnWriteArrayList<News> getNews() {
+	public List<News> getNews() {
 		return news;
 	}
 }

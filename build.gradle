@@ -39,7 +39,7 @@ def readBuildNumber = {
 }
 
 ext.currentBuildNumber = readBuildNumber()
-ext.clientVersionName = "2.5.1"
+ext.clientVersionName = "Releases 1.0"
 
 task bumpBuildNumber {
     doLast {
@@ -86,6 +86,38 @@ public final class BuildVersion {
     }
 }
 
+// Rebuild the native mouse-input shared library from src/main/native/linux/flax_mouse.c
+// and drop it into the resources tree so processResources bundles it into the jar.
+task buildNativeMouseLinux {
+    def source = file("src/main/native/linux/flax_mouse.c")
+    def outDir = file("src/main/resources/native/linux-x64")
+    def outFile = file("$outDir/libflaxmouse.so")
+    inputs.file(source)
+    outputs.file(outFile)
+    onlyIf { org.gradle.internal.os.OperatingSystem.current().isLinux() }
+    doLast {
+        outDir.mkdirs()
+        def javaHome = System.getenv('JAVA_HOME') ?: System.getProperty('java.home')
+        def include1 = new File(javaHome, "include")
+        def include2 = new File(javaHome, "include/linux")
+        if(!new File(include1, "jni.h").exists()) {
+            def candidate = new File("/usr/lib/jvm/java-8-openjdk-amd64")
+            if(new File(candidate, "include/jni.h").exists()) {
+                include1 = new File(candidate, "include")
+                include2 = new File(candidate, "include/linux")
+            }
+        }
+        exec {
+            commandLine 'gcc', '-shared', '-fPIC', '-O2', '-Wall',
+                "-I${include1.absolutePath}", "-I${include2.absolutePath}",
+                '-o', outFile.absolutePath, source.absolutePath
+        }
+        println "FlaxClient native mouse library built: ${outFile}"
+    }
+}
+
+processResources.dependsOn buildNativeMouseLinux
+
 minecraft {
     version = "1.8.9"
     tweakClass = "me.eldodebug.soar.injection.mixin.GlideTweaker"
@@ -115,6 +147,8 @@ configurations {
 }
 
 dependencies {
+    // Embedded MP3 decoder used by the in-client Music player.
+    embed('javazoom:jlayer:1.0.1')
     embed('org.spongepowered:mixin:0.7.11-SNAPSHOT') {
         exclude module: 'launchwrapper'
         exclude module: 'guava'

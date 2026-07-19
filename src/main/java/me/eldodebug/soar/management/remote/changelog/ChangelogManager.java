@@ -1,25 +1,25 @@
 package me.eldodebug.soar.management.remote.changelog;
 
-import java.util.concurrent.CopyOnWriteArrayList;
-
-import me.eldodebug.soar.utils.Multithreading;
+import java.util.ArrayList;
+import java.util.List;
 
 public class ChangelogManager {
 
-	private CopyOnWriteArrayList<Changelog> changelogs = new CopyOnWriteArrayList<Changelog>();
+	private final List<Changelog> changelogs = new ArrayList<Changelog>();
 
 	public ChangelogManager() {
-		Multithreading.runAsync(() -> loadChangelog());
+		loadChangelog();
 	}
 	
 	private void loadChangelog() {
 		changelogs.clear();
-		changelogs.add(new Changelog("dev 1.0: Flax cape and icon updates are now available in-client", ChangelogType.ADDED));
-		changelogs.add(new Changelog("dev 1.0: Home feed and version labels now use Flax branding", ChangelogType.FIXED));
-		changelogs.add(new Changelog("dev 1.0: Removed legacy Glide release history from the panel", ChangelogType.REMOVED));
+		changelogs.add(new Changelog("Releases 1.0: Added the all-in-one Windows launcher", ChangelogType.ADDED));
+		changelogs.add(new Changelog("Releases 1.0: Increased the module list height", ChangelogType.ADDED));
+		changelogs.add(new Changelog("Releases 1.0: Restored corrupted Japanese translations", ChangelogType.FIXED));
+		changelogs.add(new Changelog("Releases 1.0: Fixed UTF-8 BOM translation lookup", ChangelogType.FIXED));
 	}
 
-	public CopyOnWriteArrayList<Changelog> getChangelogs() {
+	public List<Changelog> getChangelogs() {
 		return changelogs;
 	}
 }

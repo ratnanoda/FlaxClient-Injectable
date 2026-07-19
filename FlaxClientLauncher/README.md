@@ -23,6 +23,10 @@ If running from a local clone of this repository:
 - Windows: `FlaxClientLauncher.bat` from the repository root
 - Linux/macOS: `FlaxClientLauncher.sh` from the repository root
 
+On Linux/macOS, `FlaxClientLauncher.sh` checks the source timestamps and
+automatically rebuilds the client jar and release launcher when necessary.
+After the first build, unchanged launches start immediately.
+
 ## Features
 
 - Microsoft account login (device code flow)

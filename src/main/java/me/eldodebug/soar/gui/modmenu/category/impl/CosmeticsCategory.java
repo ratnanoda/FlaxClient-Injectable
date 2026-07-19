@@ -51,13 +51,15 @@ public class CosmeticsCategory extends Category {
 		AccentColor accentColor = colorManager.getCurrentColor();
 		ColorPalette palette = colorManager.getPalette();
 		CapeManager capeManager = instance.getCapeManager();
-		Color defaultColor = palette.getBackgroundColor(ColorType.DARK);
+		Color baseColor = palette.getBackgroundColor(ColorType.DARK);
+		Color defaultColor = new Color(baseColor.getRed(), baseColor.getGreen(), baseColor.getBlue(), 108);
 
 		int offsetX = 0;
 		int capeCount = 0;
 		float offsetY = 13;
 		int index = 1;
 		int prevIndex = 1;
+		int columns = Math.max(4, (this.getWidth() - 30) / 100);
 
 		nvg.save();
 		nvg.translate(0, scroll.getValue());
@@ -74,6 +76,8 @@ public class CosmeticsCategory extends Category {
 			Color textColor = c.getTextColorAnimation().getColor(isCurrentCategory ? Color.WHITE : palette.getFontColor(ColorType.DARK), 20);
 
 			nvg.drawRoundedRect(this.getX() + 15 + offsetX, this.getY() + offsetY - 3, textWidth + 20, 16, 6, defaultColor);
+			nvg.drawOutlineRoundedRect(this.getX() + 15 + offsetX, this.getY() + offsetY - 3,
+					textWidth + 20, 16, 6, 0.6F, new Color(255, 255, 255, 34));
 			nvg.drawGradientRoundedRect(this.getX() + 15 + offsetX, this.getY() + offsetY - 3, textWidth + 20, 16, 6, color1, color2);
 
 			nvg.drawText(c.getName(), this.getX() + 15 + offsetX + ((textWidth + 20) - textWidth) / 2, this.getY() + offsetY + 1.5F, textColor, 9, Fonts.MEDIUM);
@@ -93,7 +97,9 @@ public class CosmeticsCategory extends Category {
 
 			cape.getAnimation().setAnimation(cape.equals(capeManager.getCurrentCape()) ? 1.0F : 0.0F, 16);
 			nvg.drawGradientRoundedRect(this.getX() + 15 + offsetX - 2, this.getY() + offsetY - 2, 88 + 4, 135 + 4, 8.5F, ColorUtils.applyAlpha(accentColor.getColor1(), (int) (cape.getAnimation().getValue() * 255)), ColorUtils.applyAlpha(accentColor.getColor2(), (int) (cape.getAnimation().getValue() * 255)));
-			nvg.drawRoundedRect(this.getX() + 15 + offsetX, this.getY() + offsetY, 88, 135, 8, palette.getBackgroundColor(ColorType.DARK));
+			nvg.drawRoundedRect(this.getX() + 15 + offsetX, this.getY() + offsetY, 88, 135, 9, defaultColor);
+			nvg.drawOutlineRoundedRect(this.getX() + 15.5F + offsetX, this.getY() + offsetY + 0.5F,
+					87, 134, 9, 0.8F, new Color(255, 255, 255, 38));
 
 			if (cape instanceof NormalCape) {
 
@@ -115,7 +121,7 @@ public class CosmeticsCategory extends Category {
 
 			offsetX += 100;
 
-			if (index % 4 == 0) {
+			if (index % columns == 0) {
 				offsetX = 0;
 				offsetY += 147;
 				prevIndex++;
@@ -153,6 +159,7 @@ public class CosmeticsCategory extends Category {
 		float offsetY = 13 + scroll.getValue();
 		CapeManager capeManager = instance.getCapeManager();
 		int index = 1;
+		int columns = Math.max(4, (this.getWidth() - 30) / 100);
 
 		for (CapeCategory c : CapeCategory.values()) {
 
@@ -180,7 +187,7 @@ public class CosmeticsCategory extends Category {
 
 			offsetX += 100;
 
-			if (index % 4 == 0) {
+			if (index % columns == 0) {
 				offsetX = 0;
 				offsetY += 147;
 			}

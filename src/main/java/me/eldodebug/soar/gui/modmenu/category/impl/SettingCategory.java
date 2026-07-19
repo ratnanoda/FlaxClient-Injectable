@@ -31,7 +31,7 @@ public class SettingCategory extends Category {
 	private SettingScene currentScene;
 	
 	public SettingCategory(GuiModMenu parent) {
-		super(parent, TranslateText.SETTINGS, LegacyIcon.SETTINGS, false, false);
+		super(parent, TranslateText.SETTINGS, LegacyIcon.SETTINGS, false, true);
 		
 		scenes.add(new AppearanceScene(this));
 		scenes.add(new LanguageScene(this));
@@ -63,6 +63,7 @@ public class SettingCategory extends Category {
 		ColorPalette palette = instance.getColorManager().getPalette();
 		
 		float offsetY = 15;
+		float slideDistance = this.getWidth() + 80.0F;
 		
 		if(sceneAnimation.isDone(Direction.FORWARDS)) {
 			this.setCanClose(true);
@@ -70,11 +71,14 @@ public class SettingCategory extends Category {
 		}
 		
 		nvg.save();
-		nvg.translate((float) -(600 - (sceneAnimation.getValue() * 600)), 0);
+		nvg.translate((float) -(slideDistance - (sceneAnimation.getValue() * slideDistance)), 0);
 		
 		for(SettingScene scene : scenes) {
-			
-			nvg.drawRoundedRect(this.getX() + 15, this.getY() + offsetY, this.getWidth() - 30, 40, 8, palette.getBackgroundColor(ColorType.DARK));
+			Color sceneBase = palette.getBackgroundColor(ColorType.DARK);
+			nvg.drawRoundedRect(this.getX() + 15, this.getY() + offsetY, this.getWidth() - 30, 40, 9,
+					new Color(sceneBase.getRed(), sceneBase.getGreen(), sceneBase.getBlue(), 118));
+			nvg.drawOutlineRoundedRect(this.getX() + 15.5F, this.getY() + offsetY + 0.5F,
+					this.getWidth() - 31, 39, 9, 0.7F, new Color(255, 255, 255, 38));
 			//nvg.drawRoundedRect(this.getX() + 15, this.getY() + offsetY + 19.5F, this.getWidth() - 30, 1F, 0, new Color(255, 200, 10));
 			nvg.drawText(scene.getIcon(), this.getX() + 26, this.getY() + offsetY + 13F, palette.getFontColor(ColorType.DARK), 14, Fonts.LEGACYICON);
 			nvg.drawText(scene.getName(), this.getX() + 47, this.getY() + offsetY + 9F, palette.getFontColor(ColorType.DARK), 12.5F, Fonts.MEDIUM);
@@ -87,7 +91,7 @@ public class SettingCategory extends Category {
 		nvg.restore();
 		
 		nvg.save();
-		nvg.translate((float) (sceneAnimation.getValue() * 600), 0);
+		nvg.translate((float) (sceneAnimation.getValue() * slideDistance), 0);
 		
 		if(currentScene != null) {
 			currentScene.drawScreen(mouseX, mouseY, partialTicks);

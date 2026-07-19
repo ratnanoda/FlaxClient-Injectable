@@ -81,11 +81,18 @@ public class GlideHandler {
 
 	@EventTarget
 	public void onKey(EventKey event) {
+		int keyCode = event.getKeyCode();
+		boolean shiftDown = Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) || Keyboard.isKeyDown(Keyboard.KEY_RSHIFT);
+		if(keyCode == Keyboard.KEY_DELETE && shiftDown && instance.getMusicManager() != null
+				&& instance.getMusicManager().isPlaying()) {
+			instance.getMusicManager().disable();
+			return;
+		}
+
 		if(mc.currentScreen != null) {
 			return;
 		}
 
-		int keyCode = event.getKeyCode();
 		if(keyCode == Keyboard.KEY_NONE) {
 			return;
 		}

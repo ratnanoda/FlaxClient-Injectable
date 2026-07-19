@@ -64,9 +64,7 @@ public class CompSearchBox extends CompTextBoxBase {
 	    	addX = this.getWidth() - nvg.getTextWidth(reversedText.toString().substring(outTextSize - selectionEnd), halfHeight, Fonts.REGULAR) - halfHeight - 5;
 	    }
 	    
-		nvg.drawRoundedRect(this.getX(), this.getY(), this.getWidth(), this.getHeight(), 6, palette.getBackgroundColor(ColorType.DARK));
-		
-		nvg.save();
+			nvg.save();
 		nvg.scissor(this.getX() + 1, this.getY(), this.getWidth() - 2, this.getHeight());
 		
 		if(cursorPosition != selectionEnd) {

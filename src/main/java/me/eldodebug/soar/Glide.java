@@ -26,6 +26,10 @@ import me.eldodebug.soar.management.file.FileManager;
 import me.eldodebug.soar.management.language.LanguageManager;
 import me.eldodebug.soar.management.mods.ModManager;
 import me.eldodebug.soar.management.mods.impl.InternalSettingsMod;
+import me.eldodebug.soar.management.mods.impl.YouTubePipMod;
+import me.eldodebug.soar.management.music.MusicHudRenderer;
+import me.eldodebug.soar.management.music.MusicManager;
+import me.eldodebug.soar.management.youtube.YouTubeManager;
 import me.eldodebug.soar.management.nanovg.NanoVGManager;
 import me.eldodebug.soar.management.notification.NotificationManager;
 import me.eldodebug.soar.management.profile.ProfileManager;
@@ -73,6 +77,8 @@ public class Glide {
 	private BlacklistManager blacklistManager;
 	private RestrictedMod restrictedMod;
 	private AltManager altManager;
+	private MusicManager musicManager;
+	private YouTubeManager youTubeManager;
 	
 	public Glide() {
 		name = "FlaxClient";
@@ -95,8 +101,15 @@ public class Glide {
 		languageManager = new LanguageManager();
 		eventManager = new EventManager();
 		modManager = new ModManager();
-		
+
 		modManager.init();
+
+		if(me.eldodebug.soar.utils.mouse.NativeMouseBridge.isAvailable()) {
+			GlideLogger.info("Native mouse bridge (uinput) loaded — AutoClicker / AimAssist will inject real input");
+		} else {
+			GlideLogger.warn("Native mouse bridge unavailable: " + me.eldodebug.soar.utils.mouse.NativeMouseBridge.getErrorDetail()
+					+ " — AutoClicker / AimAssist will use the internal fallback");
+		}
 		
 		capeManager = new CapeManager();
 		colorManager = new ColorManager();
@@ -109,12 +122,18 @@ public class Glide {
 		securityFeatureManager = new SecurityFeatureManager();
 		changelogManager = new ChangelogManager();
 		newsManager = new NewsManager();
+		musicManager = new MusicManager();
+		youTubeManager = new YouTubeManager();
 		discordStats = new DiscordStats();
 		discordStats.check();
 		update = new Update();
 		update.check();
 
 		eventManager.register(new GlideHandler());
+		eventManager.register(new MusicHudRenderer());
+		if(YouTubePipMod.getInstance() != null && !YouTubePipMod.getInstance().isToggled()) {
+			YouTubePipMod.getInstance().setToggled(true);
+		}
 
 		InternalSettingsMod.getInstance().setToggled(true);
 		clickEffects = new ClickEffects();
@@ -123,6 +142,8 @@ public class Glide {
 	
 	public void stop() {
 		profileManager.save();
+		if(musicManager != null) musicManager.stop();
+		if(youTubeManager != null) youTubeManager.shutdown();
 		Sound.play("soar/audio/close.wav", true);
 
 	}
@@ -279,4 +300,6 @@ public class Glide {
 
 	public BlacklistManager getBlacklistManager() { return blacklistManager; }
 	public RestrictedMod getRestrictedMod() { return restrictedMod; }
+	public MusicManager getMusicManager() { return musicManager; }
+	public YouTubeManager getYouTubeManager() { return youTubeManager; }
 }

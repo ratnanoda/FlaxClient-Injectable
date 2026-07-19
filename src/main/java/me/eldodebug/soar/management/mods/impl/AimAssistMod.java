@@ -10,6 +10,7 @@ import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.mods.Mod;
 import me.eldodebug.soar.management.mods.ModCategory;
 import me.eldodebug.soar.management.mods.settings.impl.NumberSetting;
+import me.eldodebug.soar.utils.mouse.NativeMouseBridge;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.MathHelper;
 
@@ -22,8 +23,12 @@ public class AimAssistMod extends Mod {
 	private final NumberSetting strengthSetting = new NumberSetting(TranslateText.STRENGTH, this, 0.9D, 0.05D, 2.6D, false);
 	private float smoothYawStep;
 	private float smoothPitchStep;
+	private double residualDx;
+	private double residualDy;
 	private EntityPlayer targetLock;
 	private int targetLockTicks;
+	private long nextTargetScanAt;
+	private long nextNativeMoveAt;
 
 	public AimAssistMod() {
 		super(TranslateText.AIM_ASSIST, TranslateText.AIM_ASSIST_DESCRIPTION, ModCategory.GHOST);
@@ -48,7 +53,8 @@ public class AimAssistMod extends Mod {
 
 		maintainSprintInput();
 
-		EntityPlayer target = selectTarget();
+		long now = System.nanoTime();
+		EntityPlayer target = selectTarget(now);
 		if(target == null) {
 			releaseAssistMotion(0.72F);
 			return;
@@ -94,16 +100,76 @@ public class AimAssistMod extends Mod {
 		float yawStep = smoothYawStep + (float) ThreadLocalRandom.current().nextDouble(-0.014D, 0.014D) * jitterScale * (1.0F - assistBlend * 0.42F);
 		float pitchStep = smoothPitchStep + (float) ThreadLocalRandom.current().nextDouble(-0.010D, 0.010D) * jitterScale * (1.0F - assistBlend * 0.42F);
 
-		mc.thePlayer.rotationYaw += yawStep;
-		mc.thePlayer.rotationPitch = clamp(mc.thePlayer.rotationPitch + pitchStep, -90.0F, 90.0F);
+		float projectedPitch = mc.thePlayer.rotationPitch + pitchStep;
+		if(projectedPitch > 90.0F) {
+			pitchStep = 90.0F - mc.thePlayer.rotationPitch;
+		} else if(projectedPitch < -90.0F) {
+			pitchStep = -90.0F - mc.thePlayer.rotationPitch;
+		}
+
+		if(!dispatchNativeDelta(yawStep, pitchStep, now)) {
+			mc.thePlayer.rotationYaw += yawStep;
+			mc.thePlayer.rotationPitch = clamp(mc.thePlayer.rotationPitch + pitchStep, -90.0F, 90.0F);
+		}
+	}
+
+	private boolean dispatchNativeDelta(float yawStep, float pitchStep, long now) {
+		if(!NativeMouseBridge.isAvailable() || mc.gameSettings == null) {
+			return false;
+		}
+
+		// Invert of Minecraft's sensitivity curve:
+		//   f2 = sens * 0.6 + 0.2;  f3 = f2^3 * 8;  factor = f3 * 0.15
+		//   rotationYaw   += dxPixels * factor
+		//   rotationPitch -= dyPixels * factor   (or += when invertMouse)
+		float sens = mc.gameSettings.mouseSensitivity;
+		float f2 = sens * 0.6F + 0.2F;
+		float f3 = f2 * f2 * f2 * 8.0F;
+		float factor = f3 * 0.15F;
+		if(factor <= 1.0E-4F) {
+			return false;
+		}
+
+		// LWJGL 2 inverts evdev's REL_Y sign before delivering it (positive dy = up),
+		// so a positive pitchStep (look further down) needs a positive uinput REL_Y.
+		double pixelDx = (double) yawStep / factor;
+		double pixelDy = (double) pitchStep / factor;
+		if(mc.gameSettings.invertMouse) {
+			pixelDy = -pixelDy;
+		}
+
+		residualDx += pixelDx;
+		residualDy += pixelDy;
+		// Avoid one kernel write per frame on uncapped-FPS configurations.
+		if(now < nextNativeMoveAt) {
+			return true;
+		}
+
+		int idx = (int) Math.round(residualDx);
+		int idy = (int) Math.round(residualDy);
+		if(idx == 0 && idy == 0) {
+			return true;
+		}
+
+		if(NativeMouseBridge.move(idx, idy)) {
+			residualDx -= idx;
+			residualDy -= idy;
+			nextNativeMoveAt = now + 8_000_000L;
+			return true;
+		}
+		residualDx = 0.0;
+		residualDy = 0.0;
+		return false;
 	}
 
 	private boolean canAssist() {
-		return mc.thePlayer != null
-				&& mc.theWorld != null
-				&& mc.inGameHasFocus
-				&& mc.currentScreen == null
-				&& (Mouse.isButtonDown(0) || mc.gameSettings.keyBindAttack.isKeyDown());
+		if(mc.thePlayer == null || mc.theWorld == null || !mc.inGameHasFocus || mc.currentScreen != null) {
+			return false;
+		}
+		int physical = NativeMouseBridge.queryButton(0);
+		if(physical == 1) return true;
+		if(physical == 0) return false;
+		return Mouse.isButtonDown(0) || mc.gameSettings.keyBindAttack.isKeyDown();
 	}
 
 	private void maintainSprintInput() {
@@ -129,9 +195,18 @@ public class AimAssistMod extends Mod {
 	private void releaseAssistMotion(float damping) {
 		smoothYawStep *= damping;
 		smoothPitchStep *= damping;
+		residualDx *= damping;
+		residualDy *= damping;
 	}
 
-	private EntityPlayer selectTarget() {
+	private EntityPlayer selectTarget(long now) {
+		// Visibility ray traces are comparatively expensive. Keep tracking smooth
+		// every frame, but only validate/search targets at 20 Hz.
+		if(now < nextTargetScanAt && isBasicTargetValid(targetLock)) {
+			return targetLock;
+		}
+		nextTargetScanAt = now + 50_000_000L;
+
 		if(isValidTarget(targetLock, true)) {
 			targetLockTicks = Math.min(targetLockTicks + 1, 12);
 			return targetLock;
@@ -143,6 +218,12 @@ public class AimAssistMod extends Mod {
 		}
 		targetLock = next;
 		return targetLock;
+	}
+
+	private boolean isBasicTargetValid(EntityPlayer player) {
+		return player != null && mc.thePlayer != null && mc.theWorld != null
+				&& player != mc.thePlayer && !player.isDead && !player.isInvisible()
+				&& mc.thePlayer.getDistanceToEntity(player) <= (float) rangeSetting.getValue();
 	}
 
 	private boolean isValidTarget(EntityPlayer player, boolean relaxedFov) {
@@ -209,8 +290,24 @@ public class AimAssistMod extends Mod {
 	}
 
 	private float[] getTargetRotations(EntityPlayer target) {
+		// Aim at the point on the target's vertical span (feet .. head) that's
+		// closest to our own eye height — the "nearest body part". When we're
+		// level with the target this becomes a horizontal shot at their torso;
+		// when we look up we lock onto feet, when we look down onto head.
+		double myEyeY = mc.thePlayer.posY + mc.thePlayer.getEyeHeight();
+		double footY = target.posY;
+		double headY = target.posY + Math.max(target.getEyeHeight() * 0.95D, target.height - 0.1D);
+		double aimY;
+		if(myEyeY < footY) {
+			aimY = footY;
+		} else if(myEyeY > headY) {
+			aimY = headY;
+		} else {
+			aimY = myEyeY;
+		}
+
 		double x = target.posX - mc.thePlayer.posX;
-		double y = (target.posY + (target.getEyeHeight() * 0.9D)) - (mc.thePlayer.posY + mc.thePlayer.getEyeHeight());
+		double y = aimY - myEyeY;
 		double z = target.posZ - mc.thePlayer.posZ;
 
 		double horizontal = Math.sqrt((x * x) + (z * z));
