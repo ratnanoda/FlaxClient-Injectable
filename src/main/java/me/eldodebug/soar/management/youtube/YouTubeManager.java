@@ -34,6 +34,7 @@ public final class YouTubeManager {
     private final List<YouTubeEntry> playlist = new ArrayList<YouTubeEntry>();
     private final File cacheDirectory;
     private final File playlistFile;
+    private final File playbackSettingsFile;
     private final String ytDlpCommand;
     private final String ffmpegCommand;
 
@@ -51,13 +52,22 @@ public final class YouTubeManager {
     private volatile int generation;
     private volatile String status = "Paste a YouTube link to begin";
     private volatile int qualityHeight = 480;
+    private volatile RepeatMode repeatMode = RepeatMode.OFF;
+
+    private enum RepeatMode {
+        OFF,
+        VIDEO,
+        PLAYLIST
+    }
 
     public YouTubeManager() {
         cacheDirectory = new File(Glide.getInstance().getFileManager().getCacheDir(), "youtube");
         if(!cacheDirectory.exists()) cacheDirectory.mkdirs();
         playlistFile = new File(cacheDirectory, "playlist.txt");
+        playbackSettingsFile = new File(cacheDirectory, "playback-settings.txt");
         ytDlpCommand = commandFromEnvironment("FLAX_YTDLP", "yt-dlp");
         ffmpegCommand = commandFromEnvironment("FLAX_FFMPEG", "ffmpeg");
+        loadPlaybackSettings();
         loadPlaylist();
         verifyToolsAsync();
     }
@@ -378,10 +388,21 @@ public final class YouTubeManager {
     }
 
     private void playNextAfter(YouTubeEntry finished) {
+        RepeatMode mode = repeatMode;
+        if(mode == RepeatMode.VIDEO) {
+            play(finished);
+            return;
+        }
+
         List<YouTubeEntry> entries = getPlaylist();
         int index = entries.indexOf(finished);
-        if(index >= 0 && index + 1 < entries.size()) play(entries.get(index + 1));
-        else stop();
+        if(index >= 0 && index + 1 < entries.size()) {
+            play(entries.get(index + 1));
+        } else if(mode == RepeatMode.PLAYLIST && !entries.isEmpty()) {
+            play(entries.get(0));
+        } else {
+            stop();
+        }
     }
 
     public void remove(YouTubeEntry entry) {
@@ -429,6 +450,42 @@ public final class YouTubeManager {
                 GlideLogger.error("Unable to save YouTube playlist", e);
             }
         }
+    }
+
+    private void loadPlaybackSettings() {
+        if(!playbackSettingsFile.isFile()) return;
+        try(BufferedReader reader = new BufferedReader(new InputStreamReader(
+                new FileInputStream(playbackSettingsFile), StandardCharsets.UTF_8))) {
+            String value = reader.readLine();
+            if(value != null) repeatMode = RepeatMode.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch(Exception e) {
+            repeatMode = RepeatMode.OFF;
+            GlideLogger.error("Unable to load YouTube playback settings", e);
+        }
+    }
+
+    private void savePlaybackSettings() {
+        try(PrintWriter writer = new PrintWriter(new OutputStreamWriter(
+                new FileOutputStream(playbackSettingsFile), StandardCharsets.UTF_8))) {
+            writer.println(repeatMode.name());
+        } catch(Exception e) {
+            GlideLogger.error("Unable to save YouTube playback settings", e);
+        }
+    }
+
+    public boolean isVideoLoopEnabled() { return repeatMode == RepeatMode.VIDEO; }
+    public boolean isPlaylistLoopEnabled() { return repeatMode == RepeatMode.PLAYLIST; }
+
+    public void toggleVideoLoop() {
+        repeatMode = repeatMode == RepeatMode.VIDEO ? RepeatMode.OFF : RepeatMode.VIDEO;
+        savePlaybackSettings();
+        status = repeatMode == RepeatMode.VIDEO ? "Video loop enabled" : "Video loop disabled";
+    }
+
+    public void togglePlaylistLoop() {
+        repeatMode = repeatMode == RepeatMode.PLAYLIST ? RepeatMode.OFF : RepeatMode.PLAYLIST;
+        savePlaybackSettings();
+        status = repeatMode == RepeatMode.PLAYLIST ? "Playlist loop enabled" : "Playlist loop disabled";
     }
 
     private String encode(String value) { return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8)); }

@@ -175,7 +175,15 @@ public final class YouTubeCategory extends Category {
         drawControl(nvg, palette, center + 15.0F, controlsY, LegacyIcon.FORWARD, false);
         drawControl(nvg, palette, center + 51.0F, controlsY, LegacyIcon.X, false);
 
-        float volumeY = y + Math.min(height - 39.0F, 151.0F);
+        float loopY = y + 134.0F;
+        float loopGap = 6.0F;
+        float loopWidth = (width - 24.0F - loopGap) / 2.0F;
+        drawLoopButton(nvg, palette, accent, x + 12.0F, loopY, loopWidth,
+                "Loop video", youtube.isVideoLoopEnabled());
+        drawLoopButton(nvg, palette, accent, x + 12.0F + loopWidth + loopGap, loopY, loopWidth,
+                "Loop list", youtube.isPlaylistLoopEnabled());
+
+        float volumeY = y + Math.min(height - 39.0F, 176.0F);
         nvg.drawText(LegacyIcon.VOLUME_2, x + 12.0F, volumeY - 4.0F,
                 palette.getFontColor(ColorType.NORMAL), 10.0F, Fonts.LEGACYICON);
         String percent = Math.round(youtube.getVolume() * 100.0F) + "%";
@@ -211,6 +219,20 @@ public final class YouTubeCategory extends Category {
                 translucent(palette.getBackgroundColor(primary ? ColorType.NORMAL : ColorType.DARK), primary ? 150 : 92));
         nvg.drawCenteredText(icon, x + 14.0F, y + 6.5F,
                 palette.getFontColor(ColorType.DARK), 10.0F, Fonts.LEGACYICON);
+    }
+
+    private void drawLoopButton(NanoVGManager nvg, ColorPalette palette, AccentColor accent,
+            float x, float y, float width, String label, boolean active) {
+        if(active) {
+            nvg.drawGradientRoundedRect(x, y, width, 20.0F, 6.0F,
+                    ColorUtils.applyAlpha(accent.getColor1(), 205),
+                    ColorUtils.applyAlpha(accent.getColor2(), 205));
+        } else {
+            nvg.drawRoundedRect(x, y, width, 20.0F, 6.0F,
+                    translucent(palette.getBackgroundColor(ColorType.DARK), 92));
+        }
+        nvg.drawCenteredText(label, x + width / 2.0F, y + 6.0F,
+                palette.getFontColor(ColorType.DARK), 7.2F, Fonts.MEDIUM);
     }
 
     @Override
@@ -264,7 +286,19 @@ public final class YouTubeCategory extends Category {
         else if(insideControl(mouseX, mouseY, center + 15.0F, controlsY)) youtube.playNext();
         else if(insideControl(mouseX, mouseY, center + 51.0F, controlsY)) youtube.stop();
 
-        float volumeY = panelsY + Math.min(panelsHeight - 39.0F, 151.0F);
+        float loopY = panelsY + 134.0F;
+        float loopGap = 6.0F;
+        float loopWidth = (playerWidth - 24.0F - loopGap) / 2.0F;
+        if(MouseUtils.isInside(mouseX, mouseY, playerX + 12.0F, loopY, loopWidth, 20.0F)) {
+            youtube.toggleVideoLoop();
+            return;
+        }
+        if(MouseUtils.isInside(mouseX, mouseY, playerX + 12.0F + loopWidth + loopGap, loopY, loopWidth, 20.0F)) {
+            youtube.togglePlaylistLoop();
+            return;
+        }
+
+        float volumeY = panelsY + Math.min(panelsHeight - 39.0F, 176.0F);
         float volumeX = playerX + 30.0F;
         float volumeWidth = playerWidth - 75.0F;
         if(MouseUtils.isInside(mouseX, mouseY, volumeX - 3.0F, volumeY - 5.0F, volumeWidth + 6.0F, 14.0F)) {

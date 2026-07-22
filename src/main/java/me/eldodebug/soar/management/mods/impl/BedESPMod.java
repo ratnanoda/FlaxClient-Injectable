@@ -197,51 +197,50 @@ public class BedESPMod extends Mod {
 		animations.keySet().retainAll(found.keySet());
 	}
 
-	// Collects the unique block item icons surrounding the bed - the blocks
-	// adjacent to either half (sides and above), excluding the bed itself and
-	// the block underneath.
+	// Collect unique defense block icons from the two layers enclosing the bed.
+	// The old direct-neighbor-only scan missed common multi-layer BedWars defenses.
 	private List<ItemStack> computeDefenseBlocks(BlockPos footPos, BlockPos headPos) {
 
 		List<ItemStack> result = new ArrayList<ItemStack>();
-		BlockPos[] cells = { footPos, headPos };
+		int minX = Math.min(footPos.getX(), headPos.getX()) - 2;
+		int maxX = Math.max(footPos.getX(), headPos.getX()) + 2;
+		int minZ = Math.min(footPos.getZ(), headPos.getZ()) - 2;
+		int maxZ = Math.max(footPos.getZ(), headPos.getZ()) + 2;
+		int minY = Math.min(footPos.getY(), headPos.getY());
+		int maxY = Math.max(footPos.getY(), headPos.getY()) + 2;
 
-		for(BlockPos cell : cells) {
-			for(EnumFacing facing : EnumFacing.values()) {
+		for(int y = minY; y <= maxY; y++) {
+			for(int x = minX; x <= maxX; x++) {
+				for(int z = minZ; z <= maxZ; z++) {
+					BlockPos position = new BlockPos(x, y, z);
+					if(position.equals(footPos) || position.equals(headPos)) continue;
 
-				if(facing == EnumFacing.DOWN) {
-					continue;
-				}
+					IBlockState state = mc.theWorld.getBlockState(position);
+					Block block = state.getBlock();
+					if(block == Blocks.air || block == Blocks.bed) continue;
 
-				BlockPos neighbor = cell.offset(facing);
+					Item item = Item.getItemFromBlock(block);
+					if(item == null) continue;
 
-				if(neighbor.equals(footPos) || neighbor.equals(headPos)) {
-					continue;
-				}
-
-				IBlockState state = mc.theWorld.getBlockState(neighbor);
-				Block block = state.getBlock();
-
-				if(block == Blocks.air || block == Blocks.bed) {
-					continue;
-				}
-
-				Item item = Item.getItemFromBlock(block);
-				if(item == null) {
-					continue;
-				}
-
-				int meta = block.damageDropped(state);
-
-				boolean duplicate = false;
-				for(ItemStack existing : result) {
-					if(existing.getItem() == item && existing.getMetadata() == meta) {
-						duplicate = true;
-						break;
+					int meta;
+					try {
+						meta = block.damageDropped(state);
+					} catch(Exception ignored) {
+						meta = block.getMetaFromState(state);
 					}
-				}
 
-				if(!duplicate) {
-					result.add(new ItemStack(item, 1, meta));
+					boolean duplicate = false;
+					for(ItemStack existing : result) {
+						if(existing.getItem() == item && existing.getMetadata() == meta) {
+							duplicate = true;
+							break;
+						}
+					}
+
+					if(!duplicate) {
+						result.add(new ItemStack(item, 1, meta));
+						if(result.size() >= 8) return result;
+					}
 				}
 			}
 		}
@@ -344,7 +343,7 @@ public class BedESPMod extends Mod {
 
 			double centerX = (bed.box.minX + bed.box.maxX) / 2.0D;
 			double centerZ = (bed.box.minZ + bed.box.maxZ) / 2.0D;
-			float[] screen = icons.isEmpty() ? null : WorldToScreen.project(centerX, bed.box.maxY + 0.55D, centerZ);
+			float[] screen = icons.isEmpty() ? null : WorldToScreen.project(centerX, bed.box.maxY + 0.85D, centerZ);
 
 			animation.setAnimation(screen != null ? 1.0F : 0.0F, 14);
 			float appear = animation.getValue();
@@ -422,17 +421,35 @@ public class BedESPMod extends Mod {
 		GlStateManager.scale(scale, scale, 1.0F);
 		GlStateManager.translate(-cx, -cy, 0.0F);
 
-		RenderHelper.enableGUIStandardItemLighting();
+		// NanoVG leaves a different GL state behind. Restore every state required
+		// by RenderItem so block models and their atlas textures are visible.
+		GlStateManager.enableTexture2D();
+		GlStateManager.enableAlpha();
+		GlStateManager.alphaFunc(GL11.GL_GREATER, 0.1F);
+		GlStateManager.enableBlend();
+		GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+		GlStateManager.enableRescaleNormal();
 		GlStateManager.enableColorMaterial();
 		GlStateManager.enableDepth();
+		GlStateManager.depthMask(true);
+		RenderHelper.enableGUIStandardItemLighting();
 
+		float oldZLevel = mc.getRenderItem().zLevel;
+		mc.getRenderItem().zLevel = 200.0F;
 		for(int i = 0; i < count; i++) {
 			float iconX = left + i * (ICON_SIZE + ICON_GAP);
-			mc.getRenderItem().renderItemIntoGUI(panel.icons.get(i), Math.round(iconX), Math.round(top));
+			mc.getRenderItem().renderItemAndEffectIntoGUI(panel.icons.get(i), Math.round(iconX), Math.round(top));
 		}
+		mc.getRenderItem().zLevel = oldZLevel;
 
 		RenderHelper.disableStandardItemLighting();
+		GlStateManager.disableRescaleNormal();
 		GlStateManager.disableLighting();
+		GlStateManager.disableDepth();
+		GlStateManager.depthMask(true);
+		GlStateManager.enableBlend();
+		GlStateManager.enableAlpha();
+		GlStateManager.enableTexture2D();
 		GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 		GlStateManager.popMatrix();
 	}
