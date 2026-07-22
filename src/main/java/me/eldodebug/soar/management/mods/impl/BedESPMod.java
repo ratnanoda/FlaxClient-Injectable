@@ -3,16 +3,14 @@ package me.eldodebug.soar.management.mods.impl;
 import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import org.lwjgl.opengl.GL11;
 
-import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.management.event.EventTarget;
-import me.eldodebug.soar.management.event.impl.EventRender2D;
 import me.eldodebug.soar.management.event.impl.EventRender3D;
 import me.eldodebug.soar.management.event.impl.EventUpdate;
 import me.eldodebug.soar.management.language.TranslateText;
@@ -23,15 +21,13 @@ import me.eldodebug.soar.management.mods.settings.impl.ColorSetting;
 import me.eldodebug.soar.management.mods.settings.impl.ComboSetting;
 import me.eldodebug.soar.management.mods.settings.impl.NumberSetting;
 import me.eldodebug.soar.management.mods.settings.impl.combo.Option;
-import me.eldodebug.soar.management.nanovg.NanoVGManager;
 import me.eldodebug.soar.utils.ColorUtils;
 import me.eldodebug.soar.utils.Render3DUtils;
-import me.eldodebug.soar.utils.animation.simple.SimpleAnimation;
-import me.eldodebug.soar.utils.render.WorldToScreen;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockBed;
 import net.minecraft.block.BlockDirectional;
 import net.minecraft.block.state.IBlockState;
+import net.minecraft.client.gui.Gui;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.RenderGlobal;
 import net.minecraft.client.renderer.RenderHelper;
@@ -50,16 +46,14 @@ import net.minecraft.world.chunk.storage.ExtendedBlockStorage;
 
 public class BedESPMod extends Mod {
 
-	// Beds are scanned periodically rather than every frame, and the result is
-	// cached for rendering. The scan walks loaded chunks and skips empty chunk
-	// sections, so cost scales with actual terrain rather than the full cuboid.
 	private static final int MAX_SCAN_CHUNKS = 8;
 	private static final int VERTICAL_RANGE = 64;
 	private static final int SCAN_INTERVAL_TICKS = 20;
+	private static final int MAX_DEFENSE_ICONS = 8;
 
-	private static final float ICON_SIZE = 16.0F;
-	private static final float ICON_GAP = 2.0F;
-	private static final float PANEL_PADDING = 4.0F;
+	private static final int ICON_SIZE = 16;
+	private static final int ICON_GAP = 2;
+	private static final int PANEL_PADDING = 4;
 
 	private final ColorSetting colorSetting = new ColorSetting(TranslateText.COLOR, this, new Color(255, 64, 64), false);
 	private final ColorSetting backgroundColorSetting = new ColorSetting(TranslateText.BACKGROUND, this, new Color(45, 48, 58, 205), true);
@@ -71,11 +65,6 @@ public class BedESPMod extends Mod {
 	private final BooleanSetting checkDefBlockSetting = new BooleanSetting(TranslateText.CHECK_DEF_BLOCK, this, false);
 
 	private final List<Bed> beds = new ArrayList<Bed>();
-
-	// Per-bed appear/scale animations, keyed by foot position so they persist
-	// across scans (grow in on appear, fade out when the bed leaves range).
-	private final Map<BlockPos, SimpleAnimation> animations = new HashMap<BlockPos, SimpleAnimation>();
-
 	private int scanTimer;
 
 	public BedESPMod() {
@@ -86,7 +75,6 @@ public class BedESPMod extends Mod {
 	public void onEnable() {
 		super.onEnable();
 		beds.clear();
-		animations.clear();
 		scanTimer = 0;
 	}
 
@@ -94,7 +82,6 @@ public class BedESPMod extends Mod {
 	public void onDisable() {
 		super.onDisable();
 		beds.clear();
-		animations.clear();
 	}
 
 	@EventTarget
@@ -114,7 +101,6 @@ public class BedESPMod extends Mod {
 	}
 
 	private void scanBeds() {
-
 		EntityPlayer player = mc.thePlayer;
 		int viewChunks = Math.min(mc.gameSettings.renderDistanceChunks, MAX_SCAN_CHUNKS);
 
@@ -124,63 +110,41 @@ public class BedESPMod extends Mod {
 
 		int pcx = px >> 4;
 		int pcz = pz >> 4;
-
 		int minSection = Math.max(0, (py - VERTICAL_RANGE) >> 4);
 		int maxSection = Math.min(15, (py + VERTICAL_RANGE) >> 4);
 
-		// Keyed by the bed's foot position so the head and foot halves of the
-		// same bed collapse into a single highlight.
 		Map<BlockPos, Bed> found = new LinkedHashMap<BlockPos, Bed>();
 
 		for(int cx = pcx - viewChunks; cx <= pcx + viewChunks; cx++) {
 			for(int cz = pcz - viewChunks; cz <= pcz + viewChunks; cz++) {
-
 				Chunk chunk = mc.theWorld.getChunkFromChunkCoords(cx, cz);
-
-				if(chunk.isEmpty()) {
-					continue;
-				}
+				if(chunk.isEmpty()) continue;
 
 				ExtendedBlockStorage[] sections = chunk.getBlockStorageArray();
 				int baseX = cx << 4;
 				int baseZ = cz << 4;
 
 				for(int s = minSection; s <= maxSection && s < sections.length; s++) {
-
 					ExtendedBlockStorage section = sections[s];
-
-					if(section == null || section.isEmpty()) {
-						continue;
-					}
+					if(section == null || section.isEmpty()) continue;
 
 					int baseY = s << 4;
-
 					for(int ly = 0; ly < 16; ly++) {
 						for(int lx = 0; lx < 16; lx++) {
 							for(int lz = 0; lz < 16; lz++) {
-
 								IBlockState state = section.get(lx, ly, lz);
-
-								if(state.getBlock() != Blocks.bed) {
-									continue;
-								}
+								if(state.getBlock() != Blocks.bed) continue;
 
 								int wx = baseX + lx;
 								int wy = baseY + ly;
 								int wz = baseZ + lz;
-
 								EnumFacing facing = (EnumFacing) state.getValue(BlockDirectional.FACING);
 								boolean head = state.getValue(BlockBed.PART) == BlockBed.EnumPartType.HEAD;
 
-								// FACING points from the foot towards the head, so
-								// derive both halves no matter which one we hit first.
 								BlockPos here = new BlockPos(wx, wy, wz);
 								BlockPos footPos = head ? here.offset(facing.getOpposite()) : here;
 								BlockPos headPos = head ? here : here.offset(facing);
-
-								if(found.containsKey(footPos)) {
-									continue;
-								}
+								if(found.containsKey(footPos)) continue;
 
 								found.put(footPos, new Bed(footPos, headPos, computeDefenseBlocks(footPos, headPos)));
 							}
@@ -192,16 +156,10 @@ public class BedESPMod extends Mod {
 
 		beds.clear();
 		beds.addAll(found.values());
-
-		// Drop animations for beds that are no longer in range.
-		animations.keySet().retainAll(found.keySet());
 	}
 
-	// Collect unique defense block icons from the two layers enclosing the bed.
-	// The old direct-neighbor-only scan missed common multi-layer BedWars defenses.
 	private List<ItemStack> computeDefenseBlocks(BlockPos footPos, BlockPos headPos) {
-
-		List<ItemStack> result = new ArrayList<ItemStack>();
+		Map<String, DefenseIcon> nearestByItem = new LinkedHashMap<String, DefenseIcon>();
 		int minX = Math.min(footPos.getX(), headPos.getX()) - 2;
 		int maxX = Math.max(footPos.getX(), headPos.getX()) + 2;
 		int minZ = Math.min(footPos.getZ(), headPos.getZ()) - 2;
@@ -214,6 +172,9 @@ public class BedESPMod extends Mod {
 				for(int z = minZ; z <= maxZ; z++) {
 					BlockPos position = new BlockPos(x, y, z);
 					if(position.equals(footPos) || position.equals(headPos)) continue;
+
+					int distance = Math.min(shellDistance(position, footPos), shellDistance(position, headPos));
+					if(distance <= 0 || distance > 2) continue;
 
 					IBlockState state = mc.theWorld.getBlockState(position);
 					Block block = state.getBlock();
@@ -229,44 +190,45 @@ public class BedESPMod extends Mod {
 						meta = block.getMetaFromState(state);
 					}
 
-					boolean duplicate = false;
-					for(ItemStack existing : result) {
-						if(existing.getItem() == item && existing.getMetadata() == meta) {
-							duplicate = true;
-							break;
-						}
-					}
-
-					if(!duplicate) {
-						result.add(new ItemStack(item, 1, meta));
-						if(result.size() >= 8) return result;
+					String key = Item.getIdFromItem(item) + ":" + meta;
+					DefenseIcon existing = nearestByItem.get(key);
+					if(existing == null || distance < existing.distance) {
+						nearestByItem.put(key, new DefenseIcon(new ItemStack(item, 1, meta), distance));
 					}
 				}
 			}
 		}
 
+		List<DefenseIcon> sorted = new ArrayList<DefenseIcon>(nearestByItem.values());
+		Collections.sort(sorted, (first, second) -> {
+			int distanceCompare = Integer.compare(first.distance, second.distance);
+			if(distanceCompare != 0) return distanceCompare;
+			int itemCompare = Integer.compare(Item.getIdFromItem(first.stack.getItem()), Item.getIdFromItem(second.stack.getItem()));
+			if(itemCompare != 0) return itemCompare;
+			return Integer.compare(first.stack.getMetadata(), second.stack.getMetadata());
+		});
+
+		List<ItemStack> result = new ArrayList<ItemStack>();
+		for(DefenseIcon icon : sorted) {
+			result.add(icon.stack);
+			if(result.size() >= MAX_DEFENSE_ICONS) break;
+		}
 		return result;
+	}
+
+	private int shellDistance(BlockPos first, BlockPos second) {
+		return Math.max(Math.max(Math.abs(first.getX() - second.getX()), Math.abs(first.getY() - second.getY())),
+				Math.abs(first.getZ() - second.getZ()));
 	}
 
 	@EventTarget
 	public void onRender3D(EventRender3D event) {
-
-		if(mc.theWorld == null || mc.thePlayer == null) {
-			return;
-		}
-
-		// Capture the camera matrices so the 2D panels can be projected later.
-		WorldToScreen.capture();
-
-		if(beds.isEmpty()) {
-			return;
-		}
+		if(mc.theWorld == null || mc.thePlayer == null || beds.isEmpty()) return;
 
 		RenderManager rm = mc.getRenderManager();
 		double viewX = rm.viewerPosX;
 		double viewY = rm.viewerPosY;
 		double viewZ = rm.viewerPosZ;
-
 		Color color = colorSetting.getColor();
 		float alpha = alphaSetting.getValueFloat();
 		int alphaInt = (int) (alpha * 255);
@@ -284,7 +246,6 @@ public class BedESPMod extends Mod {
 		boolean glowMode = modeSetting.getOption().getTranslate().equals(TranslateText.GLOW);
 
 		for(Bed bed : beds) {
-
 			AxisAlignedBB box = new AxisAlignedBB(
 					bed.box.minX - viewX, bed.box.minY - viewY, bed.box.minZ - viewZ,
 					bed.box.maxX - viewX, bed.box.maxY - viewY, bed.box.maxZ - viewZ);
@@ -310,174 +271,101 @@ public class BedESPMod extends Mod {
 		GlStateManager.enableTexture2D();
 		ColorUtils.resetColor();
 		GlStateManager.popMatrix();
-	}
 
-	@EventTarget
-	public void onRender2D(EventRender2D event) {
-
-		if(mc.theWorld == null || mc.thePlayer == null || beds.isEmpty()) {
-			return;
-		}
-
-		if(!showBedColorSetting.isToggled() && !checkDefBlockSetting.isToggled()) {
-			return;
-		}
-
-		List<Panel> panels = new ArrayList<Panel>();
-
-		for(Bed bed : beds) {
-
-			List<ItemStack> icons = new ArrayList<ItemStack>();
-			if(showBedColorSetting.isToggled()) {
-				icons.add(bed.bedStack);
+		if(showBedColorSetting.isToggled() || checkDefBlockSetting.isToggled()) {
+			for(Bed bed : beds) {
+				List<ItemStack> icons = buildDisplayIcons(bed);
+				if(!icons.isEmpty()) renderIconsAboveBed(bed, icons, rm);
 			}
-			if(checkDefBlockSetting.isToggled()) {
-				icons.addAll(bed.defenseStacks);
-			}
-
-			SimpleAnimation animation = animations.get(bed.footPos);
-			if(animation == null) {
-				animation = new SimpleAnimation();
-				animations.put(bed.footPos, animation);
-			}
-
-			double centerX = (bed.box.minX + bed.box.maxX) / 2.0D;
-			double centerZ = (bed.box.minZ + bed.box.maxZ) / 2.0D;
-			float[] screen = icons.isEmpty() ? null : WorldToScreen.project(centerX, bed.box.maxY + 0.85D, centerZ);
-
-			animation.setAnimation(screen != null ? 1.0F : 0.0F, 14);
-			float appear = animation.getValue();
-
-			if(screen == null || appear <= 0.02F) {
-				continue;
-			}
-
-			panels.add(new Panel(screen[0], screen[1], appear, icons));
-		}
-
-		if(panels.isEmpty()) {
-			return;
-		}
-
-		NanoVGManager nvg = Glide.getInstance().getNanoVGManager();
-		nvg.setupAndDraw(() -> {
-			for(Panel panel : panels) {
-				drawPanelBackground(nvg, panel);
-			}
-		});
-
-		for(Panel panel : panels) {
-			drawPanelItems(panel);
 		}
 	}
 
-	private void drawPanelBackground(NanoVGManager nvg, Panel panel) {
-
-		int count = panel.icons.size();
-		float contentWidth = count * ICON_SIZE + (count - 1) * ICON_GAP;
-		float panelWidth = contentWidth + PANEL_PADDING * 2.0F;
-		float panelHeight = ICON_SIZE + PANEL_PADDING * 2.0F;
-
-		float scale = 0.65F + 0.35F * panel.appear;
-		float slide = (1.0F - panel.appear) * 5.0F;
-
-		float w = panelWidth * scale;
-		float h = panelHeight * scale;
-		float cx = panel.x;
-		float cy = panel.y - (h / 2.0F) - 6.0F + slide;
-
-		float x = cx - w / 2.0F;
-		float y = cy - h / 2.0F;
-		float radius = h * 0.32F;
-
-		Color background = backgroundColorSetting.getColor();
-		int shadowAlpha = (int) (panel.appear * 90);
-		int baseAlpha = (int) (panel.appear * background.getAlpha());
-		int glossAlpha = (int) (panel.appear * 14);
-
-		nvg.drawRoundedRect(x - 1.5F, y - 1.5F, w + 3.0F, h + 3.0F, radius + 1.5F, new Color(0, 0, 0, shadowAlpha));
-		nvg.drawRoundedRect(x, y, w, h, radius, new Color(background.getRed(), background.getGreen(), background.getBlue(), baseAlpha));
-		nvg.drawRoundedRect(x, y, w, h / 2.0F, radius, new Color(255, 255, 255, glossAlpha));
+	private List<ItemStack> buildDisplayIcons(Bed bed) {
+		List<ItemStack> icons = new ArrayList<ItemStack>();
+		if(showBedColorSetting.isToggled()) icons.add(bed.bedStack);
+		if(checkDefBlockSetting.isToggled()) icons.addAll(bed.defenseStacks);
+		return icons;
 	}
 
-	private void drawPanelItems(Panel panel) {
+	private void renderIconsAboveBed(Bed bed, List<ItemStack> icons, RenderManager rm) {
+		double centerX = (bed.box.minX + bed.box.maxX) / 2.0D;
+		double centerY = bed.box.maxY + 1.05D;
+		double centerZ = (bed.box.minZ + bed.box.maxZ) / 2.0D;
+		double distance = mc.thePlayer.getDistance(centerX, centerY, centerZ);
+		float scale = (float) Math.max(0.025D, Math.min(0.12D, distance * 0.0025D));
 
-		int count = panel.icons.size();
-		float contentWidth = count * ICON_SIZE + (count - 1) * ICON_GAP;
-		float panelHeight = ICON_SIZE + PANEL_PADDING * 2.0F;
-
-		float scale = 0.65F + 0.35F * panel.appear;
-		float slide = (1.0F - panel.appear) * 5.0F;
-
-		float h = panelHeight * scale;
-		float cx = panel.x;
-		float cy = panel.y - (h / 2.0F) - 6.0F + slide;
-
-		float left = cx - contentWidth / 2.0F;
-		float top = cy - ICON_SIZE / 2.0F;
+		int contentWidth = icons.size() * ICON_SIZE + (icons.size() - 1) * ICON_GAP;
+		int panelWidth = contentWidth + PANEL_PADDING * 2;
+		int panelHeight = ICON_SIZE + PANEL_PADDING * 2;
+		int left = -contentWidth / 2;
+		int top = -ICON_SIZE / 2;
 
 		GlStateManager.pushMatrix();
-		GlStateManager.translate(cx, cy, 0.0F);
-		GlStateManager.scale(scale, scale, 1.0F);
-		GlStateManager.translate(-cx, -cy, 0.0F);
+		GlStateManager.translate(centerX - rm.viewerPosX, centerY - rm.viewerPosY, centerZ - rm.viewerPosZ);
+		GlStateManager.rotate(-rm.playerViewY, 0.0F, 1.0F, 0.0F);
+		GlStateManager.rotate(rm.playerViewX, 1.0F, 0.0F, 0.0F);
+		GlStateManager.scale(-scale, -scale, scale);
 
-		// NanoVG leaves a different GL state behind. Restore every state required
-		// by RenderItem so block models and their atlas textures are visible.
-		GlStateManager.enableTexture2D();
-		GlStateManager.enableAlpha();
-		GlStateManager.alphaFunc(GL11.GL_GREATER, 0.1F);
+		GlStateManager.disableLighting();
+		GlStateManager.disableDepth();
+		GlStateManager.depthMask(false);
 		GlStateManager.enableBlend();
 		GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+		GlStateManager.enableAlpha();
+		GlStateManager.enableTexture2D();
+		GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+
+		Color background = backgroundColorSetting.getColor();
+		int backgroundArgb = (background.getAlpha() & 255) << 24
+				| (background.getRed() & 255) << 16
+				| (background.getGreen() & 255) << 8
+				| background.getBlue() & 255;
+		Gui.drawRect(-panelWidth / 2 - 1, -panelHeight / 2 - 1, panelWidth / 2 + 1, panelHeight / 2 + 1, 0x66000000);
+		Gui.drawRect(-panelWidth / 2, -panelHeight / 2, panelWidth / 2, panelHeight / 2, backgroundArgb);
+
 		GlStateManager.enableRescaleNormal();
 		GlStateManager.enableColorMaterial();
-		GlStateManager.enableDepth();
-		GlStateManager.depthMask(true);
 		RenderHelper.enableGUIStandardItemLighting();
 
 		float oldZLevel = mc.getRenderItem().zLevel;
-		mc.getRenderItem().zLevel = 200.0F;
-		for(int i = 0; i < count; i++) {
-			float iconX = left + i * (ICON_SIZE + ICON_GAP);
-			mc.getRenderItem().renderItemAndEffectIntoGUI(panel.icons.get(i), Math.round(iconX), Math.round(top));
+		// RenderItem adds 100 to zLevel for GUI rendering. Cancel that translation
+		// because this GUI is already positioned in the 3D world.
+		mc.getRenderItem().zLevel = -100.0F;
+		for(int i = 0; i < icons.size(); i++) {
+			GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+			mc.getRenderItem().renderItemAndEffectIntoGUI(icons.get(i), left + i * (ICON_SIZE + ICON_GAP), top);
 		}
 		mc.getRenderItem().zLevel = oldZLevel;
 
 		RenderHelper.disableStandardItemLighting();
 		GlStateManager.disableRescaleNormal();
-		GlStateManager.disableLighting();
-		GlStateManager.disableDepth();
+		GlStateManager.disableColorMaterial();
+		GlStateManager.enableDepth();
 		GlStateManager.depthMask(true);
-		GlStateManager.enableBlend();
-		GlStateManager.enableAlpha();
+		GlStateManager.disableBlend();
+		GlStateManager.enableLighting();
 		GlStateManager.enableTexture2D();
 		GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 		GlStateManager.popMatrix();
 	}
 
-	private static class Panel {
+	private static class DefenseIcon {
+		private final ItemStack stack;
+		private final int distance;
 
-		private final float x;
-		private final float y;
-		private final float appear;
-		private final List<ItemStack> icons;
-
-		private Panel(float x, float y, float appear, List<ItemStack> icons) {
-			this.x = x;
-			this.y = y;
-			this.appear = appear;
-			this.icons = icons;
+		private DefenseIcon(ItemStack stack, int distance) {
+			this.stack = stack;
+			this.distance = distance;
 		}
 	}
 
 	private static class Bed {
-
 		private final BlockPos footPos;
 		private final AxisAlignedBB box;
 		private final ItemStack bedStack;
 		private final List<ItemStack> defenseStacks;
 
 		private Bed(BlockPos footPos, BlockPos headPos, List<ItemStack> defenseStacks) {
-
 			int minX = Math.min(footPos.getX(), headPos.getX());
 			int minZ = Math.min(footPos.getZ(), headPos.getZ());
 			int maxX = Math.max(footPos.getX(), headPos.getX());
