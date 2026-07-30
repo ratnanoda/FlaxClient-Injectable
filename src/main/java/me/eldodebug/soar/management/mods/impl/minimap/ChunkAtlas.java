@@ -10,7 +10,7 @@ import java.util.stream.IntStream;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL12;
 
-import me.eldodebug.soar.injection.interfaces.IMixinWorld;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import net.minecraft.block.material.MapColor;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.Minecraft;
@@ -322,7 +322,7 @@ public class ChunkAtlas implements Iterable<ChunkTile> {
             return null;
         }
 
-        if (!((IMixinWorld)world).isLoaded(x, z, true)) {
+        if (!MinecraftAccess.isChunkLoaded(world, x, z, true)) {
             return null;
         }
 

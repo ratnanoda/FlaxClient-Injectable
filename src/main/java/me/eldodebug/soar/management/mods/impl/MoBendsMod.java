@@ -7,7 +7,7 @@ import java.util.UUID;
 
 import org.lwjgl.util.vector.Vector3f;
 
-import me.eldodebug.soar.injection.interfaces.IMixinMinecraft;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventPreRenderTick;
 import me.eldodebug.soar.management.event.impl.EventRenderPlayer;
@@ -52,7 +52,7 @@ public class MoBendsMod extends Mod {
 		}
 		
         for(int i = 0;i < Data_Player.dataList.size();i++){
-            Data_Player.dataList.get(i).update(((IMixinMinecraft)mc).getTimer().renderPartialTicks);
+            Data_Player.dataList.get(i).update(MinecraftAccess.getTimer(mc).renderPartialTicks);
         }
 	}
 	

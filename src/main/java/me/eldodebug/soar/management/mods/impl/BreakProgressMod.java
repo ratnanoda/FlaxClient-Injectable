@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 import me.eldodebug.soar.Glide;
-import me.eldodebug.soar.injection.interfaces.IMixinPlayerControllerMP;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventRender2D;
 import me.eldodebug.soar.management.language.TranslateText;
@@ -179,11 +179,11 @@ public class BreakProgressMod extends Mod {
 
 	private float getBreakProgress() {
 
-		if(mc.playerController == null || !(mc.playerController instanceof IMixinPlayerControllerMP)) {
+		if(mc.playerController == null) {
 			return 0.0F;
 		}
 
-		float damage = ((IMixinPlayerControllerMP) mc.playerController).getCurBlockDamageMP();
+		float damage = MinecraftAccess.getCurBlockDamage(mc.playerController);
 		return MathHelper.clamp_float(damage, 0.0F, 1.0F);
 	}
 }

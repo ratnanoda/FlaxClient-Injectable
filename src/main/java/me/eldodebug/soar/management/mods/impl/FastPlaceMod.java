@@ -4,7 +4,7 @@ import java.util.Random;
 
 import org.lwjgl.input.Mouse;
 
-import me.eldodebug.soar.injection.interfaces.IMixinMinecraft;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventUpdate;
 import me.eldodebug.soar.management.language.TranslateText;
@@ -49,8 +49,8 @@ public class FastPlaceMod extends Mod {
 				refreshDelayTarget();
 			}
 
-			if(((IMixinMinecraft) mc).getRightClickDelayTimer() > targetDelayTicks) {
-				((IMixinMinecraft) mc).setRightClickDelayTimer(targetDelayTicks);
+			if(MinecraftAccess.getRightClickDelayTimer(mc) > targetDelayTicks) {
+				MinecraftAccess.setRightClickDelayTimer(mc, targetDelayTicks);
 			}
 
 			streakUntilRefresh--;

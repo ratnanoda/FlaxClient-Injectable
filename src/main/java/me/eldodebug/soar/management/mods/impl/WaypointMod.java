@@ -7,7 +7,7 @@ import org.lwjgl.opengl.GL11;
 
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.gui.GuiWaypoint;
-import me.eldodebug.soar.injection.interfaces.IMixinRenderManager;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventKey;
 import me.eldodebug.soar.management.event.impl.EventRender3D;
@@ -40,9 +40,9 @@ public class WaypointMod extends Mod {
 				
 				String tagName = wy.getName() + " [" + (int) distance + "m]";
 				
-				double x = wy.getX() - ((IMixinRenderManager)mc.getRenderManager()).getRenderPosX();
-				double y = 2.0 + wy.getY() - ((IMixinRenderManager)mc.getRenderManager()).getRenderPosY();
-				double z = wy.getZ() - ((IMixinRenderManager)mc.getRenderManager()).getRenderPosZ();
+				double x = wy.getX() - MinecraftAccess.getRenderPosX(mc.getRenderManager());
+				double y = 2.0 + wy.getY() - MinecraftAccess.getRenderPosY(mc.getRenderManager());
+				double z = wy.getZ() - MinecraftAccess.getRenderPosZ(mc.getRenderManager());
 				
 				if(distance > renderDistance) {
 					x = x / distance * renderDistance;

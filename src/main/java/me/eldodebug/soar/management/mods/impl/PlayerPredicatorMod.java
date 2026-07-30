@@ -3,7 +3,7 @@ package me.eldodebug.soar.management.mods.impl;
 import org.lwjgl.opengl.GL11;
 
 import me.eldodebug.soar.Glide;
-import me.eldodebug.soar.injection.interfaces.IMixinS14PacketEntity;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventReceivePacket;
 import me.eldodebug.soar.management.event.impl.EventRender3D;
@@ -58,12 +58,10 @@ public class PlayerPredicatorMod extends Mod {
 		if(packet instanceof S14PacketEntity) {
 			
             S14PacketEntity s14PacketEntity = ((S14PacketEntity) packet);
-            IMixinS14PacketEntity iS14PacketEntity = (IMixinS14PacketEntity) s14PacketEntity;
-            
-            if (iS14PacketEntity.getEntityId() == target.getEntityId()) {
-                realTargetPosition.x += iS14PacketEntity.getPosX() / 32D;
-                realTargetPosition.y += iS14PacketEntity.getPosY() / 32D;
-                realTargetPosition.z += iS14PacketEntity.getPosZ() / 32D;
+            if (MinecraftAccess.getEntityId(s14PacketEntity) == target.getEntityId()) {
+                realTargetPosition.x += MinecraftAccess.getPosX(s14PacketEntity) / 32D;
+                realTargetPosition.y += MinecraftAccess.getPosY(s14PacketEntity) / 32D;
+                realTargetPosition.z += MinecraftAccess.getPosZ(s14PacketEntity) / 32D;
             }
 		} else if(packet instanceof S18PacketEntityTeleport) {
 			

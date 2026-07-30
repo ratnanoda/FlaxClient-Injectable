@@ -1,31 +1,24 @@
 package me.eldodebug.soar.management.mods.impl;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-
 import me.eldodebug.soar.management.event.EventTarget;
-import me.eldodebug.soar.management.event.impl.EventAttackEntity;
 import me.eldodebug.soar.management.event.impl.EventDamageEntity;
 import me.eldodebug.soar.management.event.impl.EventUpdate;
 import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.mods.Mod;
 import me.eldodebug.soar.management.mods.ModCategory;
-import me.eldodebug.soar.management.mods.settings.impl.ComboSetting;
 import me.eldodebug.soar.management.mods.settings.impl.NumberSetting;
-import me.eldodebug.soar.management.mods.settings.impl.combo.Option;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityLivingBase;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class JumpResetMod extends Mod {
 
-	private final ComboSetting resetModeSetting = new ComboSetting(TranslateText.RESET_MODE, this, TranslateText.AUTO,
-			new ArrayList<Option>(Arrays.asList(new Option(TranslateText.AUTO), new Option(TranslateText.ON_HIT))));
-	private final NumberSetting delaySetting = new NumberSetting(TranslateText.DELAY, this, 0, 0, 5, true);
+	private final NumberSetting successChanceSetting = new NumberSetting(
+			TranslateText.SUCCESS_CHANCE, this, 100, 0, 100, true);
+	private final NumberSetting delaySetting = new NumberSetting(
+			TranslateText.DELAY, this, 0, 0, 3, true);
 
-	private static final int GRACE_TICKS = 12;
-	private static final int COOLDOWN_TICKS = 8;
+	private static final int GRACE_TICKS = 6;
+	private static final int COOLDOWN_TICKS = 6;
 
-	private Entity lastAttacked;
 	private boolean armed;
 	private int delayTicks;
 	private int graceTicks;
@@ -48,39 +41,21 @@ public class JumpResetMod extends Mod {
 	}
 
 	private void reset() {
-		lastAttacked = null;
 		armed = false;
 		delayTicks = 0;
 		graceTicks = 0;
 		cooldownTicks = 0;
 	}
 
-	// The player swung and connected with an entity (a real melee hit, not just a
-	// swing). In Auto mode we schedule the reset straight away.
-	@EventTarget
-	public void onAttack(EventAttackEntity event) {
-		Entity entity = event.getEntity();
-		if(entity == null || entity == mc.thePlayer || !(entity instanceof EntityLivingBase)) {
-			return;
-		}
-		lastAttacked = entity;
-		if(isAuto()) {
-			schedule();
-		}
-	}
-
-	// The server confirmed damage on an entity (hurt status). In On Hit mode we
-	// only reset once the entity we attacked actually takes damage.
 	@EventTarget
 	public void onDamage(EventDamageEntity event) {
-		if(isAuto()) {
+		if(event.getEntity() != mc.thePlayer || !canReset() || cooldownTicks > 0) {
 			return;
 		}
-		Entity entity = event.getEntity();
-		if(entity == null || entity == mc.thePlayer || entity != lastAttacked) {
+		if(ThreadLocalRandom.current().nextDouble(100.0D)
+				>= successChanceSetting.getValue()) {
 			return;
 		}
-		lastAttacked = null;
 		schedule();
 	}
 
@@ -100,7 +75,7 @@ public class JumpResetMod extends Mod {
 			return;
 		}
 
-		if(!canReset()) {
+		if(!canReset() || mc.thePlayer.hurtTime <= 0) {
 			armed = false;
 			return;
 		}
@@ -111,9 +86,6 @@ public class JumpResetMod extends Mod {
 			return;
 		}
 
-		// Optimal moment reached: jump on the first grounded tick so sprint resets
-		// as early as possible. Only one jump per hit (a cooldown blocks repeats),
-		// and never while the jump key is held to avoid an unnatural double jump.
 		if(mc.thePlayer.onGround && !mc.gameSettings.keyBindJump.isKeyDown()) {
 			mc.thePlayer.jump();
 			armed = false;
@@ -130,10 +102,6 @@ public class JumpResetMod extends Mod {
 		armed = true;
 		delayTicks = delaySetting.getValueInt();
 		graceTicks = GRACE_TICKS;
-	}
-
-	private boolean isAuto() {
-		return resetModeSetting.getOption().getTranslate().equals(TranslateText.AUTO);
 	}
 
 	private boolean canReset() {

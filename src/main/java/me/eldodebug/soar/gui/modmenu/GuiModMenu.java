@@ -15,6 +15,7 @@ import me.eldodebug.soar.gui.modmenu.category.Category;
 import me.eldodebug.soar.gui.modmenu.category.impl.CosmeticsCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.GamesCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.HomeCategory;
+import me.eldodebug.soar.gui.modmenu.category.impl.GhostCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.ModuleCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.MusicCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.ProfileCategory;
@@ -79,7 +80,7 @@ public class GuiModMenu extends GuiScreen {
 
 	public GuiModMenu() {
 		categories.add(new HomeCategory(this));
-		categories.add(new ModuleCategory(this));
+		categories.add(new GhostCategory(this));
 		categories.add(new MusicCategory(this));
 		categories.add(new YouTubeCategory(this));
 		categories.add(new CosmeticsCategory(this));
@@ -91,7 +92,7 @@ public class GuiModMenu extends GuiScreen {
 		for(Category category : categories) {
 			if(!(category instanceof SettingCategory)) navigationCategories.add(category);
 		}
-		currentCategory = getCategoryByClass(ModuleCategory.class);
+		currentCategory = getCategoryByClass(GhostCategory.class);
 	}
 
 	@Override
@@ -99,7 +100,7 @@ public class GuiModMenu extends GuiScreen {
 		ScaledResolution sr = new ScaledResolution(mc);
 		scaledWidth = sr.getScaledWidth();
 		scaledHeight = sr.getScaledHeight();
-		currentCategory = getCategoryByClass(ModuleCategory.class);
+		currentCategory = getCategoryByClass(GhostCategory.class);
 
 		contentWidth = Math.min(798, Math.max(418, scaledWidth - 92));
 		contentHeight = Math.min(360, Math.max(280, scaledHeight - 44));

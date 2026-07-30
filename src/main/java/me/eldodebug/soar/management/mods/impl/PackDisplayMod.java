@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.util.List;
 
 import me.eldodebug.soar.Glide;
-import me.eldodebug.soar.injection.interfaces.IMixinMinecraft;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventRender2D;
 import me.eldodebug.soar.management.event.impl.EventSwitchTexture;
@@ -86,7 +86,7 @@ public class PackDisplayMod extends HUDMod {
 			dynamicTexture = new DynamicTexture(getCurrentPack().getPackImage());
 		} catch (Exception e) {
 			try {
-				dynamicTexture = new DynamicTexture(((IMixinMinecraft)mc).getMcDefaultResourcePack().getPackImage());
+				dynamicTexture = new DynamicTexture(MinecraftAccess.getDefaultResourcePack(mc).getPackImage());
 			} catch (IOException e1) {
 				dynamicTexture = TextureUtil.missingTexture;
 			}
@@ -100,6 +100,6 @@ public class PackDisplayMod extends HUDMod {
 			final IResourcePack last = packs.get(packs.size() - 1).getResourcePack();
 			return last;
 		}
-		return ((IMixinMinecraft)mc).getMcDefaultResourcePack();
+		return MinecraftAccess.getDefaultResourcePack(mc);
 	}
 }

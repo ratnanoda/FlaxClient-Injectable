@@ -6,7 +6,7 @@ import java.util.Arrays;
 import me.eldodebug.soar.utils.Sound;
 import org.lwjgl.opengl.GL11;
 
-import me.eldodebug.soar.injection.interfaces.IMixinShaderGroup;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventShader;
 import me.eldodebug.soar.management.event.impl.EventUpdateDisplay;
@@ -69,7 +69,7 @@ public class MotionBlurMod extends Mod {
 			
 			if(groupBlur != amountSetting.getValueFloat() || !loaded) {
 				loaded = true;
-				((IMixinShaderGroup) group).getListShaders().forEach((shader) -> {
+				MinecraftAccess.getShaders(group).forEach((shader) -> {
 					ShaderUniform factor = shader.getShaderManager().getShaderUniform("BlurFactor");
 					if(factor != null) {
 						factor.set(amountSetting.getValueFloat());

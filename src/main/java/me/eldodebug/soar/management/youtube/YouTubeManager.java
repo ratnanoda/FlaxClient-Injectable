@@ -23,7 +23,7 @@ import javax.sound.sampled.SourceDataLine;
 
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.logger.GlideLogger;
-import net.minecraft.client.Minecraft;
+import me.eldodebug.soar.management.media.MediaToolResolver;
 
 /**
  * YouTube playlist and playback controller. yt-dlp resolves/downloads a URL,
@@ -43,6 +43,7 @@ public final class YouTubeManager {
     private volatile Process audioProcess;
     private volatile SourceDataLine audioLine;
     private volatile byte[] latestFrame;
+    private volatile long latestFrameSequence;
     private volatile boolean playing;
     private volatile boolean paused;
     private volatile boolean loading;
@@ -65,26 +66,18 @@ public final class YouTubeManager {
         if(!cacheDirectory.exists()) cacheDirectory.mkdirs();
         playlistFile = new File(cacheDirectory, "playlist.txt");
         playbackSettingsFile = new File(cacheDirectory, "playback-settings.txt");
-        ytDlpCommand = commandFromEnvironment("FLAX_YTDLP", "yt-dlp");
-        ffmpegCommand = commandFromEnvironment("FLAX_FFMPEG", "ffmpeg");
+        ytDlpCommand = MediaToolResolver.resolve("yt-dlp", "FLAX_YTDLP");
+        ffmpegCommand = MediaToolResolver.resolve("ffmpeg", "FLAX_FFMPEG");
         loadPlaybackSettings();
         loadPlaylist();
         verifyToolsAsync();
-    }
-
-    private String commandFromEnvironment(String key, String fallback) {
-        String configured = System.getenv(key);
-        if(configured != null && !configured.trim().isEmpty()) return configured.trim();
-        String executable = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")
-                ? fallback + ".exe" : fallback;
-        File bundled = new File(Minecraft.getMinecraft().mcDataDir, "tools/" + executable);
-        return bundled.isFile() ? bundled.getAbsolutePath() : fallback;
+        refreshBrokenMetadataAsync();
     }
 
     private void verifyToolsAsync() {
         Thread thread = new Thread(() -> {
-            if(!canRun(ytDlpCommand, "--version")) status = "yt-dlp was not found in PATH";
-            else if(!canRun(ffmpegCommand, "-version")) status = "ffmpeg was not found in PATH";
+            if(!canRun(ytDlpCommand, "--version")) status = "yt-dlp was not found";
+            else if(!canRun(ffmpegCommand, "-version")) status = "ffmpeg was not found";
         }, "Flax-YouTube-Tools");
         thread.setDaemon(true);
         thread.start();
@@ -132,7 +125,8 @@ public final class YouTubeManager {
         YouTubeEntry entry = findByUrl(url);
         if(entry == null) return;
         try {
-            Process process = new ProcessBuilder(ytDlpCommand, "--no-playlist", "--no-warnings", "--skip-download",
+            Process process = new ProcessBuilder(ytDlpCommand, "--encoding", "utf-8",
+                    "--no-playlist", "--no-warnings", "--skip-download",
                     "--print", "%(title)s", "--print", "%(duration)s", url)
                     .redirectError(ProcessBuilder.Redirect.INHERIT).start();
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
@@ -148,6 +142,20 @@ public final class YouTubeManager {
             status = "Unable to read that YouTube link";
             GlideLogger.error("Unable to read YouTube metadata", e);
         }
+    }
+
+    private void refreshBrokenMetadataAsync() {
+        Thread thread = new Thread(() -> {
+            List<YouTubeEntry> snapshot = getPlaylist();
+            for(YouTubeEntry entry : snapshot) {
+                String title = entry.getTitle();
+                if(title == null || title.equals(entry.getUrl()) || title.indexOf('\uFFFD') >= 0) {
+                    loadMetadata(entry.getUrl());
+                }
+            }
+        }, "Flax-YouTube-Metadata-Repair");
+        thread.setDaemon(true);
+        thread.start();
     }
 
     public void play(YouTubeEntry entry) {
@@ -176,8 +184,10 @@ public final class YouTubeManager {
     private void downloadAndPlay(YouTubeEntry entry, int expectedGeneration) {
         String output = new File(cacheDirectory, cachePrefix(entry) + ".%(ext)s").getAbsolutePath();
         try {
-            Process process = new ProcessBuilder(ytDlpCommand, "--no-playlist", "--no-warnings",
+            Process process = new ProcessBuilder(ytDlpCommand, "--encoding", "utf-8",
+                    "--no-playlist", "--no-warnings",
                     "-f", "bv*[height<=" + qualityHeight + "]+ba/b[height<=" + qualityHeight + "]/b", "--merge-output-format", "mp4",
+                    "--ffmpeg-location", ffmpegCommand,
                     "-o", output, "--print", "after_move:filepath", entry.getUrl())
                     .redirectError(ProcessBuilder.Redirect.INHERIT).start();
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
@@ -223,7 +233,7 @@ public final class YouTubeManager {
             videoProcess = new ProcessBuilder(ffmpegCommand, "-loglevel", "quiet", "-re", "-ss", seek,
                     "-i", entry.getMediaFile().getAbsolutePath(), "-an", "-vf",
                     "scale=" + videoWidth + ":" + videoHeight + ":force_original_aspect_ratio=decrease,pad="
-                            + videoWidth + ":" + videoHeight + ":(ow-iw)/2:(oh-ih)/2,fps=24",
+                            + videoWidth + ":" + videoHeight + ":(ow-iw)/2:(oh-ih)/2",
                     "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1")
                     .redirectError(ProcessBuilder.Redirect.INHERIT).start();
             audioProcess = new ProcessBuilder(ffmpegCommand, "-loglevel", "quiet", "-ss", seek,
@@ -248,6 +258,7 @@ public final class YouTubeManager {
             try(BufferedInputStream stream = new BufferedInputStream(input, frameBytes)) {
                 while(expectedGeneration == generation && readFully(stream, frames[index])) {
                     latestFrame = frames[index];
+                    latestFrameSequence++;
                     index = (index + 1) % frames.length;
                 }
             } catch(Exception ignored) {}
@@ -499,6 +510,7 @@ public final class YouTubeManager {
     }
     public YouTubeEntry getCurrent() { return current; }
     public byte[] getLatestFrame() { return latestFrame; }
+    public long getLatestFrameSequence() { return latestFrameSequence; }
     public boolean isPlaying() { return playing; }
     public boolean isPaused() { return paused; }
     public boolean isLoading() { return loading; }

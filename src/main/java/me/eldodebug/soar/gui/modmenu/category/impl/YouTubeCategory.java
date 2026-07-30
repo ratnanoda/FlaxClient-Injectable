@@ -13,6 +13,7 @@ import me.eldodebug.soar.management.color.AccentColor;
 import me.eldodebug.soar.management.color.palette.ColorPalette;
 import me.eldodebug.soar.management.color.palette.ColorType;
 import me.eldodebug.soar.management.language.TranslateText;
+import me.eldodebug.soar.management.mods.impl.YouTubePipMod;
 import me.eldodebug.soar.management.nanovg.NanoVGManager;
 import me.eldodebug.soar.management.nanovg.font.Fonts;
 import me.eldodebug.soar.management.nanovg.font.Icons;
@@ -147,6 +148,19 @@ public final class YouTubeCategory extends Category {
         YouTubeEntry current = youtube.getCurrent();
         nvg.drawText("Picture in Picture", x + 12.0F, y + 9.0F,
                 palette.getFontColor(ColorType.NORMAL, 165), 8.0F, Fonts.MEDIUM);
+        YouTubePipMod pip = YouTubePipMod.getInstance();
+        boolean pipEnabled = pip != null && pip.isToggled();
+        float pipButtonX = x + width - 64.0F;
+        if(pipEnabled) {
+            nvg.drawGradientRoundedRect(pipButtonX, y + 6.0F, 52.0F, 18.0F, 6.0F,
+                    ColorUtils.applyAlpha(accent.getColor1(), 205),
+                    ColorUtils.applyAlpha(accent.getColor2(), 205));
+        } else {
+            nvg.drawRoundedRect(pipButtonX, y + 6.0F, 52.0F, 18.0F, 6.0F,
+                    translucent(palette.getBackgroundColor(ColorType.NORMAL), 105));
+        }
+        nvg.drawCenteredText(pipEnabled ? "PiP ON" : "PiP OFF", pipButtonX + 26.0F, y + 11.5F,
+                palette.getFontColor(ColorType.DARK), 7.2F, Fonts.SEMIBOLD);
         String title = current == null ? "Nothing is playing"
                 : nvg.getLimitText(current.getTitle(), 9.2F, Fonts.SEMIBOLD, width - 24.0F);
         nvg.drawText(title, x + 12.0F, y + 31.0F,
@@ -269,6 +283,13 @@ public final class YouTubeCategory extends Category {
             }
         }
         if(mouseButton != 0) return;
+
+        YouTubePipMod pip = YouTubePipMod.getInstance();
+        if(pip != null && MouseUtils.isInside(mouseX, mouseY,
+                playerX + playerWidth - 64.0F, panelsY + 6.0F, 52.0F, 18.0F)) {
+            pip.toggle();
+            return;
+        }
 
         float progressX = playerX + 12.0F;
         float progressY = panelsY + 69.0F;

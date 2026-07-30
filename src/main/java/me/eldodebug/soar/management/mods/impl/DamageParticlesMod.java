@@ -6,7 +6,7 @@ import java.util.Random;
 
 import org.lwjgl.opengl.GL11;
 
-import me.eldodebug.soar.injection.interfaces.IMixinRenderManager;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventLivingUpdate;
 import me.eldodebug.soar.management.event.impl.EventLoadWorld;
@@ -97,9 +97,9 @@ public class DamageParticlesMod extends Mod {
 	public void onRender3D(EventRender3D event) {
 		
 		for (Particle particle : this.particles) {
-			double x = particle.location.getX() - ((IMixinRenderManager)mc.getRenderManager()).getRenderPosX();
-			double y = particle.location.getY() - ((IMixinRenderManager)mc.getRenderManager()).getRenderPosY();
-			double z = particle.location.getZ() - ((IMixinRenderManager)mc.getRenderManager()).getRenderPosZ();
+			double x = particle.location.getX() - MinecraftAccess.getRenderPosX(mc.getRenderManager());
+			double y = particle.location.getY() - MinecraftAccess.getRenderPosY(mc.getRenderManager());
+			double z = particle.location.getZ() - MinecraftAccess.getRenderPosZ(mc.getRenderManager());
 
 			GlStateManager.pushMatrix();
 

@@ -1,7 +1,6 @@
 package me.eldodebug.soar.utils.render;
 
-import me.eldodebug.soar.injection.interfaces.IMixinMinecraft;
-import me.eldodebug.soar.injection.interfaces.IMixinShaderGroup;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.shader.Framebuffer;
@@ -50,13 +49,13 @@ public class BlurUtils {
         lastScaleWidth = factor2;
         lastScaleHeight = factor3;
         
-        ((IMixinShaderGroup)blurShader).getListShaders().get(0).getShaderManager().getShaderUniform("BlurXY").set(x * (sr.getScaleFactor() / 2.0F), (factor3 - height) * (sr.getScaleFactor() / 2.0F));
-        ((IMixinShaderGroup)blurShader).getListShaders().get(1).getShaderManager().getShaderUniform("BlurXY").set(x * (sr.getScaleFactor() / 2.0F), (factor3 - height) * (sr.getScaleFactor() / 2.0F));
-        ((IMixinShaderGroup)blurShader).getListShaders().get(0).getShaderManager().getShaderUniform("BlurCoord").set((width - x) * (sr.getScaleFactor() / 2.0F), (height - y) * (sr.getScaleFactor() / 2.0F));
-        ((IMixinShaderGroup)blurShader).getListShaders().get(1).getShaderManager().getShaderUniform("BlurCoord").set((width - x) * (sr.getScaleFactor() / 2.0F), (height - y) * (sr.getScaleFactor() / 2.0F));
-        ((IMixinShaderGroup)blurShader).getListShaders().get(0).getShaderManager().getShaderUniform("Radius").set(radius);
-        ((IMixinShaderGroup)blurShader).getListShaders().get(1).getShaderManager().getShaderUniform("Radius").set(radius);
-        blurShader.loadShaderGroup(((IMixinMinecraft)mc).getTimer().renderPartialTicks);
+        MinecraftAccess.getShaders(blurShader).get(0).getShaderManager().getShaderUniform("BlurXY").set(x * (sr.getScaleFactor() / 2.0F), (factor3 - height) * (sr.getScaleFactor() / 2.0F));
+        MinecraftAccess.getShaders(blurShader).get(1).getShaderManager().getShaderUniform("BlurXY").set(x * (sr.getScaleFactor() / 2.0F), (factor3 - height) * (sr.getScaleFactor() / 2.0F));
+        MinecraftAccess.getShaders(blurShader).get(0).getShaderManager().getShaderUniform("BlurCoord").set((width - x) * (sr.getScaleFactor() / 2.0F), (height - y) * (sr.getScaleFactor() / 2.0F));
+        MinecraftAccess.getShaders(blurShader).get(1).getShaderManager().getShaderUniform("BlurCoord").set((width - x) * (sr.getScaleFactor() / 2.0F), (height - y) * (sr.getScaleFactor() / 2.0F));
+        MinecraftAccess.getShaders(blurShader).get(0).getShaderManager().getShaderUniform("Radius").set(radius);
+        MinecraftAccess.getShaders(blurShader).get(1).getShaderManager().getShaderUniform("Radius").set(radius);
+        blurShader.loadShaderGroup(MinecraftAccess.getTimer(mc).renderPartialTicks);
         mc.getFramebuffer().bindFramebuffer(true);
     }
 }

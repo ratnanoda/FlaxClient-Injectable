@@ -12,7 +12,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
 import me.eldodebug.soar.Glide;
-import me.eldodebug.soar.injection.interfaces.IMixinMinecraft;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.logger.GlideLogger;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.Session;
@@ -74,7 +74,7 @@ public class AltManager {
 		}
 
 		Session session = new Session(account.getProfileName(), account.getUuid(), account.getMcAccessToken(), "mojang");
-		((IMixinMinecraft) Minecraft.getMinecraft()).setSession(session);
+		MinecraftAccess.setSession(Minecraft.getMinecraft(), session);
 		activeAccount = account;
 	}
 

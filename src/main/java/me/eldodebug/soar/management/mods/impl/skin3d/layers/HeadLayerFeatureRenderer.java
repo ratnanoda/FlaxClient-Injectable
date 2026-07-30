@@ -4,8 +4,8 @@ import java.util.Set;
 
 import com.google.common.collect.Sets;
 
-import me.eldodebug.soar.injection.interfaces.IMixinEntityPlayer;
-import me.eldodebug.soar.injection.interfaces.IMixinRenderPlayer;
+import me.eldodebug.soar.attach.MinecraftAccess;
+import me.eldodebug.soar.attach.PlayerState;
 import me.eldodebug.soar.management.mods.impl.Skin3DMod;
 import me.eldodebug.soar.utils.SkinUtils;
 import net.minecraft.client.Minecraft;
@@ -25,7 +25,7 @@ public class HeadLayerFeatureRenderer implements LayerRenderer<AbstractClientPla
 	private RenderPlayer playerRenderer;
 	
     public HeadLayerFeatureRenderer(RenderPlayer playerRenderer) {
-        thinArms = ((IMixinRenderPlayer)playerRenderer).hasThinArms();
+        thinArms = MinecraftAccess.hasThinArms(playerRenderer);
         this.playerRenderer = playerRenderer;
     }
 
@@ -46,29 +46,27 @@ public class HeadLayerFeatureRenderer implements LayerRenderer<AbstractClientPla
 			return;
 		}
 		
-		IMixinEntityPlayer settings = (IMixinEntityPlayer) player;
-		
-		if(settings.getHeadLayers() == null && !setupModel(player, settings)) {
+		if(PlayerState.getHeadLayer(player) == null && !setupModel(player)) {
 			return;
 		}
 
-		renderCustomHelmet(settings, player, deltaTick);
+		renderCustomHelmet(player, deltaTick);
 	}
 
-	private boolean setupModel(AbstractClientPlayer abstractClientPlayerEntity, IMixinEntityPlayer settings) {
+	private boolean setupModel(AbstractClientPlayer abstractClientPlayerEntity) {
 		
 		if(!SkinUtils.hasCustomSkin(abstractClientPlayerEntity)) {
 			return false;
 		}
 		
-		SkinUtils.setup3dLayers(abstractClientPlayerEntity, settings, thinArms, null);
+		SkinUtils.setup3dLayers(abstractClientPlayerEntity, thinArms, null);
 		
 		return true;
 	}
 
-	public void renderCustomHelmet(IMixinEntityPlayer settings, AbstractClientPlayer abstractClientPlayer, float deltaTick) {
+	public void renderCustomHelmet(AbstractClientPlayer abstractClientPlayer, float deltaTick) {
 		
-		if(settings.getHeadLayers() == null) {
+		if(PlayerState.getHeadLayer(abstractClientPlayer) == null) {
 			return;
 		}
 		
@@ -89,7 +87,7 @@ public class HeadLayerFeatureRenderer implements LayerRenderer<AbstractClientPla
 		GlStateManager.scale(voxelSize, voxelSize, voxelSize);
 		
 		boolean tintRed = abstractClientPlayer.hurtTime > 0 || abstractClientPlayer.deathTime > 0;
-		settings.getHeadLayers().render(tintRed);
+		PlayerState.getHeadLayer(abstractClientPlayer).render(tintRed);
 		GlStateManager.popMatrix();
 	}
 

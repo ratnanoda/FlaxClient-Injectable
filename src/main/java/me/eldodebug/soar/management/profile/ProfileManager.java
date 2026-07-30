@@ -239,8 +239,8 @@ public class ProfileManager {
             JsonObject appJsonObject = JsonUtils.getObjectProperty(jsonObject, "Appearance");
 			JsonObject modJsonObject = JsonUtils.getObjectProperty(jsonObject, "Mods");
 			
-			colorManager.setCurrentColor(colorManager.getColorByName(JsonUtils.getStringProperty(appJsonObject, "Accent Color", "Teal Love")));
-			colorManager.setTheme(Theme.getThemeById(JsonUtils.getIntProperty(appJsonObject, "Theme", Theme.LIGHT.getId())));
+			colorManager.setCurrentColor(colorManager.getColorByName(JsonUtils.getStringProperty(appJsonObject, "Accent Color", "Moon Asteroid")));
+			colorManager.setTheme(Theme.getThemeById(JsonUtils.getIntProperty(appJsonObject, "Theme", Theme.DARK.getId())));
 			backgroundManager.setCurrentBackground(backgroundManager.getBackgroundById(JsonUtils.getIntProperty(appJsonObject, "Background", 0)));
 			instance.getLanguageManager().setCurrentLanguage(Language.getLanguageById(JsonUtils.getStringProperty(appJsonObject, "Language", Language.ENGLISH.getId())));
 			

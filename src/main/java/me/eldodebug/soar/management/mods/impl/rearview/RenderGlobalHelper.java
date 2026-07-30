@@ -1,6 +1,6 @@
 package me.eldodebug.soar.management.mods.impl.rearview;
 
-import me.eldodebug.soar.injection.interfaces.IMixinRenderGlobal;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderGlobal;
 
@@ -30,8 +30,8 @@ public final class RenderGlobalHelper {
     public void switchTo() {
         if (orig == null)
             orig = mc.renderGlobal;
-        if (((IMixinRenderGlobal)orig).getWorldClient() != ((IMixinRenderGlobal)rg).getWorldClient()) {
-            rg.setWorldAndLoadRenderers(((IMixinRenderGlobal)orig).getWorldClient());
+        if (MinecraftAccess.getWorld(orig) != MinecraftAccess.getWorld(rg)) {
+            rg.setWorldAndLoadRenderers(MinecraftAccess.getWorld(orig));
             getSettings();
         } else if (settingsChanged()) {
             rg.loadRenderers();

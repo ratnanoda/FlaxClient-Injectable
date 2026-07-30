@@ -40,7 +40,7 @@ public final class YouTubePipMod extends HUDMod {
     private int textureId;
     private int textureWidth;
     private int textureHeight;
-    private byte[] uploadedFrame;
+    private long uploadedFrameSequence = -1L;
 
     public YouTubePipMod() {
         super(TranslateText.YOUTUBE_PIP, TranslateText.YOUTUBE_PIP_DESCRIPTION);
@@ -63,7 +63,12 @@ public final class YouTubePipMod extends HUDMod {
         int sourceWidth = manager.getVideoWidth();
         int sourceHeight = manager.getVideoHeight();
         byte[] frame = manager.getLatestFrame();
-        if(frame != null && frame.length == sourceWidth * sourceHeight * 4) uploadFrame(frame, sourceWidth, sourceHeight);
+        long frameSequence = manager.getLatestFrameSequence();
+        if(frame != null && frame.length == sourceWidth * sourceHeight * 4
+                && frameSequence != uploadedFrameSequence) {
+            uploadFrame(frame, sourceWidth, sourceHeight);
+            uploadedFrameSequence = frameSequence;
+        }
 
         setWidth(BASE_WIDTH);
         setHeight(BASE_HEIGHT);
@@ -103,14 +108,13 @@ public final class YouTubePipMod extends HUDMod {
         float hintHeight = Math.max(16.0F, 22.0F * getScale());
         nvg.drawRoundedRect(getX() + 4.0F, getY() + height - hintHeight - 4.0F,
                 width - 8.0F, hintHeight, 5.0F * getScale(), new Color(0, 0, 0, 150));
-        nvg.drawCenteredText("Right click: " + quality + "p  •  Scroll: size  •  Drag: move",
+        nvg.drawCenteredText("Right click: " + quality + "p  |  Scroll: size  |  Drag: move",
                 getX() + width / 2.0F, getY() + height - hintHeight + 1.0F,
                 Color.WHITE, Math.max(6.5F, 8.0F * getScale()), Fonts.MEDIUM);
     }
 
     private void uploadFrame(byte[] frame, int width, int height) {
         if(textureId == 0 || width != textureWidth || height != textureHeight) createTexture(width, height);
-        if(uploadedFrame == frame) return;
         frameBuffer.clear();
         frameBuffer.put(frame);
         frameBuffer.flip();
@@ -118,7 +122,6 @@ public final class YouTubePipMod extends HUDMod {
         GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, width, height,
                 GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, frameBuffer);
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
-        uploadedFrame = frame;
     }
 
     private void createTexture(int width, int height) {
@@ -126,7 +129,7 @@ public final class YouTubePipMod extends HUDMod {
         textureWidth = width;
         textureHeight = height;
         frameBuffer = BufferUtils.createByteBuffer(width * height * 4);
-        uploadedFrame = null;
+        uploadedFrameSequence = -1L;
         GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId);
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
         GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);

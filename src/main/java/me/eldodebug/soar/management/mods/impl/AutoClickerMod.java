@@ -4,7 +4,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import org.lwjgl.input.Mouse;
 
-import me.eldodebug.soar.injection.interfaces.IMixinMinecraft;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventRenderTick;
 import me.eldodebug.soar.management.language.TranslateText;
@@ -61,9 +61,8 @@ public class AutoClickerMod extends Mod {
 			// Deliver exactly one scheduled click to Minecraft as well. Resetting
 			// the vanilla delay here also prevents a later queued native event from
 			// producing a second attack for the same scheduled click.
-			IMixinMinecraft mixinMinecraft = (IMixinMinecraft) mc;
-			mixinMinecraft.setLeftClickCounter(0);
-			mixinMinecraft.callClickMouse();
+			MinecraftAccess.setLeftClickCounter(mc, 0);
+			MinecraftAccess.clickMouse(mc);
 			restoreSprintAfterClick(wasSprinting || mc.gameSettings.keyBindSprint.isKeyDown());
 			nextClickAt = now + getNextDelay();
 			comboClicks++;

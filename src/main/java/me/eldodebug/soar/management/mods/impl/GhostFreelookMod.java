@@ -24,6 +24,7 @@ import net.minecraft.util.MathHelper;
 
 public class GhostFreelookMod extends Mod {
 
+	private static GhostFreelookMod instance;
 	private boolean active;
 	private float yaw;
 	private float pitch;
@@ -41,6 +42,15 @@ public class GhostFreelookMod extends Mod {
 
 	public GhostFreelookMod() {
 		super(TranslateText.GHOST_FREELOOK, TranslateText.GHOST_FREELOOK_DESCRIPTION, ModCategory.GHOST);
+		instance = this;
+	}
+
+	public static GhostFreelookMod getInstance() {
+		return instance;
+	}
+
+	public boolean isCameraActive() {
+		return active;
 	}
 
 	@EventTarget

@@ -1,6 +1,6 @@
 package me.eldodebug.soar.management.mods.impl.appleskin;
 
-import me.eldodebug.soar.injection.interfaces.IMixinItemFood;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import net.minecraft.item.ItemFood;
 import net.minecraft.item.ItemStack;
 import net.minecraft.potion.Potion;
@@ -24,7 +24,7 @@ public class AppleSkinHelper {
         final ItemFood food = (ItemFood) stack.getItem();
 
         if (food.getPotionEffect(stack) != null) {
-            return Potion.potionTypes[((IMixinItemFood)food).getPotionID()].isBadEffect();
+            return Potion.potionTypes[MinecraftAccess.getPotionId(food)].isBadEffect();
         }
 
         return false;

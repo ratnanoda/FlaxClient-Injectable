@@ -6,7 +6,7 @@ import java.nio.IntBuffer;
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
 
-import me.eldodebug.soar.injection.interfaces.IMixinRenderManager;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
 
@@ -42,10 +42,9 @@ public class WorldToScreen {
 		modelviewBuffer.get(modelview).rewind();
 		projectionBuffer.get(projection).rewind();
 
-		IMixinRenderManager rm = (IMixinRenderManager) mc.getRenderManager();
-		viewerX = rm.getRenderPosX();
-		viewerY = rm.getRenderPosY();
-		viewerZ = rm.getRenderPosZ();
+		viewerX = MinecraftAccess.getRenderPosX(mc.getRenderManager());
+		viewerY = MinecraftAccess.getRenderPosY(mc.getRenderManager());
+		viewerZ = MinecraftAccess.getRenderPosZ(mc.getRenderManager());
 	}
 
 	// Projects an absolute world position. Returns {screenX, screenY} in

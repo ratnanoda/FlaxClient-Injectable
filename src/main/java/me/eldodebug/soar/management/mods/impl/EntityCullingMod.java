@@ -13,7 +13,7 @@ import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL33;
 import org.lwjgl.opengl.GLContext;
 
-import me.eldodebug.soar.injection.interfaces.IMixinRenderManager;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventRenderTick;
 import me.eldodebug.soar.management.event.impl.EventRendererLivingEntity;
@@ -217,7 +217,7 @@ public class EntityCullingMod extends Mod {
             GL15.glBeginQuery(mode, query.nextQuery);
             drawSelectionBoundingBox(entity.getEntityBoundingBox()
                     .expand(.2, .2, .2)
-                    .offset(-((IMixinRenderManager)renderManager).getRenderPosX(), -((IMixinRenderManager)renderManager).getRenderPosY(), -((IMixinRenderManager)renderManager).getRenderPosZ())
+                    .offset(-MinecraftAccess.getRenderPosX(renderManager), -MinecraftAccess.getRenderPosY(renderManager), -MinecraftAccess.getRenderPosZ(renderManager))
             );
             GL15.glEndQuery(mode);
         }

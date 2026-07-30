@@ -2,7 +2,6 @@ package me.eldodebug.soar.utils;
 
 import java.lang.reflect.Field;
 
-import me.eldodebug.soar.injection.mixin.GlideTweaker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.settings.GameSettings;
 
@@ -29,7 +28,7 @@ public class OptifineUtils {
 		}
 		nextApplyMillis = now + 1000L;
     	
-		if(GlideTweaker.hasOptifine) {
+		if(gameSettings_ofFastRender != null) {
 			try {
 				if(OptifineUtils.gameSettings_ofFastRender != null && OptifineUtils.gameSettings_ofFastRender.getBoolean(mc.gameSettings)) {
 					OptifineUtils.gameSettings_ofFastRender.setBoolean(mc.gameSettings, false);
@@ -37,11 +36,15 @@ public class OptifineUtils {
 			} catch (IllegalArgumentException | IllegalAccessException e) {}
 		}
 		
-		if(!mc.gameSettings.useVbo) {
-			mc.gameSettings.useVbo = true;
-		}
-		if(!mc.gameSettings.fboEnable) {
-			mc.gameSettings.fboEnable = true;
-		}
+		/*
+		 * Never switch VBO/FBO render paths after Minecraft has entered a
+		 * world. Chunk render tasks are built for the render path that was
+		 * active when they were queued. Changing useVbo here during a late
+		 * attach can make Lunar upload a display-list task through the VBO
+		 * uploader, whose VertexBuffer is consequently null.
+		 *
+		 * NanoVG works with Minecraft's existing framebuffer configuration;
+		 * only OptiFine Fast Render needs to be disabled for compatibility.
+		 */
     }
 }

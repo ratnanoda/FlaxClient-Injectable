@@ -4,8 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 
-import me.eldodebug.soar.injection.interfaces.IMixinEntityPlayer;
-import me.eldodebug.soar.injection.interfaces.IMixinRenderPlayer;
+import me.eldodebug.soar.attach.MinecraftAccess;
+import me.eldodebug.soar.attach.PlayerState;
 import me.eldodebug.soar.management.mods.impl.Skin3DMod;
 import me.eldodebug.soar.management.mods.impl.skin3d.render.CustomizableModelPart;
 import me.eldodebug.soar.utils.SkinUtils;
@@ -23,7 +23,7 @@ public class BodyLayerFeatureRenderer implements LayerRenderer<AbstractClientPla
     private static final Minecraft mc = Minecraft.getMinecraft();
     
     public BodyLayerFeatureRenderer(RenderPlayer playerRenderer) {
-        thinArms = ((IMixinRenderPlayer)playerRenderer).hasThinArms();
+        thinArms = MinecraftAccess.hasThinArms(playerRenderer);
         bodyLayers.add(new Layer(0, false, EnumPlayerModelParts.LEFT_PANTS_LEG, Shape.LEGS, () -> playerRenderer.getMainModel().bipedLeftLeg));
         bodyLayers.add(new Layer(1, false, EnumPlayerModelParts.RIGHT_PANTS_LEG, Shape.LEGS, () -> playerRenderer.getMainModel().bipedRightLeg));
         bodyLayers.add(new Layer(2, false, EnumPlayerModelParts.LEFT_SLEEVE, thinArms ? Shape.ARMS_SLIM : Shape.ARMS, () -> playerRenderer.getMainModel().bipedLeftArm));
@@ -46,22 +46,20 @@ public class BodyLayerFeatureRenderer implements LayerRenderer<AbstractClientPla
         	return;
         }
         
-        IMixinEntityPlayer settings = (IMixinEntityPlayer) player;
-        
-        if(settings.getSkinLayers() == null && !setupModel(player, settings)) {
+        if(PlayerState.getSkinLayers(player) == null && !setupModel(player)) {
             return;
         }
 
-        renderLayers(player, (CustomizableModelPart[]) settings.getSkinLayers(), deltaTick);
+        renderLayers(player, PlayerState.getSkinLayers(player), deltaTick);
     }
 
-    private boolean setupModel(AbstractClientPlayer abstractClientPlayerEntity, IMixinEntityPlayer settings) {
+    private boolean setupModel(AbstractClientPlayer abstractClientPlayerEntity) {
     	
         if(!SkinUtils.hasCustomSkin(abstractClientPlayerEntity)) {
             return false;
         }
         
-        SkinUtils.setup3dLayers(abstractClientPlayerEntity, settings, thinArms, null);
+        SkinUtils.setup3dLayers(abstractClientPlayerEntity, thinArms, null);
         
         return true;
     }

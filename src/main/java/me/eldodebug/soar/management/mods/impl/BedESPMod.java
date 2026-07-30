@@ -23,11 +23,11 @@ import me.eldodebug.soar.management.mods.settings.impl.NumberSetting;
 import me.eldodebug.soar.management.mods.settings.impl.combo.Option;
 import me.eldodebug.soar.utils.ColorUtils;
 import me.eldodebug.soar.utils.Render3DUtils;
+import me.eldodebug.soar.utils.render.RenderUtils;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockBed;
 import net.minecraft.block.BlockDirectional;
 import net.minecraft.block.state.IBlockState;
-import net.minecraft.client.gui.Gui;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.RenderGlobal;
 import net.minecraft.client.renderer.RenderHelper;
@@ -54,9 +54,9 @@ public class BedESPMod extends Mod {
 	private static final int ICON_SIZE = 16;
 	private static final int ICON_GAP = 2;
 	private static final int PANEL_PADDING = 4;
+	private static final int MAX_ICONS_PER_ROW = 4;
 
 	private final ColorSetting colorSetting = new ColorSetting(TranslateText.COLOR, this, new Color(255, 64, 64), false);
-	private final ColorSetting backgroundColorSetting = new ColorSetting(TranslateText.BACKGROUND, this, new Color(45, 48, 58, 205), true);
 	private final NumberSetting alphaSetting = new NumberSetting(TranslateText.ALPHA, this, 0.85, 0.05, 1.0, false);
 	private final NumberSetting lineWidthSetting = new NumberSetting(TranslateText.LINE_WIDTH, this, 2, 1, 5, true);
 	private final ComboSetting modeSetting = new ComboSetting(TranslateText.MODE, this, TranslateText.BOX, new ArrayList<Option>(Arrays.asList(
@@ -178,7 +178,7 @@ public class BedESPMod extends Mod {
 
 					IBlockState state = mc.theWorld.getBlockState(position);
 					Block block = state.getBlock();
-					if(block == Blocks.air || block == Blocks.bed) continue;
+					if(!isDefenseBlock(block)) continue;
 
 					Item item = Item.getItemFromBlock(block);
 					if(item == null) continue;
@@ -214,6 +214,18 @@ public class BedESPMod extends Mod {
 			if(result.size() >= MAX_DEFENSE_ICONS) break;
 		}
 		return result;
+	}
+
+	private boolean isDefenseBlock(Block block) {
+		return block == Blocks.wool
+				|| block == Blocks.planks
+				|| block == Blocks.end_stone
+				|| block == Blocks.obsidian
+				|| block == Blocks.glass
+				|| block == Blocks.stained_glass
+				|| block == Blocks.hardened_clay
+				|| block == Blocks.stained_hardened_clay
+				|| block == Blocks.sandstone;
 	}
 
 	private int shellDistance(BlockPos first, BlockPos second) {
@@ -294,11 +306,13 @@ public class BedESPMod extends Mod {
 		double distance = mc.thePlayer.getDistance(centerX, centerY, centerZ);
 		float scale = (float) Math.max(0.025D, Math.min(0.12D, distance * 0.0025D));
 
-		int contentWidth = icons.size() * ICON_SIZE + (icons.size() - 1) * ICON_GAP;
+		int columns = Math.min(MAX_ICONS_PER_ROW, icons.size());
+		int rows = (icons.size() + MAX_ICONS_PER_ROW - 1) / MAX_ICONS_PER_ROW;
+		int contentWidth = columns * ICON_SIZE + (columns - 1) * ICON_GAP;
 		int panelWidth = contentWidth + PANEL_PADDING * 2;
-		int panelHeight = ICON_SIZE + PANEL_PADDING * 2;
-		int left = -contentWidth / 2;
-		int top = -ICON_SIZE / 2;
+		int panelHeight = rows * ICON_SIZE
+				+ Math.max(0, rows - 1) * ICON_GAP + PANEL_PADDING * 2;
+		int panelTop = -panelHeight / 2;
 
 		GlStateManager.pushMatrix();
 		GlStateManager.translate(centerX - rm.viewerPosX, centerY - rm.viewerPosY, centerZ - rm.viewerPosZ);
@@ -315,13 +329,17 @@ public class BedESPMod extends Mod {
 		GlStateManager.enableTexture2D();
 		GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 
-		Color background = backgroundColorSetting.getColor();
-		int backgroundArgb = (background.getAlpha() & 255) << 24
-				| (background.getRed() & 255) << 16
-				| (background.getGreen() & 255) << 8
-				| background.getBlue() & 255;
-		Gui.drawRect(-panelWidth / 2 - 1, -panelHeight / 2 - 1, panelWidth / 2 + 1, panelHeight / 2 + 1, 0x66000000);
-		Gui.drawRect(-panelWidth / 2, -panelHeight / 2, panelWidth / 2, panelHeight / 2, backgroundArgb);
+		Color accent = colorSetting.getColor();
+		RenderUtils.drawRoundedRect(-panelWidth / 2.0F - 1.5F, panelTop - 1.5F,
+				panelWidth + 3.0F, panelHeight + 3.0F, 5.0F, new Color(0, 0, 0, 105));
+		RenderUtils.drawRoundedRect(-panelWidth / 2.0F, panelTop,
+				panelWidth, panelHeight, 4.0F, new Color(0, 0, 0, 191));
+		RenderUtils.drawRoundedOutline(-panelWidth / 2.0F, panelTop,
+				panelWidth, panelHeight, 4.0F, 0.8F,
+				new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 205));
+
+		GlStateManager.enableBlend();
+		GlStateManager.enableTexture2D();
 
 		GlStateManager.enableRescaleNormal();
 		GlStateManager.enableColorMaterial();
@@ -332,8 +350,14 @@ public class BedESPMod extends Mod {
 		// because this GUI is already positioned in the 3D world.
 		mc.getRenderItem().zLevel = -100.0F;
 		for(int i = 0; i < icons.size(); i++) {
+			int row = i / MAX_ICONS_PER_ROW;
+			int column = i % MAX_ICONS_PER_ROW;
+			int itemsInRow = Math.min(MAX_ICONS_PER_ROW, icons.size() - row * MAX_ICONS_PER_ROW);
+			int rowWidth = itemsInRow * ICON_SIZE + (itemsInRow - 1) * ICON_GAP;
+			int itemX = -rowWidth / 2 + column * (ICON_SIZE + ICON_GAP);
+			int itemY = panelTop + PANEL_PADDING + row * (ICON_SIZE + ICON_GAP);
 			GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
-			mc.getRenderItem().renderItemAndEffectIntoGUI(icons.get(i), left + i * (ICON_SIZE + ICON_GAP), top);
+			mc.getRenderItem().renderItemAndEffectIntoGUI(icons.get(i), itemX, itemY);
 		}
 		mc.getRenderItem().zLevel = oldZLevel;
 

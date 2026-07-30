@@ -1,10 +1,11 @@
 package me.eldodebug.soar.management.music;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -19,11 +20,8 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
 import javax.sound.sampled.SourceDataLine;
 
-import javazoom.jl.decoder.Bitstream;
-import javazoom.jl.decoder.Decoder;
-import javazoom.jl.decoder.Header;
-import javazoom.jl.decoder.SampleBuffer;
 import me.eldodebug.soar.logger.GlideLogger;
+import me.eldodebug.soar.management.media.MediaToolResolver;
 import net.minecraft.client.Minecraft;
 
 /** Lightweight, local MP3 player used by the ClickGUI Music page. */
@@ -33,6 +31,7 @@ public final class MusicManager {
     private volatile List<MusicTrack> tracks = Collections.emptyList();
     private volatile MusicTrack currentTrack;
     private volatile SourceDataLine activeLine;
+    private volatile Process playbackProcess;
     private volatile boolean enabled = true;
     private volatile boolean playing;
     private volatile boolean paused;
@@ -42,8 +41,12 @@ public final class MusicManager {
     private volatile long positionMillis;
     private volatile int playbackGeneration;
     private File musicDirectory;
+    private final String ffmpegCommand;
+    private final String ffprobeCommand;
 
     public MusicManager() {
+        ffmpegCommand = MediaToolResolver.resolve("ffmpeg", "FLAX_FFMPEG");
+        ffprobeCommand = MediaToolResolver.resolve("ffprobe", "FLAX_FFPROBE");
         installBundledTracks();
         refreshTracks();
     }
@@ -150,6 +153,11 @@ public final class MusicManager {
         if(clearTrack) currentTrack = null;
         SourceDataLine line = activeLine;
         activeLine = null;
+        Process process = playbackProcess;
+        playbackProcess = null;
+        if(process != null) {
+            try { process.destroyForcibly(); } catch(Exception ignored) {}
+        }
         if(line != null) {
             try { line.stop(); } catch(Exception ignored) {}
             try { line.flush(); } catch(Exception ignored) {}
@@ -190,6 +198,11 @@ public final class MusicManager {
         int generation = ++playbackGeneration;
         SourceDataLine oldLine = activeLine;
         activeLine = null;
+        Process oldProcess = playbackProcess;
+        playbackProcess = null;
+        if(oldProcess != null) {
+            try { oldProcess.destroyForcibly(); } catch(Exception ignored) {}
+        }
         if(oldLine != null) {
             try { oldLine.stop(); } catch(Exception ignored) {}
             try { oldLine.close(); } catch(Exception ignored) {}
@@ -204,54 +217,38 @@ public final class MusicManager {
     }
 
     private void decodeAndPlay(MusicTrack track, long startMillis, int generation) {
-        Bitstream bitstream = null;
         SourceDataLine line = null;
-        long decodedMillis = 0L;
+        Process process = null;
         boolean completedNaturally = false;
-        try(BufferedInputStream input = new BufferedInputStream(new FileInputStream(track.getFile()), 64 * 1024)) {
-            bitstream = new Bitstream(input);
-            Decoder decoder = new Decoder();
-            Header header;
-            byte[] pcmBytes = null;
+        String seek = String.format(Locale.ROOT, "%.3f", Math.max(0L, startMillis) / 1000.0D);
+        try {
+            process = new ProcessBuilder(ffmpegCommand, "-loglevel", "error", "-ss", seek,
+                    "-i", track.getFile().getAbsolutePath(), "-vn", "-f", "s16le",
+                    "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", "pipe:1")
+                    .redirectError(ProcessBuilder.Redirect.INHERIT).start();
+            playbackProcess = process;
 
-            while(generation == playbackGeneration && (header = bitstream.readFrame()) != null) {
-                float frameMillis = header.ms_per_frame();
-                SampleBuffer samples = (SampleBuffer) decoder.decodeFrame(header, bitstream);
-                decodedMillis += Math.max(1L, Math.round(frameMillis));
+            AudioFormat format = new AudioFormat(44100.0F, 16, 2, true, false);
+            line = (SourceDataLine) AudioSystem.getLine(new DataLine.Info(SourceDataLine.class, format));
+            line.open(format, 32768);
+            line.start();
+            activeLine = line;
 
-                if(decodedMillis >= startMillis) {
-                    if(line == null) {
-                        AudioFormat format = new AudioFormat(samples.getSampleFrequency(), 16,
-                                samples.getChannelCount(), true, false);
-                        DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
-                        line = (SourceDataLine) AudioSystem.getLine(info);
-                        line.open(format, 32768);
-                        line.start();
-                        activeLine = line;
-                    }
-
+            byte[] inputBuffer = new byte[8192];
+            byte[] outputBuffer = new byte[8192];
+            try(BufferedInputStream input = new BufferedInputStream(process.getInputStream(), 64 * 1024)) {
+                int read;
+                while(generation == playbackGeneration && (read = input.read(inputBuffer)) >= 0) {
                     synchronized(stateLock) {
                         while(paused && generation == playbackGeneration) stateLock.wait(250L);
                     }
                     if(generation != playbackGeneration) break;
-
-                    int sampleCount = samples.getBufferLength();
-                    if(pcmBytes == null || pcmBytes.length < sampleCount * 2) pcmBytes = new byte[sampleCount * 2];
-                    short[] pcm = samples.getBuffer();
-                    float gain = volume;
-                    for(int i = 0; i < sampleCount; i++) {
-                        int amplified = Math.round(pcm[i] * gain);
-                        if(amplified > Short.MAX_VALUE) amplified = Short.MAX_VALUE;
-                        else if(amplified < Short.MIN_VALUE) amplified = Short.MIN_VALUE;
-                        pcmBytes[i * 2] = (byte) amplified;
-                        pcmBytes[i * 2 + 1] = (byte) (amplified >>> 8);
-                    }
-                    line.write(pcmBytes, 0, sampleCount * 2);
-                    positionMillis = decodedMillis;
+                    amplifyPcm(inputBuffer, outputBuffer, read, volume);
+                    line.write(outputBuffer, 0, read);
+                    positionMillis = startMillis + line.getMicrosecondPosition() / 1000L;
                 }
-                bitstream.closeFrame();
             }
-            completedNaturally = generation == playbackGeneration;
+            completedNaturally = generation == playbackGeneration && process.waitFor() == 0;
             if(completedNaturally && line != null) line.drain();
         } catch(InterruptedException ignored) {
             Thread.currentThread().interrupt();
@@ -261,9 +258,8 @@ public final class MusicManager {
                 GlideLogger.error("Unable to play music: " + track.getFile(), e);
             }
         } finally {
-            if(bitstream != null) {
-                try { bitstream.close(); } catch(Exception ignored) {}
-            }
+            if(process != null && process.isAlive()) try { process.destroyForcibly(); } catch(Exception ignored) {}
+            if(playbackProcess == process) playbackProcess = null;
             if(line != null) {
                 try { line.stop(); } catch(Exception ignored) {}
                 try { line.close(); } catch(Exception ignored) {}
@@ -291,17 +287,31 @@ public final class MusicManager {
     }
 
     private long readDuration(File file) {
-        try(BufferedInputStream input = new BufferedInputStream(new FileInputStream(file), 16 * 1024)) {
-            Bitstream stream = new Bitstream(input);
-            Header first = stream.readFrame();
-            if(first == null) return 0L;
-            long duration = Math.max(0L, Math.round(first.total_ms((int) Math.min(Integer.MAX_VALUE, file.length()))));
-            stream.closeFrame();
-            stream.close();
-            return duration;
+        try {
+            Process process = new ProcessBuilder(ffprobeCommand, "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    file.getAbsolutePath()).redirectErrorStream(true).start();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String seconds = reader.readLine();
+            if(process.waitFor() != 0 || seconds == null) return 0L;
+            return Math.max(0L, Math.round(Double.parseDouble(seconds.trim()) * 1000.0D));
         } catch(Exception ignored) {
             return 0L;
         }
+    }
+
+    private void amplifyPcm(byte[] input, byte[] output, int length, float gain) {
+        int evenLength = length - (length & 1);
+        for(int i = 0; i < evenLength; i += 2) {
+            short sample = (short) ((input[i] & 0xFF) | (input[i + 1] << 8));
+            int amplified = Math.round(sample * gain);
+            if(amplified > Short.MAX_VALUE) amplified = Short.MAX_VALUE;
+            else if(amplified < Short.MIN_VALUE) amplified = Short.MIN_VALUE;
+            output[i] = (byte) amplified;
+            output[i + 1] = (byte) (amplified >>> 8);
+        }
+        if(evenLength < length) output[evenLength] = input[evenLength];
     }
 
     public List<MusicTrack> getTracks() { return tracks; }

@@ -5,7 +5,7 @@ import java.nio.IntBuffer;
 import org.lwjgl.opengl.ARBFramebufferObject;
 import org.lwjgl.opengl.GL11;
 
-import me.eldodebug.soar.injection.interfaces.IMixinMinecraft;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.renderer.GlStateManager;
@@ -61,10 +61,10 @@ public class RearviewCamera {
         
         w = mc.displayWidth;
         h = mc.displayHeight;
-        y = ((IMixinMinecraft)mc).getRenderViewEntity().rotationYaw;
-        py = ((IMixinMinecraft)mc).getRenderViewEntity().prevRotationYaw;
-        p = ((IMixinMinecraft)mc).getRenderViewEntity().rotationPitch;
-        pp = ((IMixinMinecraft)mc).getRenderViewEntity().prevRotationPitch;
+        y = MinecraftAccess.getRenderViewEntity(mc).rotationYaw;
+        py = MinecraftAccess.getRenderViewEntity(mc).prevRotationYaw;
+        p = MinecraftAccess.getRenderViewEntity(mc).rotationPitch;
+        pp = MinecraftAccess.getRenderViewEntity(mc).prevRotationPitch;
         hide = mc.gameSettings.hideGUI;
         view = mc.gameSettings.thirdPersonView;
         limit = mc.gameSettings.limitFramerate;
@@ -85,15 +85,15 @@ public class RearviewCamera {
         mc.gameSettings.limitFramerate = 0;
         mc.gameSettings.fovSetting = fov;
 
-        ((IMixinMinecraft)mc).getRenderViewEntity().rotationYaw += 180;
-        ((IMixinMinecraft)mc).getRenderViewEntity().prevRotationYaw += 180;
+        MinecraftAccess.getRenderViewEntity(mc).rotationYaw += 180;
+        MinecraftAccess.getRenderViewEntity(mc).prevRotationYaw += 180;
         
         if(lockCamera) {
-            ((IMixinMinecraft)mc).getRenderViewEntity().rotationPitch = 0;
-            ((IMixinMinecraft)mc).getRenderViewEntity().prevRotationPitch = 0;
+            MinecraftAccess.getRenderViewEntity(mc).rotationPitch = 0;
+            MinecraftAccess.getRenderViewEntity(mc).prevRotationPitch = 0;
         }else {
-            ((IMixinMinecraft)mc).getRenderViewEntity().rotationPitch = -p + 18;
-            ((IMixinMinecraft)mc).getRenderViewEntity().prevRotationPitch = -pp + 18;
+            MinecraftAccess.getRenderViewEntity(mc).rotationPitch = -p + 18;
+            MinecraftAccess.getRenderViewEntity(mc).prevRotationPitch = -pp + 18;
         }
 
         recording = true;
@@ -101,7 +101,7 @@ public class RearviewCamera {
 
         GL11.glPushAttrib(272393);
         
-        mc.entityRenderer.renderWorld(((IMixinMinecraft)mc).getTimer().renderPartialTicks, System.nanoTime());
+        mc.entityRenderer.renderWorld(MinecraftAccess.getTimer(mc).renderPartialTicks, System.nanoTime());
         mc.entityRenderer.setupOverlayRendering();
         
         if (limit != 0) {
@@ -114,10 +114,10 @@ public class RearviewCamera {
         recording = false;
         
         mc.currentScreen = currentScreen;
-        ((IMixinMinecraft)mc).getRenderViewEntity().rotationYaw = y;
-        ((IMixinMinecraft)mc).getRenderViewEntity().prevRotationYaw = py;
-        ((IMixinMinecraft)mc).getRenderViewEntity().rotationPitch = p;
-        ((IMixinMinecraft)mc).getRenderViewEntity().prevRotationPitch = pp;
+        MinecraftAccess.getRenderViewEntity(mc).rotationYaw = y;
+        MinecraftAccess.getRenderViewEntity(mc).prevRotationYaw = py;
+        MinecraftAccess.getRenderViewEntity(mc).rotationPitch = p;
+        MinecraftAccess.getRenderViewEntity(mc).prevRotationPitch = pp;
         mc.gameSettings.limitFramerate = limit;
         mc.gameSettings.thirdPersonView = view;
         mc.gameSettings.hideGUI = hide;

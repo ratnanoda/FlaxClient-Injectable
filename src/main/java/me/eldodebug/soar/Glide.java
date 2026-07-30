@@ -14,7 +14,6 @@ import me.eldodebug.soar.ui.ClickEffects;
 import me.eldodebug.soar.utils.Sound;
 import org.apache.commons.lang3.ArrayUtils;
 
-import me.eldodebug.soar.injection.mixin.GlideTweaker;
 import me.eldodebug.soar.logger.GlideLogger;
 import me.eldodebug.soar.management.altmanager.AltManager;
 import me.eldodebug.soar.management.cape.CapeManager;
@@ -90,7 +89,7 @@ public class Glide {
 		try {
 			OptifineUtils.disableFastRender();
 			this.removeOptifineZoom();
-		} catch(Exception ignored) {}
+		} catch(Throwable ignored) {}
 		blacklistManager = new BlacklistManager();
 		restrictedMod = new RestrictedMod();
 		try {
@@ -137,7 +136,6 @@ public class Glide {
 
 		InternalSettingsMod.getInstance().setToggled(true);
 		clickEffects = new ClickEffects();
-		mc.updateDisplay();
 	}
 	
 	public void stop() {
@@ -149,12 +147,27 @@ public class Glide {
 	}
 	
 	private void removeOptifineZoom() {
-		if(GlideTweaker.hasOptifine) {
+		if(hasOptifine()) {
 			try {
 				this.unregisterKeybind((KeyBinding) GameSettings.class.getField("ofKeyBindZoom").get(mc.gameSettings));
 			} catch(Exception e) {
 				GlideLogger.error("Failed to unregister zoom key", e);
 			}
+		}
+	}
+
+	private boolean hasOptifine() {
+		ClassLoader loader = Glide.class.getClassLoader();
+		try {
+			Class.forName("Config", false, loader);
+			return true;
+		} catch(ClassNotFoundException ignored) {
+		}
+		try {
+			Class.forName("optifine.Patcher", false, loader);
+			return true;
+		} catch(ClassNotFoundException ignored) {
+			return false;
 		}
 	}
 	

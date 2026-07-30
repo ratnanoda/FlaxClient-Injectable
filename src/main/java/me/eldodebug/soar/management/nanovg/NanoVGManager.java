@@ -55,7 +55,7 @@ public class NanoVGManager {
 		
 		if(nvg == 0) {
 			GlideLogger.error("Failed to create NanoVG context");
-			mc.shutdown();
+			throw new IllegalStateException("Failed to create NanoVG context");
 		}
 		
 		fontManager = new FontManager();

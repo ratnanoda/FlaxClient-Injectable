@@ -1,6 +1,6 @@
 package me.eldodebug.soar.management.mods.impl.waveycapes.layers;
 
-import me.eldodebug.soar.injection.interfaces.IMixinEntityPlayer;
+import me.eldodebug.soar.attach.PlayerState;
 import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.mods.impl.WaveyCapesMod;
 import me.eldodebug.soar.management.mods.impl.waveycapes.sim.StickSimulation;
@@ -103,7 +103,7 @@ public class SmoothCapeRenderer {
     
     private void modifyPoseStackSimulation(CustomCapeRenderLayer layer, PoseStack poseStack, AbstractClientPlayer abstractClientPlayer, float delta, int part) {
     	
-        StickSimulation simulation = ((IMixinEntityPlayer)abstractClientPlayer).getSimulation();
+        StickSimulation simulation = PlayerState.getSimulation(abstractClientPlayer);
         poseStack.pushPose();
         poseStack.translate(0.0D, 0.0D, 0.125D);
         

@@ -26,7 +26,7 @@ public class InternalSettingsMod extends Mod {
 			new Option(TranslateText.DARK), new Option(TranslateText.LIGHT), new Option(TranslateText.RECT), new Option(TranslateText.MODERN),
 			new Option(TranslateText.TEXT), new Option(TranslateText.GRADIENT_SIMPLE))));
 
-	private final BooleanSetting blurSetting = new BooleanSetting(TranslateText.UI_BLUR, this, true);
+	private final BooleanSetting blurSetting = new BooleanSetting(TranslateText.UI_BLUR, this, false);
 
 	private final BooleanSetting mcFontSetting = new BooleanSetting(TranslateText.MC_FONT, this, false);
 

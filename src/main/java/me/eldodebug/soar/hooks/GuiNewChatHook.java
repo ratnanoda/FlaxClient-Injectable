@@ -1,6 +1,6 @@
 package me.eldodebug.soar.hooks;
 
-import me.eldodebug.soar.injection.interfaces.IMixinChatLine;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.utils.ColorUtils;
 import me.eldodebug.soar.utils.render.RenderUtils;
 import net.minecraft.client.Minecraft;
@@ -16,9 +16,7 @@ public class GuiNewChatHook {
 		
 		float actualX = x;
 		
-		IMixinChatLine hook = (IMixinChatLine) line;
-		
-		NetworkPlayerInfo networkPlayerInfo = hook.getPlayerInfo();
+		NetworkPlayerInfo networkPlayerInfo = MinecraftAccess.getChatPlayerInfo(line);
 		
 		actualX += networkPlayerInfo != null ? 10f : 0;
 		

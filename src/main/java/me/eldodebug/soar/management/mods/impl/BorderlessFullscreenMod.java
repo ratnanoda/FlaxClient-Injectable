@@ -4,7 +4,7 @@ import org.lwjgl.LWJGLException;
 import org.lwjgl.opengl.Display;
 import org.lwjgl.opengl.DisplayMode;
 
-import me.eldodebug.soar.injection.interfaces.IMixinMinecraft;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.logger.GlideLogger;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventPreRenderTick;
@@ -73,12 +73,12 @@ public class BorderlessFullscreenMod extends Mod {
 				prevHeight = mc.displayHeight;
 				Display.setDisplayMode(new DisplayMode(Display.getDesktopDisplayMode().getWidth(), Display.getDesktopDisplayMode().getHeight()));
 				Display.setLocation(0, 0);
-				((IMixinMinecraft)mc).resizeWindow(Display.getDesktopDisplayMode().getWidth(), Display.getDesktopDisplayMode().getHeight());
+				MinecraftAccess.resize(mc, Display.getDesktopDisplayMode().getWidth(), Display.getDesktopDisplayMode().getHeight());
 			}
 			else {
 				Display.setDisplayMode(new DisplayMode(prevWidth, prevHeight));
 				Display.setLocation(prevX, prevY);
-				((IMixinMinecraft)mc).resizeWindow(prevWidth, prevHeight);
+				MinecraftAccess.resize(mc, prevWidth, prevHeight);
 
 				if(mc.inGameHasFocus) {
 					mc.mouseHelper.ungrabMouseCursor();

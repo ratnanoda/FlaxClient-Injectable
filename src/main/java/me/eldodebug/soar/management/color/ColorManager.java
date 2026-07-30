@@ -15,7 +15,7 @@ public class ColorManager {
 	
 	public ColorManager() {
 		
-		theme = Theme.LIGHT;
+		theme = Theme.DARK;
 		
 		add("Default", new Color(170, 255, 169), new Color(17, 255, 189));
 		add("Evening Sunshine", new Color(185, 43, 39), new Color(21, 101, 192));
@@ -55,7 +55,7 @@ public class ColorManager {
 		add("Pandas", new Color(182, 182, 182), new Color(54, 54, 54));
 		add("Flame", new Color(224, 7, 7), new Color(224, 175, 15));
 		
-		currentColor = getColorByName("Default");
+		currentColor = getColorByName("Moon Asteroid");
 	}
 	
 	private void add(String name, Color color1, Color color2) {

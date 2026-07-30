@@ -19,4 +19,7 @@ public class NotificationManager {
 	public void post(String title, String message, NotificationType type) {
 		notifications.add(new Notification(title, message, type));
 	}
+	public void post(String title, String message, NotificationType type, long durationMillis) {
+		notifications.add(new Notification(title, message, type, durationMillis));
+	}
 }

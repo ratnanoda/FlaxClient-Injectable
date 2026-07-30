@@ -22,19 +22,21 @@ public class Notification {
 	private String title, message;
 	private NotificationType type;
 	private TimerUtils timer;
+	private long durationMillis;
 	
 	private ScreenAlpha screenAlpha = new ScreenAlpha();
 	
 	public Notification(TranslateText title, TranslateText message, NotificationType type) {
-		this.title = title.getText();
-		this.message = message.getText();
-		this.type = type;
-		this.timer = new TimerUtils();
+		this(title.getText(), message.getText(), type, 3000L);
 	}
 	public Notification(String title, String message, NotificationType type) {
+		this(title, message, type, 3000L);
+	}
+	public Notification(String title, String message, NotificationType type, long durationMillis) {
 		this.title = title;
 		this.message = message;
 		this.type = type;
+		this.durationMillis = Math.max(0L, durationMillis);
 		this.timer = new TimerUtils();
 	}
 	
@@ -66,7 +68,7 @@ public class Notification {
 		int x = (int) (sr.getScaledWidth() - maxWidth) - 8;
 		int y = sr.getScaledHeight() - 29 - 8;
 		
-		if(timer.delay(3000)) {
+		if(timer.delay(durationMillis)) {
 			animation.setDirection(Direction.BACKWARDS);
 		}
 		

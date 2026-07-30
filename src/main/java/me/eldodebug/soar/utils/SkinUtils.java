@@ -1,5 +1,6 @@
 package me.eldodebug.soar.utils;
 
+import me.eldodebug.soar.attach.PlayerState;
 import me.eldodebug.soar.injection.interfaces.IMixinEntityPlayer;
 import me.eldodebug.soar.management.mods.impl.skin3d.opengl.NativeImage;
 import me.eldodebug.soar.management.mods.impl.skin3d.render.CustomizableModelPart;
@@ -38,7 +39,7 @@ public class SkinUtils {
         return skin;
     }
     
-    public static boolean setup3dLayers(AbstractClientPlayer abstractClientPlayerEntity, IMixinEntityPlayer settings, boolean thinArms, ModelPlayer model) {
+    public static boolean setup3dLayers(AbstractClientPlayer abstractClientPlayerEntity, boolean thinArms, ModelPlayer model) {
     	
         if(!hasCustomSkin(abstractClientPlayerEntity)) {
             return false;
@@ -63,10 +64,24 @@ public class SkinUtils {
         }
         
         layers[4] = SolidPixelWrapper.wrapBox(skin, 8, 12, 4, 16, 32, true, -0.8f);
-        settings.setupSkinLayers(layers);
-        settings.setupHeadLayers(SolidPixelWrapper.wrapBox(skin, 8, 8, 8, 32, 0, false, 0.6f));
+        PlayerState.setSkinLayers(abstractClientPlayerEntity, layers);
+        PlayerState.setHeadLayer(abstractClientPlayerEntity,
+                SolidPixelWrapper.wrapBox(skin, 8, 8, 8, 32, 0, false, 0.6f));
         skin.close();
         
+        return true;
+    }
+
+    /**
+     * Keeps the original Forge/Mixin launch path source-compatible.
+     */
+    public static boolean setup3dLayers(AbstractClientPlayer player, IMixinEntityPlayer settings,
+                                        boolean thinArms, ModelPlayer model) {
+        if (!setup3dLayers(player, thinArms, model)) {
+            return false;
+        }
+        settings.setupSkinLayers(PlayerState.getSkinLayers(player));
+        settings.setupHeadLayers(PlayerState.getHeadLayer(player));
         return true;
     }
 }

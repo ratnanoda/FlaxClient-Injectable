@@ -1,6 +1,6 @@
 package me.eldodebug.soar.management.mods.impl.waveycapes.layers;
 
-import me.eldodebug.soar.injection.interfaces.IMixinEntityPlayer;
+import me.eldodebug.soar.attach.PlayerState;
 import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.mods.impl.WaveyCapesMod;
 import me.eldodebug.soar.management.mods.impl.waveycapes.sim.StickSimulation;
@@ -54,8 +54,7 @@ public class CustomCapeRenderLayer implements LayerRenderer<AbstractClientPlayer
         }
         
         if(movementSetting.getOption().getTranslate().equals(TranslateText.BASIC)) {
-        	IMixinEntityPlayer holder = (IMixinEntityPlayer) abstractClientPlayer;
-            holder.updateSimulation(abstractClientPlayer, partCount);
+            PlayerState.updateSimulation(abstractClientPlayer, partCount);
         }
         
         this.playerRenderer.bindTexture(abstractClientPlayer.getLocationCape());
@@ -89,7 +88,7 @@ public class CustomCapeRenderLayer implements LayerRenderer<AbstractClientPlayer
     
     private void modifyPoseStackSimulation(AbstractClientPlayer abstractClientPlayer, float delta, int part) {
     	
-        StickSimulation simulation = ((IMixinEntityPlayer)abstractClientPlayer).getSimulation();
+        StickSimulation simulation = PlayerState.getSimulation(abstractClientPlayer);
         GlStateManager.translate(0.0D, 0.0D, 0.125D);
         
         float z = simulation.points.get(part).getLerpX(delta) - simulation.points.get(0).getLerpX(delta);

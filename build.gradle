@@ -129,6 +129,11 @@ minecraft {
 
 repositories {
     maven {
+        name "minecraftLibraries"
+        url "https://libraries.minecraft.net"
+    }
+
+    maven {
         name "jitpack"
         url "https://jitpack.io"
     }
@@ -143,18 +148,26 @@ repositories {
 
 configurations {
     embed
-    compile.extendsFrom(embed)
+    asmRuntime
+    compile.extendsFrom(embed, asmRuntime)
 }
 
 dependencies {
     // Embedded MP3 decoder used by the in-client Music player.
-    embed('javazoom:jlayer:1.0.1')
     embed('org.spongepowered:mixin:0.7.11-SNAPSHOT') {
         exclude module: 'launchwrapper'
         exclude module: 'guava'
         exclude module: 'gson'
         exclude module: 'commons-io'
+        exclude group: 'org.ow2.asm'
     }
+    // ASM 9 is required to transform Lunar's Java 17 (classfile v61) classes.
+    // These jars are merged after ForgeGradle's legacy ASM reobfuscation pass.
+    asmRuntime('org.ow2.asm:asm:9.7.1')
+    asmRuntime('org.ow2.asm:asm-tree:9.7.1')
+    asmRuntime('org.ow2.asm:asm-analysis:9.7.1')
+    asmRuntime('org.ow2.asm:asm-commons:9.7.1')
+    asmRuntime('org.ow2.asm:asm-util:9.7.1')
     embed(files('libs/lwjgl-soar.jar'))
     embed(files('libs/lwjgl-soar-natives.jar'))
 }
@@ -206,8 +219,97 @@ jar {
     }
 }
 
+task lunarJar(type: Jar) {
+    dependsOn classes
+    archiveName = "FlaxClient-Lunar.jar"
+    from sourceSets.main.output
+    from {
+        (configurations.embed + configurations.asmRuntime).collect {
+            it.isDirectory() ? it : zipTree(it)
+        }
+    }
+    exclude 'META-INF', 'META-INF/**'
+    exclude 'module-info.class'
+    manifest.attributes(
+            "MixinConfigs": 'mixins.soar.json',
+            "TweakClass": 'me.eldodebug.soar.injection.mixin.GlideTweaker',
+            "TweakOrder": 0,
+            "Manifest-Version": 1.0,
+            'FMLAT': 'soar_at.cfg',
+            "Implementation-Version": project.ext.clientVersionName
+    )
+}
+
+reobfJar.doLast {
+    def outputJar = tasks.getByName("jar").archivePath
+    configurations.asmRuntime.each { dependency ->
+        ant.zip(destfile: outputJar, update: true) {
+            zipfileset(
+                    src: dependency,
+                    excludes: 'META-INF,META-INF/**,module-info.class')
+        }
+    }
+}
+
 compileJava.dependsOn generateBuildVersionSource
 
 bumpBuildNumber.doLast {
     project.ext.devVersionName = project.ext.clientVersionName
+}
+
+def findCmakeExecutable = {
+    def configured = System.getenv("CMAKE_EXE")
+    if(configured && file(configured).exists()) {
+        return file(configured)
+    }
+
+    def commandName = org.gradle.internal.os.OperatingSystem.current().isWindows()
+            ? "cmake.exe"
+            : "cmake"
+    def pathEntries = (System.getenv("PATH") ?: "").split(File.pathSeparator)
+    def fromPath = pathEntries.collect { new File(it, commandName) }.find { it.exists() }
+    if(fromPath != null) {
+        return fromPath
+    }
+
+    if(org.gradle.internal.os.OperatingSystem.current().isWindows()) {
+        def installations = fileTree("C:/Program Files/Microsoft Visual Studio") {
+            include "*/**/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe"
+        }.files
+        if(!installations.isEmpty()) {
+            return installations.sort { a, b -> b.absolutePath <=> a.absolutePath }.first()
+        }
+    }
+
+    throw new GradleException("CMake was not found. Install the Visual Studio C++ CMake tools or set CMAKE_EXE.")
+}
+
+task configureAttachDll(type: Exec) {
+    dependsOn reobfJar
+    onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
+    doFirst {
+        commandLine findCmakeExecutable().absolutePath,
+                "-S", file("attach").absolutePath,
+                "-B", file("attach/build").absolutePath,
+                "-A", "x64",
+                "-DFLAX_CLIENT_JAR=${jar.archivePath.absolutePath}"
+    }
+}
+
+task buildAttachDll(type: Exec) {
+    dependsOn configureAttachDll
+    onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
+    doFirst {
+        commandLine findCmakeExecutable().absolutePath,
+                "--build", file("attach/build").absolutePath,
+                "--config", "Release"
+    }
+}
+
+task attachPackage(type: Sync) {
+    dependsOn buildAttachDll
+    onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
+    from "attach/build/bin/Release/FlaxClient.dll"
+    from "attach/build/bin/Release/FlaxInjector.exe"
+    into "$buildDir/attach"
 }

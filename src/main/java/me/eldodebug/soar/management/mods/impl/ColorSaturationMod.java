@@ -4,7 +4,7 @@ import java.io.IOException;
 
 import com.google.gson.JsonSyntaxException;
 
-import me.eldodebug.soar.injection.interfaces.IMixinShaderGroup;
+import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventShader;
 import me.eldodebug.soar.management.language.TranslateText;
@@ -64,7 +64,7 @@ public class ColorSaturationMod extends Mod {
 		}
 		
 		if(prevHue != hue || prevSaturation != saturation || prevBrightness != brightness || prevContrast != contrast) {
-			((IMixinShaderGroup) group).getListShaders().forEach((shader) -> {
+			MinecraftAccess.getShaders(group).forEach((shader) -> {
 				
 				ShaderUniform hueUniform = shader.getShaderManager().getShaderUniform("hue");
 				ShaderUniform contrastUniform = shader.getShaderManager().getShaderUniform("Contrast");

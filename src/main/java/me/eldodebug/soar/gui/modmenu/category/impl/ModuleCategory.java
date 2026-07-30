@@ -58,6 +58,7 @@ public class ModuleCategory extends Category {
 
 	private static final float PANEL_GAP = 7.0F;
 	private static final float PANEL_MARGIN = 11.0F;
+	private static final float ORIGINAL_SINGLE_PANEL_WIDTH = 132.0F;
 	private static final float HEADER_HEIGHT = 28.0F;
 	private static final float ROW_HEIGHT = 25.0F;
 	private static final float INLINE_SETTINGS_PADDING = 5.0F;
@@ -153,8 +154,7 @@ public class ModuleCategory extends Category {
 
 	private void drawDropdowns(NanoVGManager nvg, ColorPalette palette, AccentColor accentColor,
 			int mouseX, int mouseY, float partialTicks) {
-		float availableWidth = getWidth() - PANEL_MARGIN * 2.0F;
-		float panelWidth = (availableWidth - PANEL_GAP * (sections.size() - 1)) / sections.size();
+		float panelWidth = calculatePanelWidth();
 		initializeSectionPositions(panelWidth);
 
 		if(draggingSection != null) {
@@ -384,10 +384,20 @@ public class ModuleCategory extends Category {
 		if(sectionPositionsInitialized) return;
 		for(int i = 0; i < sections.size(); i++) {
 			DropdownSection section = sections.get(i);
-			section.offsetX = PANEL_MARGIN + i * (panelWidth + PANEL_GAP);
+			section.offsetX = sections.size() == 1
+					? (getWidth() - panelWidth) / 2.0F
+					: PANEL_MARGIN + i * (panelWidth + PANEL_GAP);
 			section.offsetY = Math.max(DEFAULT_SECTION_OFFSET_Y, SCREEN_EDGE_MARGIN - getY());
 		}
 		sectionPositionsInitialized = true;
+	}
+
+	private float calculatePanelWidth() {
+		float availableWidth = getWidth() - PANEL_MARGIN * 2.0F;
+		if(!showAlphabetSections && sections.size() == 1) {
+			return Math.min(ORIGINAL_SINGLE_PANEL_WIDTH, availableWidth);
+		}
+		return (availableWidth - PANEL_GAP * (sections.size() - 1)) / sections.size();
 	}
 
 	private Color translucent(Color color, int alpha) {
@@ -461,8 +471,7 @@ public class ModuleCategory extends Category {
 	}
 
 	private boolean handleDropdownClick(int mouseX, int mouseY, int mouseButton) {
-		float availableWidth = getWidth() - PANEL_MARGIN * 2.0F;
-		float panelWidth = (availableWidth - PANEL_GAP * (sections.size() - 1)) / sections.size();
+		float panelWidth = calculatePanelWidth();
 		initializeSectionPositions(panelWidth);
 
 		for(int i = sections.size() - 1; i >= 0; i--) {
