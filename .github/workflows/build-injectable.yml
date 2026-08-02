@@ -27,13 +27,14 @@ jobs:
         run: |
           java -version
           cmake --version
+          & ".\gradlew.bat" --version
 
       - name: Build FlaxClient injectable package
         shell: powershell
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx6g
         run: |
-          & ".\.tooling\gradle-4.10.3\gradle-4.10.3\bin\gradle.bat" attachPackage --no-daemon --stacktrace
+          & ".\gradlew.bat" attachPackage --no-daemon --stacktrace
 
       - name: Verify package
         shell: powershell
