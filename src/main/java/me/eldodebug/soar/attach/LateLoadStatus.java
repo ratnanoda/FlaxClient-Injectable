@@ -8,12 +8,21 @@ public final class LateLoadStatus {
 
     private static volatile boolean coreHookReady;
     private static volatile boolean transformerReady;
+    private static volatile boolean dejecting;
 
     private LateLoadStatus() {
     }
 
     public static boolean isTransformerReady() {
-        return transformerReady;
+        return transformerReady && !dejecting;
+    }
+
+    public static boolean isDejecting() {
+        return dejecting;
+    }
+
+    public static void beginDeject() {
+        dejecting = true;
     }
 
     public static boolean isCoreHookReady() {

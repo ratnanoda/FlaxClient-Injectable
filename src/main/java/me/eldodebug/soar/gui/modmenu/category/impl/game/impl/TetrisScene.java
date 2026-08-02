@@ -86,6 +86,7 @@ public class TetrisScene extends GameScene {
     };
 
     private final int[][] board = new int[ROWS][COLUMNS];
+    private final int[][] pieceIds = new int[ROWS][COLUMNS];
     private final Random random = new Random();
     private final int[] bag = new int[7];
     private final ArrayDeque<Integer> nextQueue = new ArrayDeque<Integer>();
@@ -93,6 +94,7 @@ public class TetrisScene extends GameScene {
     private final ArrayList<BlockParticle> particles = new ArrayList<BlockParticle>();
 
     private int bagIndex = 7;
+    private int nextPieceId = 1;
     private int currentType;
     private int rotation;
     private int pieceX;
@@ -290,8 +292,10 @@ public class TetrisScene extends GameScene {
         for(int row = 0; row < ROWS; row++) {
             for(int column = 0; column < COLUMNS; column++) {
                 board[row][column] = 0;
+                pieceIds[row][column] = 0;
             }
         }
+        nextPieceId = 1;
     }
 
     private void pollInput(float dt) {
@@ -547,10 +551,12 @@ public class TetrisScene extends GameScene {
                 return;
             }
         }
+        int lockedPieceId = nextPieceId++;
         for(int[] block : SHAPES[currentType][rotation]) {
             int bx = pieceX + block[0];
             int by = pieceY + block[1];
             board[by][bx] = currentType + 1;
+            pieceIds[by][bx] = lockedPieceId;
         }
 
         clearingRows.clear();
@@ -592,6 +598,7 @@ public class TetrisScene extends GameScene {
             if(destination != source) {
                 for(int column = 0; column < COLUMNS; column++) {
                     board[destination][column] = board[source][column];
+                    pieceIds[destination][column] = pieceIds[source][column];
                 }
             }
             destination--;
@@ -599,6 +606,7 @@ public class TetrisScene extends GameScene {
         while(destination >= 0) {
             for(int column = 0; column < COLUMNS; column++) {
                 board[destination][column] = 0;
+                pieceIds[destination][column] = 0;
             }
             destination--;
         }
@@ -720,8 +728,24 @@ public class TetrisScene extends GameScene {
                         2.2F, new Color(255, 255, 255, 7));
                 int value = board[row][column];
                 if(value != 0) {
-                    drawBlock(nvg, bx, by, cellSize, PIECE_COLORS[value - 1], 1.0F);
+                    drawBlockFill(nvg, bx, by, cellSize, PIECE_COLORS[value - 1], 1.0F);
                 }
+            }
+        }
+        for(int row = 0; row < ROWS; row++) {
+            for(int column = 0; column < COLUMNS; column++) {
+                int value = board[row][column];
+                if(value == 0) {
+                    continue;
+                }
+                int id = pieceIds[row][column];
+                float bx = boardX + column * cellSize;
+                float by = boardY + row * cellSize;
+                drawBlockEdges(nvg, bx, by, cellSize, 1.0F,
+                        !sameLockedPiece(row - 1, column, id),
+                        !sameLockedPiece(row, column + 1, id),
+                        !sameLockedPiece(row + 1, column, id),
+                        !sameLockedPiece(row, column - 1, id));
             }
         }
 
@@ -766,53 +790,103 @@ public class TetrisScene extends GameScene {
     }
 
     private void drawPieceAt(NanoVGManager nvg, int type, int pieceRotation,
-            float gridX, float gridY, Color color, float alpha, boolean solid) {
-        for(int[] block : SHAPES[type][pieceRotation]) {
-            float gx = gridX + block[0];
-            float gy = gridY + block[1];
-            if(gy < 0.0F) {
-                continue;
-            }
-            float bx = boardX + gx * cellSize;
-            float by = boardY + gy * cellSize;
-            if(solid) {
-                drawBlock(nvg, bx, by, cellSize, color, alpha);
-            } else {
-                nvg.drawRoundedRect(bx + 1.5F, by + 1.5F, cellSize - 3.0F, cellSize - 3.0F,
-                        2.2F, alpha(color, (int) (alpha * 180.0F)));
-            }
+        float gridX, float gridY, Color color, float alphaValue, boolean solid) {
+    for(int[] block : SHAPES[type][pieceRotation]) {
+        float gx = gridX + block[0];
+        float gy = gridY + block[1];
+        if(gy < 0.0F) {
+            continue;
+        }
+        float bx = boardX + gx * cellSize;
+        float by = boardY + gy * cellSize;
+        drawBlockFill(nvg, bx, by, cellSize, color, solid ? alphaValue : alphaValue * 0.58F);
+    }
+    if(!solid) {
+        return;
+    }
+    for(int[] block : SHAPES[type][pieceRotation]) {
+        float gy = gridY + block[1];
+        if(gy < 0.0F) {
+            continue;
+        }
+        float bx = boardX + (gridX + block[0]) * cellSize;
+        float by = boardY + gy * cellSize;
+        drawBlockEdges(nvg, bx, by, cellSize, alphaValue,
+                !shapeContains(type, pieceRotation, block[0], block[1] - 1),
+                !shapeContains(type, pieceRotation, block[0] + 1, block[1]),
+                !shapeContains(type, pieceRotation, block[0], block[1] + 1),
+                !shapeContains(type, pieceRotation, block[0] - 1, block[1]));
+    }
+}
+
+private void drawGhostPiece(NanoVGManager nvg, int type, int pieceRotation, int gridX, int gridY) {
+    Color color = PIECE_COLORS[type];
+    for(int[] block : SHAPES[type][pieceRotation]) {
+        int gy = gridY + block[1];
+        if(gy < 0) {
+            continue;
+        }
+        float bx = boardX + (gridX + block[0]) * cellSize;
+        float by = boardY + gy * cellSize;
+        nvg.drawRect(bx + 2.5F, by + 2.5F, cellSize - 5.0F,
+                cellSize - 5.0F, alpha(color, 20));
+        drawGhostEdges(nvg, bx, by, cellSize, color,
+                !shapeContains(type, pieceRotation, block[0], block[1] - 1),
+                !shapeContains(type, pieceRotation, block[0] + 1, block[1]),
+                !shapeContains(type, pieceRotation, block[0], block[1] + 1),
+                !shapeContains(type, pieceRotation, block[0] - 1, block[1]));
+    }
+}
+
+private void drawBlockFill(NanoVGManager nvg, float bx, float by, float size,
+        Color color, float alphaValue) {
+    int opacity = Math.max(0, Math.min(255, (int) (alphaValue * 255.0F)));
+    Color dark = mix(color, Color.BLACK, 0.24F, opacity);
+    Color light = mix(color, Color.WHITE, 0.18F, opacity);
+    nvg.drawVerticalGradientRect(bx - 0.05F, by - 0.05F, size + 0.1F, size + 0.1F,
+            light, dark);
+    nvg.drawRect(bx + 1.4F, by + 1.2F, size - 2.8F, Math.max(1.0F, size * 0.10F),
+            new Color(255, 255, 255, Math.min(opacity, 58)));
+    nvg.drawRect(bx + 1.2F, by + size - Math.max(1.2F, size * 0.10F),
+            size - 2.4F, Math.max(0.8F, size * 0.07F),
+            new Color(0, 0, 0, Math.min(opacity, 42)));
+}
+
+private void drawBlockEdges(NanoVGManager nvg, float bx, float by, float size,
+        float alphaValue, boolean top, boolean right, boolean bottom, boolean left) {
+    int opacity = Math.max(0, Math.min(220, (int) (alphaValue * 205.0F)));
+    float edge = Math.max(0.85F, size * 0.075F);
+    Color border = new Color(5, 7, 15, opacity);
+    if(top) nvg.drawRect(bx, by, size, edge, border);
+    if(right) nvg.drawRect(bx + size - edge, by, edge, size, border);
+    if(bottom) nvg.drawRect(bx, by + size - edge, size, edge, border);
+    if(left) nvg.drawRect(bx, by, edge, size, border);
+}
+
+private void drawGhostEdges(NanoVGManager nvg, float bx, float by, float size,
+        Color color, boolean top, boolean right, boolean bottom, boolean left) {
+    float edge = Math.max(0.8F, size * 0.07F);
+    Color border = alpha(color, 105);
+    float inset = 1.8F;
+    if(top) nvg.drawRect(bx + inset, by + inset, size - inset * 2.0F, edge, border);
+    if(right) nvg.drawRect(bx + size - inset - edge, by + inset, edge, size - inset * 2.0F, border);
+    if(bottom) nvg.drawRect(bx + inset, by + size - inset - edge, size - inset * 2.0F, edge, border);
+    if(left) nvg.drawRect(bx + inset, by + inset, edge, size - inset * 2.0F, border);
+}
+
+private boolean sameLockedPiece(int row, int column, int id) {
+    return id != 0 && row >= 0 && row < ROWS && column >= 0 && column < COLUMNS
+            && pieceIds[row][column] == id;
+}
+
+private boolean shapeContains(int type, int pieceRotation, int x, int y) {
+    for(int[] block : SHAPES[type][pieceRotation]) {
+        if(block[0] == x && block[1] == y) {
+            return true;
         }
     }
-
-    private void drawGhostPiece(NanoVGManager nvg, int type, int pieceRotation, int gridX, int gridY) {
-        Color color = PIECE_COLORS[type];
-        for(int[] block : SHAPES[type][pieceRotation]) {
-            int gy = gridY + block[1];
-            if(gy < 0) {
-                continue;
-            }
-            float bx = boardX + (gridX + block[0]) * cellSize;
-            float by = boardY + gy * cellSize;
-            nvg.drawOutlineRoundedRect(bx + 2.0F, by + 2.0F, cellSize - 4.0F,
-                    cellSize - 4.0F, 2.4F, 1.0F, alpha(color, 95));
-            nvg.drawRoundedRect(bx + 4.0F, by + 4.0F, cellSize - 8.0F,
-                    cellSize - 8.0F, 1.5F, alpha(color, 22));
-        }
-    }
-
-    private void drawBlock(NanoVGManager nvg, float bx, float by, float size,
-            Color color, float alphaValue) {
-        int opacity = Math.max(0, Math.min(255, (int) (alphaValue * 255.0F)));
-        Color dark = mix(color, Color.BLACK, 0.24F, opacity);
-        Color light = mix(color, Color.WHITE, 0.18F, opacity);
-        nvg.drawGradientRoundedRect(bx + 0.8F, by + 0.8F, size - 1.6F, size - 1.6F,
-                Math.max(2.0F, size * 0.18F), light, dark);
-        nvg.drawRoundedRect(bx + 2.0F, by + 2.0F, size - 4.0F, Math.max(1.2F, size * 0.12F),
-                1.0F, new Color(255, 255, 255, Math.min(opacity, 72)));
-        nvg.drawOutlineRoundedRect(bx + 1.0F, by + 1.0F, size - 2.0F, size - 2.0F,
-                Math.max(2.0F, size * 0.18F), 0.65F,
-                new Color(255, 255, 255, Math.min(opacity, 54)));
-    }
+    return false;
+}
 
     private void drawSidePanels(NanoVGManager nvg, ColorPalette palette, AccentColor accent) {
         float leftX = x + 12.0F;
@@ -906,8 +980,17 @@ public class TetrisScene extends GameScene {
         float startX = centerX - pieceWidth / 2.0F - minX * miniCell;
         float startY = centerY - pieceHeight / 2.0F - minY * miniCell;
         for(int[] block : SHAPES[type][0]) {
-            drawBlock(nvg, startX + block[0] * miniCell, startY + block[1] * miniCell,
+            drawBlockFill(nvg, startX + block[0] * miniCell, startY + block[1] * miniCell,
                     miniCell, PIECE_COLORS[type], alphaValue);
+        }
+        for(int[] block : SHAPES[type][0]) {
+            float bx = startX + block[0] * miniCell;
+            float by = startY + block[1] * miniCell;
+            drawBlockEdges(nvg, bx, by, miniCell, alphaValue,
+                    !shapeContains(type, 0, block[0], block[1] - 1),
+                    !shapeContains(type, 0, block[0] + 1, block[1]),
+                    !shapeContains(type, 0, block[0], block[1] + 1),
+                    !shapeContains(type, 0, block[0] - 1, block[1]));
         }
     }
 

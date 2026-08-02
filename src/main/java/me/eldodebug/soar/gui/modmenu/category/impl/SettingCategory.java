@@ -3,6 +3,7 @@ package me.eldodebug.soar.gui.modmenu.category.impl;
 import java.awt.*;
 import java.util.ArrayList;
 
+import me.eldodebug.soar.gui.deject.GuiDejectScreen;
 import me.eldodebug.soar.gui.modmenu.category.impl.setting.impl.GeneralScene;
 import org.lwjgl.input.Keyboard;
 
@@ -87,7 +88,31 @@ public class SettingCategory extends Category {
 			
 			offsetY+=50;
 		}
-		
+
+		float dejectY = this.getY() + offsetY;
+		boolean dejectHovered = MouseUtils.isInside(mouseX, mouseY,
+				this.getX() + 15, dejectY, this.getWidth() - 30, 40);
+		Color dejectColor = dejectHovered
+				? new Color(238, 70, 91, 225)
+				: new Color(194, 53, 72, 185);
+		if(dejectHovered) {
+			nvg.drawRoundedGlow(this.getX() + 15, dejectY,
+					this.getWidth() - 30, 40, 9,
+					new Color(255, 73, 101, 90), 6);
+		}
+		nvg.drawRoundedRect(this.getX() + 15, dejectY,
+				this.getWidth() - 30, 40, 9, dejectColor);
+		nvg.drawOutlineRoundedRect(this.getX() + 15.5F, dejectY + 0.5F,
+				this.getWidth() - 31, 39, 9, 0.8F,
+				new Color(255, 255, 255, dejectHovered ? 75 : 48));
+		nvg.drawText(LegacyIcon.POWER, this.getX() + 26, dejectY + 13F,
+				Color.WHITE, 14, Fonts.LEGACYICON);
+		nvg.drawText("Deject", this.getX() + 47, dejectY + 9F,
+				Color.WHITE, 12.5F, Fonts.MEDIUM);
+		nvg.drawText("Unload FlaxClient and restore Minecraft",
+				this.getX() + 47, dejectY + 23,
+				new Color(255, 235, 239, 220), 7.5F, Fonts.REGULAR);
+
 		nvg.restore();
 		
 		nvg.save();
@@ -114,6 +139,13 @@ public class SettingCategory extends Category {
 			}
 			
 			offsetY+=50;
+		}
+
+		if(currentScene == null && mouseButton == 0
+				&& MouseUtils.isInside(mouseX, mouseY, this.getX() + 15,
+						this.getY() + offsetY, this.getWidth() - 30, 40)) {
+			mc.displayGuiScreen(new GuiDejectScreen());
+			return;
 		}
 		
 		if(currentScene != null && sceneAnimation.isDone(Direction.BACKWARDS)) {

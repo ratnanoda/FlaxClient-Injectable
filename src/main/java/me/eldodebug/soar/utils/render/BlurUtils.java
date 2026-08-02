@@ -58,4 +58,20 @@ public class BlurUtils {
         blurShader.loadShaderGroup(MinecraftAccess.getTimer(mc).renderPartialTicks);
         mc.getFramebuffer().bindFramebuffer(true);
     }
+
+    public static synchronized void shutdown() {
+        try {
+            if(blurShader != null) blurShader.deleteShaderGroup();
+        } catch(Throwable ignored) {
+        }
+        try {
+            if(buffer != null) buffer.deleteFramebuffer();
+        } catch(Throwable ignored) {
+        }
+        blurShader = null;
+        buffer = null;
+        lastScale = 0;
+        lastScaleWidth = 0;
+        lastScaleHeight = 0;
+    }
 }
