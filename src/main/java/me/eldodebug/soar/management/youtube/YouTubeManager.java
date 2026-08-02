@@ -90,7 +90,6 @@ public final class YouTubeManager {
         thread.setDaemon(true);
         thread.start();
     }
-    }
 
     public void addUrl(String rawUrl) {
         final String url = rawUrl == null ? "" : rawUrl.trim();
@@ -238,8 +237,7 @@ public final class YouTubeManager {
                 String line;
                 while((line = reader.readLine()) != null) {
                     if(outputLog.length() < 16000) {
-                        outputLog.append(line).append('
-');
+                        outputLog.append(line).append('\n');
                     }
                 }
 
@@ -259,8 +257,7 @@ public final class YouTubeManager {
                 }
 
                 lastFailure = "yt-dlp exited with " + exit;
-                GlideLogger.warn(lastFailure + "
-" + outputLog.toString());
+                GlideLogger.warn(lastFailure + "\n" + outputLog.toString());
             } catch(Exception e) {
                 lastFailure = e.getMessage() == null
                         ? e.getClass().getSimpleName() : e.getMessage();
