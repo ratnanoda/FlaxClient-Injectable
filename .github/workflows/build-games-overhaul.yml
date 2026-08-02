@@ -32,18 +32,24 @@ jobs:
             throw "FlaxClient-Lunar.jar was not generated"
           }
 
-      - name: Verify Lunar mappings, games, and deject
+      - name: Verify Lunar mappings and runtime fixes
         shell: powershell
         run: |
           $bootstrap = & javap -classpath "build\libs\FlaxClient-Lunar.jar" -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
           if ($bootstrap -notmatch "net/minecraft/client/Minecraft") {
             throw "AttachBootstrap does not contain Lunar-compatible Minecraft class names"
           }
+          if ($bootstrap -notmatch "prepareForAttach") {
+            throw "AttachBootstrap is not re-injection aware"
+          }
           $entries = & jar tf "build\libs\FlaxClient-Lunar.jar" | Out-String
           if ($entries -notmatch "TetrisScene.class") { throw "TetrisScene was not packaged" }
           if ($entries -match "ClickyCatScene.class") { throw "ClickyCatScene is still packaged" }
           if ($entries -notmatch "DejectBridge.class") { throw "DejectBridge was not packaged" }
           if ($entries -notmatch "GuiDejectScreen.class") { throw "GuiDejectScreen was not packaged" }
+          if ($entries -notmatch "MediaToolResolver.class") { throw "MediaToolResolver was not packaged" }
+          if ($entries -notmatch "MusicManager.class") { throw "MusicManager was not packaged" }
+          if ($entries -notmatch "YouTubeManager.class") { throw "YouTubeManager was not packaged" }
 
       - name: Configure Lunar DLL
         shell: powershell
@@ -56,28 +62,91 @@ jobs:
         run: |
           cmake --build attach/build-games-lunar --config Release
 
+      - name: Download media runtime tools
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tools = Join-Path $PWD "build\media-tools"
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+
+          Invoke-WebRequest `
+            -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" `
+            -OutFile (Join-Path $tools "yt-dlp.exe")
+
+          $denoZip = Join-Path $env:RUNNER_TEMP "deno.zip"
+          $denoExtract = Join-Path $env:RUNNER_TEMP "deno"
+          Invoke-WebRequest `
+            -Uri "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip" `
+            -OutFile $denoZip
+          Expand-Archive -Path $denoZip -DestinationPath $denoExtract -Force
+          Copy-Item (Join-Path $denoExtract "deno.exe") (Join-Path $tools "deno.exe")
+
+          $ffmpegZip = Join-Path $env:RUNNER_TEMP "ffmpeg.zip"
+          $ffmpegExtract = Join-Path $env:RUNNER_TEMP "ffmpeg"
+          Invoke-WebRequest `
+            -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" `
+            -OutFile $ffmpegZip
+          Expand-Archive -Path $ffmpegZip -DestinationPath $ffmpegExtract -Force
+          $ffmpeg = Get-ChildItem $ffmpegExtract -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          $ffprobe = Get-ChildItem $ffmpegExtract -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
+          if ($null -eq $ffmpeg -or $null -eq $ffprobe) {
+            throw "The downloaded FFmpeg archive did not contain ffmpeg.exe and ffprobe.exe"
+          }
+          Copy-Item $ffmpeg.FullName (Join-Path $tools "ffmpeg.exe")
+          Copy-Item $ffprobe.FullName (Join-Path $tools "ffprobe.exe")
+
+          & (Join-Path $tools "yt-dlp.exe") --version
+          & (Join-Path $tools "deno.exe") --version
+          & (Join-Path $tools "ffmpeg.exe") -version
+          & (Join-Path $tools "ffprobe.exe") -version
+
       - name: Stage and verify package
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path "build\attach-games-lunar" | Out-Null
-          Copy-Item "attach\build-games-lunar\bin\Release\FlaxClient.dll" "build\attach-games-lunar\FlaxClient.dll"
-          Copy-Item "attach\build-games-lunar\bin\Release\FlaxInjector.exe" "build\attach-games-lunar\FlaxInjector.exe"
+          $package = "build\attach-games-lunar"
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          New-Item -ItemType Directory -Force -Path "$package\tools" | Out-Null
+          Copy-Item "attach\build-games-lunar\bin\Release\FlaxClient.dll" "$package\FlaxClient.dll"
+          Copy-Item "attach\build-games-lunar\bin\Release\FlaxInjector.exe" "$package\FlaxInjector.exe"
+          Copy-Item "build\media-tools\*" "$package\tools\"
+
           @"
-          Lunar Client OptiFine 1.8.9 games overhaul.
-          Tetris pieces now render as connected tetromino shapes with per-piece boundaries.
-          Settings includes an animated Deject action that stops FlaxClient, restores
-          transformed Minecraft classes, removes the JVMTI hook, and unloads the DLL.
+          Lunar Client OptiFine 1.8.9 package.
+
+          Keep FlaxInjector.exe, FlaxClient.dll, and the tools folder together.
+          The tools folder contains current yt-dlp, Deno, ffmpeg, and ffprobe
+          builds used by the Music and YouTube sections.
+
+          Deject now resets the surviving Java lifecycle state so the same
+          Minecraft process can be injected again after the DLL is unloaded.
+          The deject blur gently fades in and out over 1.5 seconds, and the
+          Tetris board no longer draws an empty-cell grid.
+
           Start injection only after the Lunar 1.8.9 main menu is visible.
-          "@ | Set-Content -Encoding UTF8 "build\attach-games-lunar\README.txt"
-          if (!(Test-Path "build\attach-games-lunar\FlaxInjector.exe")) { throw "FlaxInjector.exe was not generated" }
-          if (!(Test-Path "build\attach-games-lunar\FlaxClient.dll")) { throw "FlaxClient.dll was not generated" }
-          Get-FileHash "build\attach-games-lunar\FlaxInjector.exe" -Algorithm SHA256
-          Get-FileHash "build\attach-games-lunar\FlaxClient.dll" -Algorithm SHA256
+          "@ | Set-Content -Encoding UTF8 "$package\README.txt"
+
+          $required = @(
+            "$package\FlaxInjector.exe",
+            "$package\FlaxClient.dll",
+            "$package\tools\yt-dlp.exe",
+            "$package\tools\deno.exe",
+            "$package\tools\ffmpeg.exe",
+            "$package\tools\ffprobe.exe"
+          )
+          foreach ($file in $required) {
+            if (!(Test-Path $file)) { throw "Missing packaged file: $file" }
+          }
+
+          Get-FileHash "$package\FlaxInjector.exe" -Algorithm SHA256
+          Get-FileHash "$package\FlaxClient.dll" -Algorithm SHA256
+          Get-FileHash "$package\tools\yt-dlp.exe" -Algorithm SHA256
+          Get-FileHash "$package\tools\deno.exe" -Algorithm SHA256
+          Get-FileHash "$package\tools\ffmpeg.exe" -Algorithm SHA256
 
       - name: Upload Lunar package
         uses: actions/upload-artifact@v4
         with:
-          name: FlaxClient-Tetris-Deject-Lunar-1.8.9-Windows-x64
-          path: build/attach-games-lunar/*
+          name: FlaxClient-Media-Reinject-Fix-Lunar-1.8.9-Windows-x64
+          path: build/attach-games-lunar/**/*
           if-no-files-found: error
           retention-days: 7
