@@ -1,4 +1,4 @@
-name: Apply Tetris grouping and Deject
+name: Clean temporary deject patch files
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  apply:
+  cleanup:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -19,27 +19,12 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - name: Apply requested changes
-        shell: bash
-        run: |
-          cat .github/patches/deject3.b64.part* | base64 -d | gzip -d > /tmp/apply.py
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('/tmp/apply.py')
-          source = path.read_text()
-          source = source.replace(
-              "'''    public long getContext() {\n        return nvg;\n    }\n}'''",
-              "'''\tpublic long getContext() {\n\t\treturn nvg;\n\t}\n}'''")
-          source = source.split("\nworkflow = '.github/workflows/build-games-overhaul-lunar.yml'", 1)[0] + "\n"
-          path.write_text(source)
-          PY
-          python3 /tmp/apply.py
-
-      - name: Commit implementation
+      - name: Remove temporary patch machinery
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src attach
-          git commit -m "Add grouped Tetris pieces and animated deject"
+          git rm -r .github/patches
+          git rm .github/workflows/apply-tetris-deject.yml
+          git commit -m "Remove temporary deject patch workflow"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
