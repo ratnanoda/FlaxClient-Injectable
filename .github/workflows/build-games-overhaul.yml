@@ -1,0 +1,80 @@
+name: Build Games Overhaul Lunar Package
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+          architecture: x64
+
+      - name: Build Lunar-compatible client jar
+        shell: powershell
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx6g
+        run: |
+          & ".\gradlew.bat" lunarJar --no-daemon --stacktrace
+          if (!(Test-Path "build\libs\FlaxClient-Lunar.jar")) {
+            throw "FlaxClient-Lunar.jar was not generated"
+          }
+
+      - name: Verify Lunar mappings and games
+        shell: powershell
+        run: |
+          $bootstrap = & javap -classpath "build\libs\FlaxClient-Lunar.jar" -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
+          if ($bootstrap -notmatch "net/minecraft/client/Minecraft") {
+            throw "AttachBootstrap does not contain Lunar-compatible Minecraft class names"
+          }
+          $entries = & jar tf "build\libs\FlaxClient-Lunar.jar" | Out-String
+          if ($entries -notmatch "TetrisScene.class") { throw "TetrisScene was not packaged" }
+          if ($entries -match "ClickyCatScene.class") { throw "ClickyCatScene is still packaged" }
+
+      - name: Configure Lunar DLL
+        shell: powershell
+        run: |
+          $jar = (Resolve-Path "build\libs\FlaxClient-Lunar.jar").Path.Replace('\', '/')
+          cmake -S attach -B attach/build-games-lunar -A x64 "-DFLAX_CLIENT_JAR=$jar"
+
+      - name: Build Lunar DLL and injector
+        shell: powershell
+        run: |
+          cmake --build attach/build-games-lunar --config Release
+
+      - name: Stage and verify package
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path "build\attach-games-lunar" | Out-Null
+          Copy-Item "attach\build-games-lunar\bin\Release\FlaxClient.dll" "build\attach-games-lunar\FlaxClient.dll"
+          Copy-Item "attach\build-games-lunar\bin\Release\FlaxInjector.exe" "build\attach-games-lunar\FlaxInjector.exe"
+          @"
+          Lunar Client OptiFine 1.8.9 games overhaul.
+          Clicky Cat removed, Flappy Glide rebuilt with smooth fixed-step physics,
+          and Tetris added with hold, ghost piece, next queue, lock delay, and effects.
+          Start injection only after the Lunar 1.8.9 main menu is visible.
+          "@ | Set-Content -Encoding UTF8 "build\attach-games-lunar\README.txt"
+          if (!(Test-Path "build\attach-games-lunar\FlaxInjector.exe")) { throw "FlaxInjector.exe was not generated" }
+          if (!(Test-Path "build\attach-games-lunar\FlaxClient.dll")) { throw "FlaxClient.dll was not generated" }
+          Get-FileHash "build\attach-games-lunar\FlaxInjector.exe" -Algorithm SHA256
+          Get-FileHash "build\attach-games-lunar\FlaxClient.dll" -Algorithm SHA256
+
+      - name: Upload Lunar package
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlaxClient-Games-Overhaul-Lunar-1.8.9-Windows-x64
+          path: build/attach-games-lunar/*
+          if-no-files-found: error
+          retention-days: 7
