@@ -32,7 +32,7 @@ jobs:
             throw "FlaxClient-Lunar.jar was not generated"
           }
 
-      - name: Verify Lunar mappings and games
+      - name: Verify Lunar mappings, games, and deject
         shell: powershell
         run: |
           $bootstrap = & javap -classpath "build\libs\FlaxClient-Lunar.jar" -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
@@ -42,6 +42,8 @@ jobs:
           $entries = & jar tf "build\libs\FlaxClient-Lunar.jar" | Out-String
           if ($entries -notmatch "TetrisScene.class") { throw "TetrisScene was not packaged" }
           if ($entries -match "ClickyCatScene.class") { throw "ClickyCatScene is still packaged" }
+          if ($entries -notmatch "DejectBridge.class") { throw "DejectBridge was not packaged" }
+          if ($entries -notmatch "GuiDejectScreen.class") { throw "GuiDejectScreen was not packaged" }
 
       - name: Configure Lunar DLL
         shell: powershell
@@ -62,8 +64,9 @@ jobs:
           Copy-Item "attach\build-games-lunar\bin\Release\FlaxInjector.exe" "build\attach-games-lunar\FlaxInjector.exe"
           @"
           Lunar Client OptiFine 1.8.9 games overhaul.
-          Clicky Cat removed, Flappy Glide rebuilt with smooth fixed-step physics,
-          and Tetris added with hold, ghost piece, next queue, lock delay, and effects.
+          Tetris pieces now render as connected tetromino shapes with per-piece boundaries.
+          Settings includes an animated Deject action that stops FlaxClient, restores
+          transformed Minecraft classes, removes the JVMTI hook, and unloads the DLL.
           Start injection only after the Lunar 1.8.9 main menu is visible.
           "@ | Set-Content -Encoding UTF8 "build\attach-games-lunar\README.txt"
           if (!(Test-Path "build\attach-games-lunar\FlaxInjector.exe")) { throw "FlaxInjector.exe was not generated" }
@@ -74,7 +77,7 @@ jobs:
       - name: Upload Lunar package
         uses: actions/upload-artifact@v4
         with:
-          name: FlaxClient-Games-Overhaul-Lunar-1.8.9-Windows-x64
+          name: FlaxClient-Tetris-Deject-Lunar-1.8.9-Windows-x64
           path: build/attach-games-lunar/*
           if-no-files-found: error
           retention-days: 7
