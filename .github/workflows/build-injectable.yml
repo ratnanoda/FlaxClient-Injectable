@@ -1,0 +1,51 @@
+name: Build Injectable Package
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+          architecture: x64
+
+      - name: Show tool versions
+        shell: powershell
+        run: |
+          java -version
+          cmake --version
+
+      - name: Build FlaxClient injectable package
+        shell: powershell
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx6g
+        run: |
+          & ".\.tooling\gradle-4.10.3\gradle-4.10.3\bin\gradle.bat" attachPackage --no-daemon --stacktrace
+
+      - name: Verify package
+        shell: powershell
+        run: |
+          Get-ChildItem -Path build\attach -Force
+          if (!(Test-Path build\attach\FlaxInjector.exe)) { throw "FlaxInjector.exe was not generated" }
+          if (!(Test-Path build\attach\FlaxClient.dll)) { throw "FlaxClient.dll was not generated" }
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlaxClient-Injectable-Windows-x64
+          path: build/attach/*
+          if-no-files-found: error
+          retention-days: 7
