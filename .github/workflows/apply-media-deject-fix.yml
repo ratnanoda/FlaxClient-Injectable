@@ -22,13 +22,14 @@ jobs:
       - name: Apply requested changes
         shell: bash
         run: |
-          cat .github/patches/media-deject-fix.b64.part* | base64 -d | gzip -d > /tmp/apply.py
+          cat .github/patches/media-fix-v2.part* | base64 -d | gzip -d > /tmp/apply.py
           python3 /tmp/apply.py
 
       - name: Commit implementation
         shell: bash
         run: |
           rm -f .github/patches/media-deject-fix.b64.part*
+          rm -f .github/patches/media-fix-v2.part*
           rm -f .github/workflows/apply-media-deject-fix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
