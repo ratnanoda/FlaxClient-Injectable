@@ -21,12 +21,20 @@ public final class LateLoadStatus {
         return dejecting;
     }
 
-    public static void beginDeject() {
+    public static synchronized void beginAttach() {
+        dejecting = false;
+        coreHookReady = false;
+        transformerReady = false;
+    }
+
+    public static synchronized void beginDeject() {
         dejecting = true;
+        coreHookReady = false;
+        transformerReady = false;
     }
 
     public static boolean isCoreHookReady() {
-        return coreHookReady;
+        return coreHookReady && !dejecting;
     }
 
     public static void markCoreHookReady() {
@@ -35,5 +43,6 @@ public final class LateLoadStatus {
 
     public static void markTransformerReady() {
         transformerReady = true;
+        dejecting = false;
     }
 }

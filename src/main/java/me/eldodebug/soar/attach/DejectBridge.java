@@ -12,6 +12,18 @@ public final class DejectBridge {
     private DejectBridge() {
     }
 
+    public static void prepareForAttach() {
+        REQUESTED.set(false);
+    }
+
+    public static String getModuleDirectory() {
+        try {
+            return getNativeModuleDirectory();
+        } catch(Throwable ignored) {
+            return null;
+        }
+    }
+
     public static void requestDeject() {
         if(!REQUESTED.compareAndSet(false, true)) {
             return;
@@ -22,6 +34,8 @@ public final class DejectBridge {
         } catch(Throwable error) {
             GlideLogger.error("Failed to stop the Java client cleanly before deject",
                     error instanceof Exception ? (Exception) error : new Exception(error));
+        } finally {
+            AttachBootstrap.markDejected();
         }
         try {
             requestNativeDeject();
@@ -32,4 +46,5 @@ public final class DejectBridge {
     }
 
     private static native void requestNativeDeject();
+    private static native String getNativeModuleDirectory();
 }

@@ -93,6 +93,7 @@ public class Glide {
 	}
 	
     public void start() {
+        mc = Minecraft.getMinecraft();
         dejected = false;
         try {
 			OptifineUtils.disableFastRender();
@@ -199,6 +200,19 @@ public class Glide {
             nanoVGManager = null;
         }
         eventManager = null;
+        modManager = null;
+        musicManager = null;
+        youTubeManager = null;
+        notificationManager = null;
+        commandManager = null;
+        securityFeatureManager = null;
+        changelogManager = null;
+        newsManager = null;
+        discordStats = null;
+        update = null;
+        clickEffects = null;
+        modMenu = null;
+        mainMenu = null;
         GlideLogger.info("FlaxClient Java runtime stopped for deject");
     }
     
@@ -268,6 +282,10 @@ public class Glide {
 	public static Glide getInstance() {
 		return instance;
 	}
+
+    public boolean isDejected() {
+        return dejected;
+    }
 
 	public String getName() {
 		return name;

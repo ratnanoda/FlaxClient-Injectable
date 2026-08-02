@@ -724,8 +724,6 @@ public class TetrisScene extends GameScene {
             for(int column = 0; column < COLUMNS; column++) {
                 float bx = boardX + column * cellSize;
                 float by = boardY + row * cellSize;
-                nvg.drawRoundedRect(bx + 1.0F, by + 1.0F, cellSize - 2.0F, cellSize - 2.0F,
-                        2.2F, new Color(255, 255, 255, 7));
                 int value = board[row][column];
                 if(value != 0) {
                     drawBlockFill(nvg, bx, by, cellSize, PIECE_COLORS[value - 1], 1.0F);

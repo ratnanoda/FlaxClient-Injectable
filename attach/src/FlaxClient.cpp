@@ -28,6 +28,7 @@ std::atomic<bool> g_deject_thread_started{false};
 void log_message(const char* format, ...);
 DWORD WINAPI deject_worker(void*);
 void JNICALL request_native_deject(JNIEnv*, jclass);
+jstring JNICALL get_native_module_directory(JNIEnv*, jclass);
 
 bool is_transform_target(const char* internal_name) {
     if (internal_name == nullptr) {
@@ -546,6 +547,33 @@ jclass load_class_from(
     return static_cast<jclass>(class_object);
 }
 
+bool prepare_java_for_attach(JNIEnv* env, jobject class_loader) {
+    jclass bootstrap_class = load_class_from(
+        env,
+        class_loader,
+        "me.eldodebug.soar.attach.AttachBootstrap",
+        "loading AttachBootstrap for lifecycle reset");
+    if (bootstrap_class == nullptr) {
+        return false;
+    }
+
+    jmethodID prepare = env->GetStaticMethodID(
+        bootstrap_class,
+        "prepareForAttach",
+        "()V");
+    if (prepare == nullptr ||
+        clear_java_exception(env, "resolving AttachBootstrap.prepareForAttach")) {
+        env->DeleteLocalRef(bootstrap_class);
+        return false;
+    }
+
+    env->CallStaticVoidMethod(bootstrap_class, prepare);
+    const bool failed =
+        clear_java_exception(env, "resetting the Java attach lifecycle");
+    env->DeleteLocalRef(bootstrap_class);
+    return !failed;
+}
+
 bool mark_late_load_ready(JNIEnv* env, jobject class_loader) {
     jclass status_class = load_class_from(
         env,
@@ -641,6 +669,13 @@ bool retransform_loaded_minecraft_classes(jvmtiEnv* jvmti) {
     return transformed == found;
 }
 
+jstring JNICALL get_native_module_directory(JNIEnv* env, jclass) {
+    const std::wstring directory = module_path().parent_path().wstring();
+    return env->NewString(
+        reinterpret_cast<const jchar*>(directory.data()),
+        static_cast<jsize>(directory.size()));
+}
+
 bool register_deject_bridge(JNIEnv* env, jobject class_loader) {
     jclass bridge_class = load_class_from(
         env,
@@ -651,12 +686,20 @@ bool register_deject_bridge(JNIEnv* env, jobject class_loader) {
         return false;
     }
 
-    JNINativeMethod method{
-        const_cast<char*>("requestNativeDeject"),
-        const_cast<char*>("()V"),
-        reinterpret_cast<void*>(&request_native_deject)};
-    if (env->RegisterNatives(bridge_class, &method, 1) != JNI_OK ||
-        clear_java_exception(env, "registering the native deject bridge")) {
+    JNINativeMethod methods[] = {
+        {
+            const_cast<char*>("requestNativeDeject"),
+            const_cast<char*>("()V"),
+            reinterpret_cast<void*>(&request_native_deject)
+        },
+        {
+            const_cast<char*>("getNativeModuleDirectory"),
+            const_cast<char*>("()Ljava/lang/String;"),
+            reinterpret_cast<void*>(&get_native_module_directory)
+        }
+    };
+    if (env->RegisterNatives(bridge_class, methods, 2) != JNI_OK ||
+        clear_java_exception(env, "registering the native runtime bridge")) {
         env->DeleteLocalRef(bridge_class);
         return false;
     }
@@ -668,7 +711,7 @@ bool register_deject_bridge(JNIEnv* env, jobject class_loader) {
         clear_java_exception(env, "retaining DejectBridge")) {
         return false;
     }
-    log_message("Registered the native deject bridge.");
+    log_message("Registered the native deject and media-tool bridge.");
     return true;
 }
 
@@ -921,6 +964,9 @@ DWORD WINAPI attach_worker(void*) {
     bool success = class_loader != nullptr;
     if (success) {
         success = add_jar_to_launch_loader(env, vm, class_loader, jar_path);
+    }
+    if (success) {
+        success = prepare_java_for_attach(env, class_loader);
     }
     if (success) {
         success = install_late_transformer(env, vm, class_loader);

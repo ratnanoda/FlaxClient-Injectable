@@ -114,6 +114,11 @@ public final class MusicManager {
 
     public void play(MusicTrack track) {
         if(track == null || !track.getFile().isFile()) return;
+        if(!MediaToolResolver.canRun(ffmpegCommand, "-version")) {
+            playing = false;
+            GlideLogger.warn("Music playback requires the packaged ffmpeg.exe");
+            return;
+        }
         enabled = true;
         currentTrack = track;
         paused = false;
@@ -222,7 +227,8 @@ public final class MusicManager {
         boolean completedNaturally = false;
         String seek = String.format(Locale.ROOT, "%.3f", Math.max(0L, startMillis) / 1000.0D);
         try {
-            process = new ProcessBuilder(ffmpegCommand, "-loglevel", "error", "-ss", seek,
+            process = new ProcessBuilder(ffmpegCommand, "-nostdin", "-hide_banner",
+                    "-loglevel", "error", "-ss", seek,
                     "-i", track.getFile().getAbsolutePath(), "-vn", "-f", "s16le",
                     "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", "pipe:1")
                     .redirectError(ProcessBuilder.Redirect.INHERIT).start();
@@ -288,7 +294,7 @@ public final class MusicManager {
 
     private long readDuration(File file) {
         try {
-            Process process = new ProcessBuilder(ffprobeCommand, "-v", "error",
+            Process process = new ProcessBuilder(ffprobeCommand, "-nostdin", "-v", "error",
                     "-show_entries", "format=duration",
                     "-of", "default=noprint_wrappers=1:nokey=1",
                     file.getAbsolutePath()).redirectErrorStream(true).start();

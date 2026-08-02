@@ -11,10 +11,6 @@ import net.minecraft.client.Minecraft;
 /**
  * Entry point called after FlaxClient.dll has added the client jar to the
  * running Minecraft LaunchClassLoader.
- *
- * The late transformer is installed before this class starts the full client.
- * Until that transformer is ready, attaching only verifies the native/JVM/JAR
- * bridge and deliberately leaves the existing game state untouched.
  */
 public final class AttachBootstrap {
 
@@ -23,6 +19,24 @@ public final class AttachBootstrap {
     private static final AtomicBoolean CLIENT_FAILED = new AtomicBoolean();
 
     private AttachBootstrap() {
+    }
+
+    /**
+     * Called by every newly loaded DLL before JVMTI hooks are installed. Java
+     * classes survive a DLL unload, so all lifecycle guards must be reset here.
+     */
+    public static synchronized void prepareForAttach() {
+        ATTACH_REQUESTED.set(false);
+        CLIENT_STARTED.set(false);
+        CLIENT_FAILED.set(false);
+        DejectBridge.prepareForAttach();
+        LateLoadStatus.beginAttach();
+    }
+
+    static synchronized void markDejected() {
+        ATTACH_REQUESTED.set(false);
+        CLIENT_STARTED.set(false);
+        CLIENT_FAILED.set(false);
     }
 
     public static void attach() {
@@ -42,6 +56,7 @@ public final class AttachBootstrap {
             public void run() {
                 try {
                     if (!LateLoadStatus.isTransformerReady()) {
+                        ATTACH_REQUESTED.set(false);
                         GlideLogger.info(
                                 "FlaxClient DLL bridge is ready; waiting for the late-load transformer");
                         return;
@@ -76,6 +91,7 @@ public final class AttachBootstrap {
             } catch (Throwable error) {
                 CLIENT_STARTED.set(false);
                 CLIENT_FAILED.set(true);
+                ATTACH_REQUESTED.set(false);
                 GlideLogger.error(
                         "Failed to initialize FlaxClient after attach",
                         error instanceof Exception
