@@ -1,0 +1,509 @@
+name: Apply single-file bundle
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply single-file runtime changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit("missing patch marker: " + label)
+              return text.replace(old, new, 1)
+
+          cmake = r'''cmake_minimum_required(VERSION 3.20)
+
+          project(FlaxClientAttach LANGUAGES CXX)
+
+          if(NOT WIN32)
+              message(FATAL_ERROR "The attach DLL currently targets Windows only.")
+          endif()
+
+          if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+              message(FATAL_ERROR "FlaxClientAttach must be built for x64.")
+          endif()
+
+          find_package(JNI REQUIRED)
+
+          set(
+              FLAX_CLIENT_JAR
+              "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Release.jar"
+              CACHE FILEPATH
+              "FlaxClient jar embedded into the attach DLL"
+          )
+          set(FLAX_YTDLP "" CACHE FILEPATH "yt-dlp executable embedded into the DLL")
+          set(FLAX_DENO "" CACHE FILEPATH "Deno executable embedded into the DLL")
+          set(FLAX_FFMPEG "" CACHE FILEPATH "ffmpeg executable embedded into the DLL")
+          set(FLAX_FFPROBE "" CACHE FILEPATH "ffprobe executable embedded into the DLL")
+          set(FLAX_CLIENT_DLL "" CACHE FILEPATH "FlaxClient DLL embedded into the injector")
+
+          set(FLAX_CLIENT_SOURCES src/FlaxClient.cpp)
+          set(FLAX_INJECTOR_SOURCES src/FlaxInjector.cpp)
+
+          set(FLAX_CLIENT_RC "${CMAKE_CURRENT_BINARY_DIR}/FlaxClient.rc")
+          file(WRITE "${FLAX_CLIENT_RC}" "#include <windows.h>\n")
+          set(FLAX_HAS_CLIENT_RESOURCES FALSE)
+
+          function(flax_append_resource resource_id source_path)
+              if(EXISTS "${source_path}")
+                  file(TO_CMAKE_PATH "${source_path}" resource_path)
+                  file(APPEND "${FLAX_CLIENT_RC}" "${resource_id} RCDATA \"${resource_path}\"\n")
+                  set(FLAX_HAS_CLIENT_RESOURCES TRUE PARENT_SCOPE)
+              endif()
+          endfunction()
+
+          flax_append_resource(101 "${FLAX_CLIENT_JAR}")
+          flax_append_resource(201 "${FLAX_YTDLP}")
+          flax_append_resource(202 "${FLAX_DENO}")
+          flax_append_resource(203 "${FLAX_FFMPEG}")
+          flax_append_resource(204 "${FLAX_FFPROBE}")
+
+          if(FLAX_HAS_CLIENT_RESOURCES)
+              list(APPEND FLAX_CLIENT_SOURCES "${FLAX_CLIENT_RC}")
+          else()
+              message(WARNING "No embedded client resources were configured.")
+          endif()
+
+          if(EXISTS "${FLAX_CLIENT_DLL}")
+              file(TO_CMAKE_PATH "${FLAX_CLIENT_DLL}" FLAX_CLIENT_DLL_RC)
+              set(FLAX_INJECTOR_RC "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjector.rc")
+              file(WRITE "${FLAX_INJECTOR_RC}"
+                  "#include <windows.h>\n301 RCDATA \"${FLAX_CLIENT_DLL_RC}\"\n")
+              list(APPEND FLAX_INJECTOR_SOURCES "${FLAX_INJECTOR_RC}")
+          else()
+              message(STATUS "FlaxInjector will use a sidecar DLL until FLAX_CLIENT_DLL is supplied.")
+          endif()
+
+          add_library(FlaxClient SHARED ${FLAX_CLIENT_SOURCES})
+          add_executable(FlaxInjector WIN32 ${FLAX_INJECTOR_SOURCES})
+          add_dependencies(FlaxInjector FlaxClient)
+
+          target_compile_features(FlaxClient PRIVATE cxx_std_17)
+          target_compile_features(FlaxInjector PRIVATE cxx_std_17)
+          target_include_directories(FlaxClient PRIVATE ${JNI_INCLUDE_DIRS})
+          target_link_libraries(FlaxInjector PRIVATE Shell32)
+          target_compile_definitions(FlaxClient PRIVATE
+              WIN32_LEAN_AND_MEAN
+              NOMINMAX
+              UNICODE
+              _UNICODE
+          )
+          target_compile_definitions(FlaxInjector PRIVATE
+              WIN32_LEAN_AND_MEAN
+              NOMINMAX
+              UNICODE
+              _UNICODE
+          )
+
+          if(MSVC)
+              target_compile_options(FlaxClient PRIVATE /W4 /permissive- /EHsc)
+              target_compile_options(FlaxInjector PRIVATE /W4 /permissive- /EHsc)
+          endif()
+
+          set_target_properties(FlaxClient PROPERTIES
+              OUTPUT_NAME "FlaxClient"
+              RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+          )
+
+          set_target_properties(FlaxInjector PROPERTIES
+              OUTPUT_NAME "FlaxInjector"
+              RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+          )
+          '''
+          Path("attach/CMakeLists.txt").write_text(cmake.replace("\n          ", "\n"), encoding="utf-8")
+
+          client_path = Path("attach/src/FlaxClient.cpp")
+          client = client_path.read_text(encoding="utf-8")
+          client = replace_once(
+              client,
+              "std::atomic<bool> g_deject_thread_started{false};\n",
+              "std::atomic<bool> g_deject_thread_started{false};\n"
+              "std::filesystem::path g_runtime_directory;\n",
+              "client global runtime directory")
+
+          client_helpers = r'''
+          std::filesystem::path runtime_directory() {
+              if (!g_runtime_directory.empty()) {
+                  return g_runtime_directory;
+              }
+              std::filesystem::path directory = log_path().parent_path();
+              directory /= L"runtime";
+              directory /= std::to_wstring(GetCurrentProcessId());
+              std::error_code error;
+              std::filesystem::create_directories(directory, error);
+              if (error) {
+                  log_message(
+                      "Could not create the embedded runtime directory (error %d).",
+                      error.value());
+                  return {};
+              }
+              g_runtime_directory = directory;
+              return g_runtime_directory;
+          }
+
+          bool extract_resource_to_file(
+              int resource_id,
+              const std::filesystem::path& target,
+              const char* description) {
+              HRSRC resource = FindResourceW(
+                  g_module,
+                  MAKEINTRESOURCEW(resource_id),
+                  RT_RCDATA);
+              if (resource == nullptr) {
+                  return false;
+              }
+              HGLOBAL loaded_resource = LoadResource(g_module, resource);
+              const DWORD resource_size = SizeofResource(g_module, resource);
+              const void* resource_bytes =
+                  loaded_resource == nullptr ? nullptr : LockResource(loaded_resource);
+              if (resource_bytes == nullptr || resource_size == 0) {
+                  log_message("Embedded %s resource was empty.", description);
+                  return false;
+              }
+
+              std::error_code size_error;
+              if (std::filesystem::is_regular_file(target, size_error) &&
+                  !size_error &&
+                  std::filesystem::file_size(target, size_error) == resource_size &&
+                  !size_error) {
+                  return true;
+              }
+
+              std::filesystem::create_directories(target.parent_path(), size_error);
+              std::ofstream output(target, std::ios::binary | std::ios::trunc);
+              output.write(
+                  static_cast<const char*>(resource_bytes),
+                  static_cast<std::streamsize>(resource_size));
+              output.close();
+              if (!output || !std::filesystem::is_regular_file(target) ||
+                  std::filesystem::file_size(target) != resource_size) {
+                  log_message("Could not extract embedded %s.", description);
+                  return false;
+              }
+              log_message(
+                  "Extracted embedded %s to %s.",
+                  description,
+                  target.u8string().c_str());
+              return true;
+          }
+
+          bool materialize_media_tool(
+              int resource_id,
+              const wchar_t* file_name,
+              const char* description) {
+              const std::filesystem::path directory = runtime_directory();
+              if (directory.empty()) {
+                  return false;
+              }
+              const std::filesystem::path target = directory / file_name;
+              if (extract_resource_to_file(resource_id, target, description)) {
+                  return true;
+              }
+
+              const std::filesystem::path module_directory = module_path().parent_path();
+              const std::filesystem::path sidecars[] = {
+                  module_directory / L"tools" / file_name,
+                  module_directory / file_name,
+              };
+              for (const auto& sidecar : sidecars) {
+                  if (!std::filesystem::is_regular_file(sidecar)) {
+                      continue;
+                  }
+                  std::error_code error;
+                  std::filesystem::copy_file(
+                      sidecar,
+                      target,
+                      std::filesystem::copy_options::overwrite_existing,
+                      error);
+                  if (!error && std::filesystem::is_regular_file(target)) {
+                      log_message(
+                          "Copied sidecar %s to the private runtime directory.",
+                          description);
+                      return true;
+                  }
+              }
+              log_message("Embedded %s was not available.", description);
+              return false;
+          }
+
+          bool materialize_media_tools() {
+              const bool yt_dlp =
+                  materialize_media_tool(201, L"yt-dlp.exe", "yt-dlp");
+              const bool deno =
+                  materialize_media_tool(202, L"deno.exe", "Deno");
+              const bool ffmpeg =
+                  materialize_media_tool(203, L"ffmpeg.exe", "ffmpeg");
+              const bool ffprobe =
+                  materialize_media_tool(204, L"ffprobe.exe", "ffprobe");
+              return yt_dlp && deno && ffmpeg && ffprobe;
+          }
+
+          '''
+          client_helpers = client_helpers.replace("\n          ", "\n")
+          client = replace_once(
+              client,
+              "std::filesystem::path materialize_client_jar() {\n",
+              client_helpers + "std::filesystem::path materialize_client_jar() {\n",
+              "client helper insertion")
+
+          old_jar_target = '''            std::filesystem::path target = log_path().parent_path();
+                      target /= L"FlaxClient-";
+                      target += std::to_wstring(GetCurrentProcessId());
+                      target += L".jar";
+          '''
+          old_jar_target = old_jar_target.replace("\n          ", "\n")
+          client = replace_once(
+              client,
+              old_jar_target,
+              "            std::filesystem::path target =\n"
+              "                runtime_directory() / L\"FlaxClient.jar\";\n",
+              "client jar target")
+
+          client = replace_once(
+              client,
+              "    const std::wstring directory = module_path().parent_path().wstring();\n",
+              "    const std::filesystem::path runtime = runtime_directory();\n"
+              "    const std::wstring directory =\n"
+              "        (runtime.empty() ? module_path().parent_path() : runtime).wstring();\n",
+              "native runtime directory")
+
+          client = replace_once(
+              client,
+              "    const std::filesystem::path jar_path = materialize_client_jar();\n",
+              "    if (!materialize_media_tools()) {\n"
+              "        log_message(\"The embedded media runtime could not be extracted.\");\n"
+              "        if (attached_here) {\n"
+              "            vm->DetachCurrentThread();\n"
+              "        }\n"
+              "        return 1;\n"
+              "    }\n\n"
+              "    const std::filesystem::path jar_path = materialize_client_jar();\n",
+              "materialize tools before jar")
+
+          client = replace_once(
+              client,
+              "    log_message(\"Deject completed; Minecraft classes restored and FlaxClient.dll unloaded.\");\n"
+              "    FreeLibraryAndExitThread(g_module, 0);\n",
+              "    if (!g_runtime_directory.empty()) {\n"
+              "        std::error_code cleanup_error;\n"
+              "        std::filesystem::remove_all(g_runtime_directory, cleanup_error);\n"
+              "        if (cleanup_error) {\n"
+              "            log_message(\n"
+              "                \"The private media runtime will be cleaned up later (error %d).\",\n"
+              "                cleanup_error.value());\n"
+              "        }\n"
+              "    }\n"
+              "    log_message(\"Deject completed; Minecraft classes restored and FlaxClient.dll unloaded.\");\n"
+              "    FreeLibraryAndExitThread(g_module, 0);\n",
+              "client deject cleanup")
+          client_path.write_text(client, encoding="utf-8")
+
+          injector_path = Path("attach/src/FlaxInjector.cpp")
+          injector = injector_path.read_text(encoding="utf-8")
+          injector = replace_once(
+              injector,
+              "#include <filesystem>\n",
+              "#include <filesystem>\n#include <fstream>\n#include <cstdint>\n",
+              "injector includes")
+
+          injector_helpers = r'''
+          std::uint64_t fnv1a64(const unsigned char* bytes, std::size_t length) {
+              std::uint64_t hash = 1469598103934665603ULL;
+              for (std::size_t index = 0; index < length; ++index) {
+                  hash ^= bytes[index];
+                  hash *= 1099511628211ULL;
+              }
+              return hash;
+          }
+
+          std::filesystem::path materialize_embedded_dll() {
+              HMODULE module = GetModuleHandleW(nullptr);
+              HRSRC resource = FindResourceW(
+                  module,
+                  MAKEINTRESOURCEW(301),
+                  RT_RCDATA);
+              if (resource == nullptr) {
+                  return {};
+              }
+              HGLOBAL loaded_resource = LoadResource(module, resource);
+              const DWORD resource_size = SizeofResource(module, resource);
+              const auto* resource_bytes = static_cast<const unsigned char*>(
+                  loaded_resource == nullptr ? nullptr : LockResource(loaded_resource));
+              if (resource_bytes == nullptr || resource_size == 0) {
+                  return {};
+              }
+
+              const std::uint64_t hash =
+                  fnv1a64(resource_bytes, static_cast<std::size_t>(resource_size));
+              wchar_t temp_path[MAX_PATH]{};
+              const DWORD temp_length = GetTempPathW(MAX_PATH, temp_path);
+              std::filesystem::path directory =
+                  temp_length > 0
+                      ? std::filesystem::path(temp_path)
+                      : executable_path().parent_path();
+              directory /= L"FlaxClient";
+              directory /= L"single-file";
+
+              wchar_t hash_text[32]{};
+              swprintf_s(hash_text, L"%016llx",
+                         static_cast<unsigned long long>(hash));
+              directory /= hash_text;
+
+              std::error_code error;
+              std::filesystem::create_directories(directory, error);
+              if (error) {
+                  return {};
+              }
+              const std::filesystem::path target = directory / L"FlaxClient.dll";
+              if (std::filesystem::is_regular_file(target, error) &&
+                  !error &&
+                  std::filesystem::file_size(target, error) == resource_size &&
+                  !error) {
+                  return target;
+              }
+
+              std::ofstream output(target, std::ios::binary | std::ios::trunc);
+              output.write(
+                  reinterpret_cast<const char*>(resource_bytes),
+                  static_cast<std::streamsize>(resource_size));
+              output.close();
+              if (!output || !std::filesystem::is_regular_file(target) ||
+                  std::filesystem::file_size(target) != resource_size) {
+                  return {};
+              }
+              return target;
+          }
+
+          bool verify_embedded_bundle() {
+              const std::filesystem::path dll_path = materialize_embedded_dll();
+              if (dll_path.empty()) {
+                  return false;
+              }
+              HMODULE data_module = LoadLibraryExW(
+                  dll_path.c_str(),
+                  nullptr,
+                  LOAD_LIBRARY_AS_DATAFILE | LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+              if (data_module == nullptr) {
+                  return false;
+              }
+              const int required_resources[] = {101, 201, 202, 203, 204};
+              bool valid = true;
+              for (int resource_id : required_resources) {
+                  HRSRC resource = FindResourceW(
+                      data_module,
+                      MAKEINTRESOURCEW(resource_id),
+                      RT_RCDATA);
+                  if (resource == nullptr ||
+                      SizeofResource(data_module, resource) == 0) {
+                      valid = false;
+                      break;
+                  }
+              }
+              FreeLibrary(data_module);
+              return valid;
+          }
+
+          '''
+          injector_helpers = injector_helpers.replace("\n          ", "\n")
+          injector = replace_once(
+              injector,
+              "uintptr_t remote_module_base(DWORD process_id, const wchar_t* module_name) {\n",
+              injector_helpers +
+              "uintptr_t remote_module_base(DWORD process_id, const wchar_t* module_name) {\n",
+              "injector helper insertion")
+
+          injector = replace_once(
+              injector,
+              "DWORD configured_process_id = 0;\n",
+              "DWORD configured_process_id = 0;\n"
+              "bool verify_bundle_requested = false;\n",
+              "injector verify global")
+
+          old_perform = '''    std::error_code path_error;
+              std::filesystem::path dll_path =
+                  std::filesystem::weakly_canonical(configured_dll, path_error);
+              if (path_error || !std::filesystem::is_regular_file(dll_path)) {
+                  return {false, L"FlaxClient.dll was not found beside the injector"};
+              }
+          '''
+          old_perform = old_perform.replace("\n          ", "\n")
+          new_perform = '''    std::filesystem::path dll_source = configured_dll;
+              if (dll_source.empty()) {
+                  dll_source = materialize_embedded_dll();
+              }
+              if (dll_source.empty()) {
+                  const std::filesystem::path sidecar =
+                      executable_path().parent_path() / L"FlaxClient.dll";
+                  if (std::filesystem::is_regular_file(sidecar)) {
+                      dll_source = sidecar;
+                  }
+              }
+
+              std::error_code path_error;
+              std::filesystem::path dll_path =
+                  std::filesystem::weakly_canonical(dll_source, path_error);
+              if (path_error || !std::filesystem::is_regular_file(dll_path)) {
+                  return {false, L"The embedded FlaxClient runtime could not be extracted"};
+              }
+          '''
+          new_perform = new_perform.replace("\n          ", "\n")
+          injector = replace_once(
+              injector,
+              old_perform,
+              new_perform,
+              "injector perform extraction")
+
+          injector = replace_once(
+              injector,
+              "    configured_dll = executable_path().parent_path() / L\"FlaxClient.dll\";\n",
+              "    configured_dll.clear();\n",
+              "injector default dll")
+
+          injector = replace_once(
+              injector,
+              "        if (argument == L\"--pid\" && index + 1 < argument_count) {\n",
+              "        if (argument == L\"--verify-bundle\") {\n"
+              "            verify_bundle_requested = true;\n"
+              "        } else if (argument == L\"--pid\" && index + 1 < argument_count) {\n",
+              "injector verify argument")
+
+          injector = replace_once(
+              injector,
+              "    parse_arguments();\n\n    const wchar_t* class_name",
+              "    parse_arguments();\n"
+              "    if (verify_bundle_requested) {\n"
+              "        return verify_embedded_bundle() ? 0 : 3;\n"
+              "    }\n\n"
+              "    const wchar_t* class_name",
+              "injector verify execution")
+          injector_path.write_text(injector, encoding="utf-8")
+          print("Applied nested single-file resource bundle changes.")
+          PY
+
+      - name: Commit source implementation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add attach/CMakeLists.txt attach/src/FlaxClient.cpp attach/src/FlaxInjector.cpp
+          git commit -m "Bundle media runtime and DLL into injector"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
