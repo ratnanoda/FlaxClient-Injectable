@@ -19,20 +19,25 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - name: Apply requested changes
+      - name: Apply requested source changes
         shell: bash
         run: |
           cat .github/patches/media-fix-v2.part* | base64 -d | gzip -d > /tmp/apply.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('/tmp/apply.py')
+          source = path.read_text()
+          marker = '# Build and package current media tools beside the DLL.'
+          source = source.split(marker, 1)[0] + '\nprint("Applied source fixes.")\n'
+          path.write_text(source)
+          PY
           python3 /tmp/apply.py
 
-      - name: Commit implementation
+      - name: Commit source implementation
         shell: bash
         run: |
-          rm -f .github/patches/media-deject-fix.b64.part*
-          rm -f .github/patches/media-fix-v2.part*
-          rm -f .github/workflows/apply-media-deject-fix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add src attach
           git commit -m "Fix media playback and re-injection lifecycle"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
