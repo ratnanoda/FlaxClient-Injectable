@@ -1,4 +1,4 @@
-name: Apply media and reinjection fixes
+name: Repair YouTube manager syntax
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  apply:
+  repair:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -19,25 +19,31 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - name: Apply requested source changes
+      - name: Repair generated Java syntax
         shell: bash
         run: |
-          cat .github/patches/media-fix-v2.part* | base64 -d | gzip -d > /tmp/apply.py
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('/tmp/apply.py')
-          source = path.read_text()
-          marker = '# Build and package current media tools beside the DLL.'
-          source = source.split(marker, 1)[0] + '\nprint("Applied source fixes.")\n'
-          path.write_text(source)
+          path = Path('src/main/java/me/eldodebug/soar/management/youtube/YouTubeManager.java')
+          text = path.read_text()
+          text = text.replace(
+              '        thread.start();\n    }\n    }\n\n    public void addUrl',
+              '        thread.start();\n    }\n\n    public void addUrl',
+              1)
+          text = text.replace(
+              "outputLog.append(line).append('\n');",
+              "outputLog.append(line).append('\\n');")
+          text = text.replace(
+              'GlideLogger.warn(lastFailure + "\n" + outputLog.toString());',
+              'GlideLogger.warn(lastFailure + "\\n" + outputLog.toString());')
+          path.write_text(text)
           PY
-          python3 /tmp/apply.py
 
-      - name: Commit source implementation
+      - name: Commit repair
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src attach
-          git commit -m "Fix media playback and re-injection lifecycle"
+          git add src/main/java/me/eldodebug/soar/management/youtube/YouTubeManager.java
+          git commit -m "Repair YouTube manager syntax"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
