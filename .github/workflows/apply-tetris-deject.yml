@@ -23,6 +23,15 @@ jobs:
         shell: bash
         run: |
           cat .github/patches/deject3.b64.part* | base64 -d | gzip -d > /tmp/apply.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('/tmp/apply.py')
+          source = path.read_text()
+          source = source.replace(
+              "'''    public long getContext() {\n        return nvg;\n    }\n}'''",
+              "'''\tpublic long getContext() {\n\t\treturn nvg;\n\t}\n}'''")
+          path.write_text(source)
+          PY
           python3 /tmp/apply.py
 
       - name: Commit implementation
