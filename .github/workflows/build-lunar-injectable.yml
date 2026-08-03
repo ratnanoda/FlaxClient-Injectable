@@ -11,9 +11,98 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  actions: read
 
 jobs:
+  promote_release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: flaxclient-beta-1.0-standard
+      RELEASE_NAME: FlaxClient Beta 1.0
+      SOURCE_SHA: de75cbdc25f1856f0da711253d222b8c6bf29d37
+      BASE_SHA: 3dfed3c6d763e613394f30248304f1c84b3b3bc5
+      ARTIFACT_RUN_ID: '30828655071'
+      ARTIFACT_NAME: FlaxClient-Lunar-Single-EXE-Windows-x64
+    steps:
+      - name: Download verified release build
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifact
+          gh run download "$ARTIFACT_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" \
+            --dir release-artifact
+          exe_path="$(find release-artifact -type f -iname '*.exe' -print -quit)"
+          test -n "$exe_path"
+          cp "$exe_path" FlaxClient-Beta-1.0.exe
+          sha256sum FlaxClient-Beta-1.0.exe | tee FlaxClient-Beta-1.0.sha256
+
+      - name: Create release snapshot without workflow changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_tree="$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/${SOURCE_SHA}" --jq '.tree.sha')"
+          jq -n \
+            --arg base "$source_tree" \
+            '{base_tree:$base,tree:[{path:".github/workflows/build-lunar-injectable.yml",mode:"100644",type:"blob",sha:null}]}' \
+            > release-tree.json
+          release_tree="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/trees" \
+            --input release-tree.json --jq '.sha')"
+          jq -n \
+            --arg message "FlaxClient Beta 1.0 release snapshot" \
+            --arg tree "$release_tree" \
+            --arg parent "$BASE_SHA" \
+            '{message:$message,tree:$tree,parents:[$parent]}' \
+            > release-commit.json
+          release_commit="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/git/commits" \
+            --input release-commit.json --jq '.sha')"
+          jq -n \
+            --arg ref "refs/tags/${RELEASE_TAG}" \
+            --arg sha "$release_commit" \
+            '{ref:$ref,sha:$sha}' > release-ref.json
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            --input release-ref.json >/dev/null
+          echo "RELEASE_COMMIT=${release_commit}" >> "$GITHUB_ENV"
+
+      - name: Publish as a standard release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          # FlaxClient Beta 1.0
+
+          Windows x64 single-file release for Lunar Client 1.8.9.
+
+          ## Highlights
+          - Flappy Steve with smoother controls and Minecraft-style visuals
+          - Tetris with enhanced effects, plus Snake
+          - Improved BedESP defense-block panels and smoother tracking
+          - Resizable Ghost module list and updated beginner guide
+          - Unified YouTube/Music playback with PiP capped at 60 FPS
+
+          This build is published as a standard GitHub Release.
+          EOF
+
+          gh release create "$RELEASE_TAG" \
+            FlaxClient-Beta-1.0.exe \
+            FlaxClient-Beta-1.0.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$RELEASE_NAME" \
+            --notes-file release-notes.md
+
+          release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+          jq -e '
+            .name == "FlaxClient Beta 1.0" and
+            .draft == false and
+            .prerelease == false and
+            ([.assets[].name] | sort) == (["FlaxClient-Beta-1.0.exe", "FlaxClient-Beta-1.0.sha256"] | sort)
+          ' <<<"$release" >/dev/null
+          jq '{name, tag_name, prerelease, draft, html_url, assets: [.assets[].name]}' <<<"$release"
+
   build:
     runs-on: windows-latest
     timeout-minutes: 90
