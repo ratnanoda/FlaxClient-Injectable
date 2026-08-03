@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -21,6 +21,29 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          ref: chatgpt/beginner-guide-single-exe-20260803
+          fetch-depth: 0
+
+      - name: Apply Ghost onboarding compile fixes
+        shell: powershell
+        run: |
+          $path = "src\main\java\me\eldodebug\soar\gui\modmenu\category\impl\ModuleCategory.java"
+          $text = Get-Content $path -Raw
+          $oldGlow = "nvg.drawRoundedGlow(panelX - 3.0F, panelY - 3.0F, panelWidth + 6.0F, panelHeight + 6.0F, 11.0F, glow, 9.0F);"
+          $newGlow = "nvg.drawRoundedGlow(panelX - 3.0F, panelY - 3.0F, panelWidth + 6.0F, panelHeight + 6.0F, 11.0F, glow, 9);"
+          $oldShadow = "nvg.drawShadow(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 12.0F, 7.0F);"
+          $newShadow = "nvg.drawShadow(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 12.0F, 7);"
+          if (!$text.Contains($oldGlow)) { throw "Ghost tutorial glow marker not found" }
+          if (!$text.Contains($oldShadow)) { throw "Ghost tutorial shadow marker not found" }
+          $text = $text.Replace($oldGlow, $newGlow).Replace($oldShadow, $newShadow)
+          [IO.File]::WriteAllText((Resolve-Path $path), $text, [Text.UTF8Encoding]::new($false))
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add $path
+          git commit -m "Fix Ghost resize tutorial render arguments"
+          git pull --rebase origin chatgpt/beginner-guide-single-exe-20260803
+          git push origin HEAD:chatgpt/beginner-guide-single-exe-20260803
 
       - name: Set up Java 8
         uses: actions/setup-java@v4
