@@ -1,0 +1,33 @@
+name: Apply game and BedESP polish
+
+on:
+  push:
+    branches:
+      - chatgpt/beginner-guide-single-exe-20260803
+    paths:
+      - tools/apply_game_bedesp_polish.py
+      - .github/workflows/apply-game-bedesp-polish.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/beginner-guide-single-exe-20260803
+          fetch-depth: 0
+      - name: Apply source changes
+        run: python tools/apply_game_bedesp_polish.py
+      - name: Commit polished sources
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/java/me/eldodebug/soar/gui/modmenu/category/impl/game/impl/BirdScene.java \
+                  src/main/java/me/eldodebug/soar/gui/modmenu/category/impl/game/impl/TetrisScene.java \
+                  src/main/java/me/eldodebug/soar/management/mods/impl/BedESPMod.java
+          git commit -m "Polish Flappy Steve Tetris and BedESP"
+          git push origin HEAD:chatgpt/beginner-guide-single-exe-20260803
