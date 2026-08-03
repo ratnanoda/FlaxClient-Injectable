@@ -1,0 +1,35 @@
+name: Apply single-file bundle
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Apply single-file runtime changes
+        shell: bash
+        run: |
+          base64 -d .github/patches/single-file-bundle.py.gz.b64 | gzip -d > /tmp/apply.py
+          python3 /tmp/apply.py
+
+      - name: Commit source implementation
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add attach/CMakeLists.txt attach/src/FlaxClient.cpp attach/src/FlaxInjector.cpp
+          git commit -m "Bundle media runtime and DLL into injector"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

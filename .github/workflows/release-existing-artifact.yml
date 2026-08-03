@@ -1,0 +1,397 @@
+name: Publish Single-File Injector Release
+
+on:
+  push:
+    branches:
+      - chatgpt/games-overhaul-20260803
+    paths:
+      - .github/workflows/release-existing-artifact.yml
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      SOURCE_RUN_ID: "30769926640"
+      SOURCE_ARTIFACT: FlaxClient-Media-Reinject-Fix-Lunar-1.8.9-Windows-x64
+      RELEASE_TAG: v2026.08.03.1
+      RELEASE_ASSET: FlaxInjector-Public-Single-File-Lunar-1.8.9.exe
+      BUNDLE_MAGIC: FLAXPKG1PUBLIC!!
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
+      - name: Download verified runtime artifact
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "build\runtime" | Out-Null
+          gh run download $env:SOURCE_RUN_ID `
+            --repo "${{ github.repository }}" `
+            --name $env:SOURCE_ARTIFACT `
+            --dir "build\runtime"
+
+          $required = @(
+            "build\runtime\FlaxInjector.exe",
+            "build\runtime\FlaxClient.dll",
+            "build\runtime\tools\yt-dlp.exe",
+            "build\runtime\tools\deno.exe",
+            "build\runtime\tools\ffmpeg.exe",
+            "build\runtime\tools\ffprobe.exe"
+          )
+          foreach ($file in $required) {
+            if (!(Test-Path $file)) { throw "Missing runtime file: $file" }
+            if ((Get-Item $file).Length -le 0) { throw "Empty runtime file: $file" }
+          }
+
+      - name: Create embedded runtime archive
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          @"
+          FlaxClient single-file public package for Lunar Client OptiFine 1.8.9.
+
+          The outer executable verifies and extracts the included runtime into
+          LocalAppData, then starts the bundled FlaxInjector.exe.
+
+          Start injection only after the Lunar 1.8.9 main menu is visible.
+          "@ | Set-Content -Encoding UTF8 "build\runtime\README-PUBLIC.txt"
+
+          Compress-Archive `
+            -Path "build\runtime\*" `
+            -DestinationPath "build\FlaxClient-runtime.zip" `
+            -CompressionLevel Optimal `
+            -Force
+
+          $size = (Get-Item "build\FlaxClient-runtime.zip").Length
+          if ($size -lt 100000000) { throw "Runtime archive is unexpectedly small: $size bytes" }
+          Write-Host "Runtime archive: $size bytes"
+
+      - name: Build single-file launcher
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $source = @'
+          package main
+
+          import (
+              "archive/zip"
+              "crypto/sha256"
+              "encoding/binary"
+              "encoding/hex"
+              "errors"
+              "fmt"
+              "io"
+              "os"
+              "os/exec"
+              "path/filepath"
+              "strings"
+              "syscall"
+              "unsafe"
+          )
+
+          const footerSize int64 = 64
+          const magic = "FLAXPKG1PUBLIC!!"
+
+          var required = []string{
+              "FlaxInjector.exe",
+              "FlaxClient.dll",
+              "tools/yt-dlp.exe",
+              "tools/deno.exe",
+              "tools/ffmpeg.exe",
+              "tools/ffprobe.exe",
+          }
+
+          type bundleInfo struct {
+              offset int64
+              length int64
+              hash [32]byte
+          }
+
+          func main() {
+              if err := run(); err != nil {
+                  writeLog(err)
+                  messageBox("FlaxClient Launcher", err.Error())
+                  os.Exit(1)
+              }
+          }
+
+          func run() error {
+              exe, err := os.Executable()
+              if err != nil { return fmt.Errorf("cannot locate launcher: %w", err) }
+              exe, err = filepath.Abs(exe)
+              if err != nil { return err }
+
+              file, info, err := openBundle(exe)
+              if err != nil { return err }
+              defer file.Close()
+
+              reader, err := zip.NewReader(io.NewSectionReader(file, info.offset, info.length), info.length)
+              if err != nil { return fmt.Errorf("cannot open embedded runtime: %w", err) }
+              if err := verifyEntries(reader); err != nil { return err }
+
+              if len(os.Args) > 1 && os.Args[1] == "--verify-bundle" { return nil }
+
+              local := os.Getenv("LOCALAPPDATA")
+              if local == "" { return errors.New("LOCALAPPDATA is unavailable") }
+              expected := hex.EncodeToString(info.hash[:])
+              version := "v2026.08.03.1-" + hex.EncodeToString(info.hash[:6])
+              target := filepath.Join(local, "FlaxClient", "runtime", version)
+
+              ready, err := runtimeReady(target, expected)
+              if err != nil { return err }
+              if !ready {
+                  if err := extract(reader, target, expected); err != nil { return err }
+              }
+
+              injector := filepath.Join(target, "FlaxInjector.exe")
+              cmd := exec.Command(injector, os.Args[1:]...)
+              cmd.Dir = target
+              return cmd.Run()
+          }
+
+          func openBundle(path string) (*os.File, bundleInfo, error) {
+              var info bundleInfo
+              file, err := os.Open(path)
+              if err != nil { return nil, info, err }
+              stat, err := file.Stat()
+              if err != nil { file.Close(); return nil, info, err }
+              if stat.Size() < footerSize {
+                  file.Close()
+                  return nil, info, errors.New("embedded runtime footer is missing")
+              }
+
+              footer := make([]byte, footerSize)
+              if _, err := file.ReadAt(footer, stat.Size()-footerSize); err != nil {
+                  file.Close(); return nil, info, err
+              }
+              if string(footer[:16]) != magic {
+                  file.Close()
+                  return nil, info, errors.New("embedded runtime signature is invalid")
+              }
+
+              info.offset = int64(binary.LittleEndian.Uint64(footer[16:24]))
+              info.length = int64(binary.LittleEndian.Uint64(footer[24:32]))
+              copy(info.hash[:], footer[32:64])
+              if info.offset < 0 || info.length <= 0 || info.offset+info.length+footerSize != stat.Size() {
+                  file.Close()
+                  return nil, info, errors.New("embedded runtime bounds are invalid")
+              }
+
+              hash := sha256.New()
+              if _, err := io.Copy(hash, io.NewSectionReader(file, info.offset, info.length)); err != nil {
+                  file.Close(); return nil, info, err
+              }
+              if !equal(hash.Sum(nil), info.hash[:]) {
+                  file.Close()
+                  return nil, info, errors.New("embedded runtime SHA-256 verification failed")
+              }
+              return file, info, nil
+          }
+
+          func verifyEntries(reader *zip.Reader) error {
+              found := map[string]bool{}
+              for _, entry := range reader.File {
+                  found[strings.ReplaceAll(entry.Name, "\\", "/")] = true
+              }
+              for _, name := range required {
+                  if !found[name] { return fmt.Errorf("embedded runtime is missing %s", name) }
+              }
+              return nil
+          }
+
+          func runtimeReady(target, expected string) (bool, error) {
+              marker := filepath.Join(target, ".bundle.sha256")
+              data, err := os.ReadFile(marker)
+              if err != nil {
+                  if os.IsNotExist(err) { return false, nil }
+                  return false, err
+              }
+              if strings.TrimSpace(string(data)) != expected { return false, nil }
+              for _, name := range required {
+                  stat, err := os.Stat(filepath.Join(target, filepath.FromSlash(name)))
+                  if err != nil || stat.IsDir() || stat.Size() <= 0 { return false, nil }
+              }
+              return true, nil
+          }
+
+          func extract(reader *zip.Reader, target, expected string) error {
+              temp := fmt.Sprintf("%s.tmp-%d", target, os.Getpid())
+              _ = os.RemoveAll(temp)
+              if err := os.MkdirAll(temp, 0755); err != nil { return err }
+              complete := false
+              defer func() { if !complete { _ = os.RemoveAll(temp) } }()
+
+              for _, entry := range reader.File {
+                  clean := filepath.Clean(filepath.FromSlash(entry.Name))
+                  if clean == "." || clean == ".." || filepath.IsAbs(clean) || strings.HasPrefix(clean, ".."+string(os.PathSeparator)) {
+                      return fmt.Errorf("unsafe embedded path: %s", entry.Name)
+                  }
+                  destination := filepath.Join(temp, clean)
+                  relative, err := filepath.Rel(temp, destination)
+                  if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+                      return fmt.Errorf("unsafe embedded path: %s", entry.Name)
+                  }
+                  if entry.FileInfo().IsDir() {
+                      if err := os.MkdirAll(destination, 0755); err != nil { return err }
+                      continue
+                  }
+                  if err := os.MkdirAll(filepath.Dir(destination), 0755); err != nil { return err }
+                  input, err := entry.Open()
+                  if err != nil { return err }
+                  output, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
+                  if err != nil { input.Close(); return err }
+                  _, copyErr := io.Copy(output, input)
+                  outputErr := output.Close()
+                  inputErr := input.Close()
+                  if copyErr != nil { return copyErr }
+                  if outputErr != nil { return outputErr }
+                  if inputErr != nil { return inputErr }
+              }
+
+              if err := os.WriteFile(filepath.Join(temp, ".bundle.sha256"), []byte(expected+"\n"), 0644); err != nil { return err }
+              _ = os.RemoveAll(target)
+              if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil { return err }
+              if err := os.Rename(temp, target); err != nil { return err }
+              complete = true
+              return nil
+          }
+
+          func equal(a, b []byte) bool {
+              if len(a) != len(b) { return false }
+              var value byte
+              for index := range a { value |= a[index] ^ b[index] }
+              return value == 0
+          }
+
+          func writeLog(err error) {
+              directory := filepath.Join(os.TempDir(), "FlaxClient")
+              _ = os.MkdirAll(directory, 0755)
+              file, openErr := os.OpenFile(filepath.Join(directory, "launcher.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+              if openErr != nil { return }
+              defer file.Close()
+              _, _ = fmt.Fprintln(file, err.Error())
+          }
+
+          func messageBox(title, text string) {
+              user32 := syscall.NewLazyDLL("user32.dll")
+              procedure := user32.NewProc("MessageBoxW")
+              titlePointer, _ := syscall.UTF16PtrFromString(title)
+              textPointer, _ := syscall.UTF16PtrFromString(text)
+              procedure.Call(0, uintptr(unsafe.Pointer(textPointer)), uintptr(unsafe.Pointer(titlePointer)), 0x10)
+          }
+          '@
+
+          New-Item -ItemType Directory -Force -Path "build\launcher" | Out-Null
+          [System.IO.File]::WriteAllText(
+            "build\launcher\main.go",
+            $source,
+            (New-Object System.Text.UTF8Encoding($false)))
+
+          go build -trimpath -ldflags "-H windowsgui -s -w" `
+            -o "build\launcher\FlaxLauncher.exe" `
+            "build\launcher\main.go"
+
+          if (!(Test-Path "build\launcher\FlaxLauncher.exe")) {
+            throw "Launcher stub was not generated"
+          }
+
+      - name: Append runtime and verify final executable
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $stubPath = "build\launcher\FlaxLauncher.exe"
+          $bundlePath = "build\FlaxClient-runtime.zip"
+          $outputPath = Join-Path "build" $env:RELEASE_ASSET
+
+          $stubLength = (Get-Item $stubPath).Length
+          $bundleLength = (Get-Item $bundlePath).Length
+
+          $sha = [System.Security.Cryptography.SHA256]::Create()
+          $bundleInput = [System.IO.File]::OpenRead($bundlePath)
+          try { $bundleHash = $sha.ComputeHash($bundleInput) }
+          finally { $bundleInput.Dispose(); $sha.Dispose() }
+
+          $footer = New-Object byte[] 64
+          $magic = [System.Text.Encoding]::ASCII.GetBytes($env:BUNDLE_MAGIC)
+          if ($magic.Length -ne 16) { throw "Bundle magic must be exactly 16 bytes" }
+          [System.Array]::Copy($magic, 0, $footer, 0, 16)
+          [System.BitConverter]::GetBytes([Int64]$stubLength).CopyTo($footer, 16)
+          [System.BitConverter]::GetBytes([Int64]$bundleLength).CopyTo($footer, 24)
+          [System.Array]::Copy($bundleHash, 0, $footer, 32, 32)
+
+          $output = [System.IO.File]::Open($outputPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write)
+          try {
+            $stubInput = [System.IO.File]::OpenRead($stubPath)
+            try { $stubInput.CopyTo($output) } finally { $stubInput.Dispose() }
+            $bundleInput = [System.IO.File]::OpenRead($bundlePath)
+            try { $bundleInput.CopyTo($output) } finally { $bundleInput.Dispose() }
+            $output.Write($footer, 0, $footer.Length)
+          }
+          finally { $output.Dispose() }
+
+          $result = Start-Process -FilePath $outputPath -ArgumentList "--verify-bundle" -Wait -PassThru
+          if ($result.ExitCode -ne 0) {
+            throw "Embedded bundle verification failed with exit code $($result.ExitCode)"
+          }
+
+          $finalSize = (Get-Item $outputPath).Length
+          if ($finalSize -lt 100000000) { throw "Final executable is unexpectedly small: $finalSize bytes" }
+          $hash = (Get-FileHash $outputPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $env:RELEASE_ASSET" | Set-Content -Encoding ASCII "build\SHA256SUMS.txt"
+          Write-Host "Final executable: $finalSize bytes"
+          Write-Host "SHA-256: $hash"
+
+      - name: Publish GitHub Release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $assetPath = Join-Path "build" $env:RELEASE_ASSET
+          @"
+          ## FlaxClient single-file public build
+
+          - Target: Lunar Client OptiFine 1.8.9 on Windows x64
+          - Distribution: one executable containing the DLL and media runtime
+          - Included tools: yt-dlp, Deno, FFmpeg and FFprobe
+          - Integrity: the embedded ZIP is verified with SHA-256 before extraction
+          - Authentication: none
+
+          Start injection only after the Lunar 1.8.9 main menu is visible.
+
+          This executable is currently unsigned, so Windows SmartScreen or security software may display a warning.
+          "@ | Set-Content -Encoding UTF8 "build\RELEASE-NOTES.md"
+
+          gh release view $env:RELEASE_TAG --repo "${{ github.repository }}" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release delete $env:RELEASE_TAG `
+              --repo "${{ github.repository }}" `
+              --cleanup-tag `
+              --yes
+          }
+
+          gh release create $env:RELEASE_TAG `
+            $assetPath `
+            "build\SHA256SUMS.txt" `
+            --repo "${{ github.repository }}" `
+            --target "${{ github.sha }}" `
+            --title "FlaxClient Single-File Injector - Lunar 1.8.9" `
+            --notes-file "build\RELEASE-NOTES.md" `
+            --latest
+
+          gh release view $env:RELEASE_TAG `
+            --repo "${{ github.repository }}" `
+            --json url,tagName,isDraft,isPrerelease,assets

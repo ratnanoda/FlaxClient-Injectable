@@ -10,6 +10,7 @@ public class OptifineUtils {
     private static Field gameSettings_ofFastRender;
     private static Minecraft mc = Minecraft.getMinecraft();
     private static long nextApplyMillis;
+    private static Boolean originalFastRender;
     
     static {
         try {
@@ -30,9 +31,15 @@ public class OptifineUtils {
     	
 		if(gameSettings_ofFastRender != null) {
 			try {
-				if(OptifineUtils.gameSettings_ofFastRender != null && OptifineUtils.gameSettings_ofFastRender.getBoolean(mc.gameSettings)) {
-					OptifineUtils.gameSettings_ofFastRender.setBoolean(mc.gameSettings, false);
-				}
+                if(OptifineUtils.gameSettings_ofFastRender != null) {
+                    boolean current = OptifineUtils.gameSettings_ofFastRender.getBoolean(mc.gameSettings);
+                    if(originalFastRender == null) {
+                        originalFastRender = Boolean.valueOf(current);
+                    }
+                    if(current) {
+                        OptifineUtils.gameSettings_ofFastRender.setBoolean(mc.gameSettings, false);
+                    }
+                }
 			} catch (IllegalArgumentException | IllegalAccessException e) {}
 		}
 		
@@ -46,5 +53,21 @@ public class OptifineUtils {
 		 * NanoVG works with Minecraft's existing framebuffer configuration;
 		 * only OptiFine Fast Render needs to be disabled for compatibility.
 		 */
+    }
+
+    public static synchronized void restoreFastRender() {
+        if(gameSettings_ofFastRender == null || originalFastRender == null
+                || mc == null || mc.gameSettings == null) {
+            return;
+        }
+        try {
+            gameSettings_ofFastRender.setBoolean(mc.gameSettings,
+                    originalFastRender.booleanValue());
+            mc.gameSettings.saveOptions();
+        } catch(IllegalArgumentException | IllegalAccessException ignored) {
+        } finally {
+            originalFastRender = null;
+            nextApplyMillis = 0L;
+        }
     }
 }

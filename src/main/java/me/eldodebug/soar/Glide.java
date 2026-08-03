@@ -1,10 +1,12 @@
 package me.eldodebug.soar;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
 
 import me.eldodebug.soar.gui.mainmenu.GuiGlideMainMenu;
 import me.eldodebug.soar.gui.modmenu.GuiModMenu;
+import me.eldodebug.soar.management.mods.Mod;
 import me.eldodebug.soar.management.mods.RestrictedMod;
 import me.eldodebug.soar.management.remote.blacklists.BlacklistManager;
 import me.eldodebug.soar.management.remote.discord.DiscordStats;
@@ -37,6 +39,7 @@ import me.eldodebug.soar.management.screenshot.ScreenshotManager;
 import me.eldodebug.soar.management.security.SecurityFeatureManager;
 import me.eldodebug.soar.management.waypoint.WaypointManager;
 import me.eldodebug.soar.utils.OptifineUtils;
+import me.eldodebug.soar.utils.render.BlurUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.settings.GameSettings;
 import net.minecraft.client.settings.KeyBinding;
@@ -77,16 +80,22 @@ public class Glide {
 	private RestrictedMod restrictedMod;
 	private AltManager altManager;
 	private MusicManager musicManager;
-	private YouTubeManager youTubeManager;
-	
-	public Glide() {
+    private YouTubeManager youTubeManager;
+    private KeyBinding removedOptifineZoom;
+    private int removedOptifineZoomIndex = -1;
+    private int removedOptifineZoomKeyCode;
+    private volatile boolean dejected;
+    
+    public Glide() {
 		name = "FlaxClient";
 		version = BuildVersion.DISPLAY_VERSION;
 		verIdentifier = 1000 + BuildVersion.BUILD_NUMBER;
 	}
 	
-	public void start() {
-		try {
+    public void start() {
+        mc = Minecraft.getMinecraft();
+        dejected = false;
+        try {
 			OptifineUtils.disableFastRender();
 			this.removeOptifineZoom();
 		} catch(Throwable ignored) {}
@@ -138,25 +147,117 @@ public class Glide {
 		clickEffects = new ClickEffects();
 	}
 	
-	public void stop() {
-		profileManager.save();
-		if(musicManager != null) musicManager.stop();
-		if(youTubeManager != null) youTubeManager.shutdown();
-		Sound.play("soar/audio/close.wav", true);
+    public void stop() {
+        if(profileManager != null) profileManager.save();
+        if(musicManager != null) musicManager.stop();
+        if(youTubeManager != null) youTubeManager.shutdown();
+        Sound.play("soar/audio/close.wav", true);
+    }
 
-	}
-	
-	private void removeOptifineZoom() {
+    public synchronized void shutdownForDeject() {
+        if(dejected) {
+            return;
+        }
+        dejected = true;
+
+        try {
+            if(profileManager != null) profileManager.save();
+        } catch(Throwable error) {
+            GlideLogger.warn("Could not save the active profile during deject: " + error.getMessage());
+        }
+
+        if(modManager != null) {
+            for(Mod mod : new ArrayList<Mod>(modManager.getMods())) {
+                try {
+                    if(mod.isToggled()) mod.setToggled(false);
+                } catch(Throwable error) {
+                    GlideLogger.warn("Could not disable " + mod.getName() + " during deject");
+                }
+            }
+        }
+        if(eventManager != null) {
+            eventManager.shutdown();
+        }
+        try {
+            if(musicManager != null) musicManager.stop();
+        } catch(Throwable ignored) {
+        }
+        try {
+            if(youTubeManager != null) youTubeManager.shutdown();
+        } catch(Throwable ignored) {
+        }
+
+        restoreOptifineZoom();
+        OptifineUtils.restoreFastRender();
+        BlurUtils.shutdown();
+
+        if(nanoVGManager != null) {
+            try {
+                nanoVGManager.shutdown();
+            } catch(Throwable error) {
+                GlideLogger.warn("Could not destroy the NanoVG context during deject");
+            }
+            nanoVGManager = null;
+        }
+        eventManager = null;
+        modManager = null;
+        musicManager = null;
+        youTubeManager = null;
+        notificationManager = null;
+        commandManager = null;
+        securityFeatureManager = null;
+        changelogManager = null;
+        newsManager = null;
+        discordStats = null;
+        update = null;
+        clickEffects = null;
+        modMenu = null;
+        mainMenu = null;
+        GlideLogger.info("FlaxClient Java runtime stopped for deject");
+    }
+    
+    private void removeOptifineZoom() {
 		if(hasOptifine()) {
 			try {
-				this.unregisterKeybind((KeyBinding) GameSettings.class.getField("ofKeyBindZoom").get(mc.gameSettings));
+                KeyBinding zoom = (KeyBinding) GameSettings.class.getField("ofKeyBindZoom").get(mc.gameSettings);
+                int index = Arrays.asList(mc.gameSettings.keyBindings).indexOf(zoom);
+                if(index >= 0) {
+                    removedOptifineZoom = zoom;
+                    removedOptifineZoomIndex = index;
+                    removedOptifineZoomKeyCode = zoom.getKeyCode();
+                    this.unregisterKeybind(zoom);
+                }
 			} catch(Exception e) {
 				GlideLogger.error("Failed to unregister zoom key", e);
 			}
 		}
 	}
 
-	private boolean hasOptifine() {
+    private void restoreOptifineZoom() {
+        if(removedOptifineZoom == null || mc == null || mc.gameSettings == null) {
+            return;
+        }
+        try {
+            KeyBinding[] current = mc.gameSettings.keyBindings;
+            if(!Arrays.asList(current).contains(removedOptifineZoom)) {
+                int index = Math.max(0, Math.min(removedOptifineZoomIndex, current.length));
+                KeyBinding[] restored = new KeyBinding[current.length + 1];
+                System.arraycopy(current, 0, restored, 0, index);
+                restored[index] = removedOptifineZoom;
+                System.arraycopy(current, index, restored, index + 1, current.length - index);
+                mc.gameSettings.keyBindings = restored;
+            }
+            removedOptifineZoom.setKeyCode(removedOptifineZoomKeyCode);
+            KeyBinding.resetKeyBindingArrayAndHash();
+        } catch(Throwable error) {
+            GlideLogger.warn("Failed to restore the OptiFine zoom key during deject");
+        } finally {
+            removedOptifineZoom = null;
+            removedOptifineZoomIndex = -1;
+        }
+    }
+
+    private boolean hasOptifine() {
 		ClassLoader loader = Glide.class.getClassLoader();
 		try {
 			Class.forName("Config", false, loader);
@@ -181,6 +282,10 @@ public class Glide {
 	public static Glide getInstance() {
 		return instance;
 	}
+
+    public boolean isDejected() {
+        return dejected;
+    }
 
 	public String getName() {
 		return name;

@@ -2,6 +2,7 @@
 #include <jni.h>
 #include <jvmti.h>
 
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -17,10 +18,17 @@ using GetCreatedJavaVMs = jint(JNICALL*)(JavaVM**, jsize, jsize*);
 HMODULE g_module = nullptr;
 std::mutex g_log_mutex;
 jvmtiEnv* g_jvmti = nullptr;
+JavaVM* g_vm = nullptr;
 jclass g_transformer_class = nullptr;
+jclass g_deject_bridge_class = nullptr;
 jmethodID g_transform_method = nullptr;
+std::atomic<bool> g_dejecting{false};
+std::atomic<bool> g_deject_thread_started{false};
 
 void log_message(const char* format, ...);
+DWORD WINAPI deject_worker(void*);
+void JNICALL request_native_deject(JNIEnv*, jclass);
+jstring JNICALL get_native_module_directory(JNIEnv*, jclass);
 
 bool is_transform_target(const char* internal_name) {
     if (internal_name == nullptr) {
@@ -202,8 +210,8 @@ void JNICALL class_file_load_hook(
     const unsigned char* class_data,
     jint* new_class_data_length,
     unsigned char** new_class_data) {
-    if (!is_transform_target(name) || g_transformer_class == nullptr ||
-        g_transform_method == nullptr) {
+    if (!is_transform_target(name) || g_dejecting.load() ||
+        g_transformer_class == nullptr || g_transform_method == nullptr) {
         return;
     }
 
@@ -539,6 +547,33 @@ jclass load_class_from(
     return static_cast<jclass>(class_object);
 }
 
+bool prepare_java_for_attach(JNIEnv* env, jobject class_loader) {
+    jclass bootstrap_class = load_class_from(
+        env,
+        class_loader,
+        "me.eldodebug.soar.attach.AttachBootstrap",
+        "loading AttachBootstrap for lifecycle reset");
+    if (bootstrap_class == nullptr) {
+        return false;
+    }
+
+    jmethodID prepare = env->GetStaticMethodID(
+        bootstrap_class,
+        "prepareForAttach",
+        "()V");
+    if (prepare == nullptr ||
+        clear_java_exception(env, "resolving AttachBootstrap.prepareForAttach")) {
+        env->DeleteLocalRef(bootstrap_class);
+        return false;
+    }
+
+    env->CallStaticVoidMethod(bootstrap_class, prepare);
+    const bool failed =
+        clear_java_exception(env, "resetting the Java attach lifecycle");
+    env->DeleteLocalRef(bootstrap_class);
+    return !failed;
+}
+
 bool mark_late_load_ready(JNIEnv* env, jobject class_loader) {
     jclass status_class = load_class_from(
         env,
@@ -626,10 +661,142 @@ bool retransform_loaded_minecraft_classes(jvmtiEnv* jvmti) {
         return true;
     }
     log_message(
-        "Retransformed %d of %d currently loaded Minecraft hook targets.",
+        g_dejecting.load()
+            ? "Restored %d of %d currently loaded Minecraft hook targets."
+            : "Retransformed %d of %d currently loaded Minecraft hook targets.",
         transformed,
         found);
     return transformed == found;
+}
+
+jstring JNICALL get_native_module_directory(JNIEnv* env, jclass) {
+    const std::wstring directory = module_path().parent_path().wstring();
+    return env->NewString(
+        reinterpret_cast<const jchar*>(directory.data()),
+        static_cast<jsize>(directory.size()));
+}
+
+bool register_deject_bridge(JNIEnv* env, jobject class_loader) {
+    jclass bridge_class = load_class_from(
+        env,
+        class_loader,
+        "me.eldodebug.soar.attach.DejectBridge",
+        "loading DejectBridge");
+    if (bridge_class == nullptr) {
+        return false;
+    }
+
+    JNINativeMethod methods[] = {
+        {
+            const_cast<char*>("requestNativeDeject"),
+            const_cast<char*>("()V"),
+            reinterpret_cast<void*>(&request_native_deject)
+        },
+        {
+            const_cast<char*>("getNativeModuleDirectory"),
+            const_cast<char*>("()Ljava/lang/String;"),
+            reinterpret_cast<void*>(&get_native_module_directory)
+        }
+    };
+    if (env->RegisterNatives(bridge_class, methods, 2) != JNI_OK ||
+        clear_java_exception(env, "registering the native runtime bridge")) {
+        env->DeleteLocalRef(bridge_class);
+        return false;
+    }
+
+    g_deject_bridge_class =
+        static_cast<jclass>(env->NewGlobalRef(bridge_class));
+    env->DeleteLocalRef(bridge_class);
+    if (g_deject_bridge_class == nullptr ||
+        clear_java_exception(env, "retaining DejectBridge")) {
+        return false;
+    }
+    log_message("Registered the native deject and media-tool bridge.");
+    return true;
+}
+
+void JNICALL request_native_deject(JNIEnv*, jclass) {
+    if (g_deject_thread_started.exchange(true)) {
+        return;
+    }
+    g_dejecting.store(true);
+    HANDLE thread = CreateThread(nullptr, 0, deject_worker, nullptr, 0, nullptr);
+    if (thread == nullptr) {
+        g_dejecting.store(false);
+        g_deject_thread_started.store(false);
+        log_message("Could not create the FlaxClient deject worker (Windows error %lu).",
+                    GetLastError());
+        return;
+    }
+    CloseHandle(thread);
+}
+
+DWORD WINAPI deject_worker(void*) {
+    log_message("Deject requested; restoring original Lunar Minecraft classes.");
+    if (g_vm == nullptr || g_jvmti == nullptr) {
+        log_message("Deject failed because the JVM or JVMTI environment was unavailable.");
+        g_deject_thread_started.store(false);
+        return 1;
+    }
+
+    JNIEnv* env = nullptr;
+    bool attached_here = false;
+    const jint result = g_vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_8);
+    if (result == JNI_EDETACHED) {
+        if (g_vm->AttachCurrentThread(reinterpret_cast<void**>(&env), nullptr) != JNI_OK) {
+            log_message("Could not attach the deject worker to the Java VM.");
+            g_deject_thread_started.store(false);
+            return 1;
+        }
+        attached_here = true;
+    } else if (result != JNI_OK || env == nullptr) {
+        log_message("Could not acquire JNIEnv for deject (result %d).", result);
+        g_deject_thread_started.store(false);
+        return 1;
+    }
+
+    const bool restored = retransform_loaded_minecraft_classes(g_jvmti);
+    const jvmtiError disable_result = g_jvmti->SetEventNotificationMode(
+        JVMTI_DISABLE,
+        JVMTI_EVENT_CLASS_FILE_LOAD_HOOK,
+        nullptr);
+    jvmtiEventCallbacks callbacks{};
+    const jvmtiError callback_result =
+        g_jvmti->SetEventCallbacks(&callbacks, sizeof(callbacks));
+    if (disable_result != JVMTI_ERROR_NONE) {
+        log_message("Could not disable ClassFileLoadHook during deject (error %d).",
+                    disable_result);
+    }
+    if (callback_result != JVMTI_ERROR_NONE) {
+        log_message("Could not clear JVMTI callbacks during deject (error %d).",
+                    callback_result);
+    }
+
+    if (g_deject_bridge_class != nullptr) {
+        env->UnregisterNatives(g_deject_bridge_class);
+        env->DeleteGlobalRef(g_deject_bridge_class);
+        g_deject_bridge_class = nullptr;
+    }
+    if (g_transformer_class != nullptr) {
+        env->DeleteGlobalRef(g_transformer_class);
+        g_transformer_class = nullptr;
+        g_transform_method = nullptr;
+    }
+
+    if (attached_here) {
+        g_vm->DetachCurrentThread();
+    }
+
+    if (!restored || disable_result != JVMTI_ERROR_NONE ||
+        callback_result != JVMTI_ERROR_NONE) {
+        log_message("Deject stopped safely, but native class restoration was incomplete.");
+        g_deject_thread_started.store(false);
+        return 1;
+    }
+
+    log_message("Deject completed; Minecraft classes restored and FlaxClient.dll unloaded.");
+    FreeLibraryAndExitThread(g_module, 0);
+    return 0;
 }
 
 bool install_late_transformer(
@@ -792,13 +959,20 @@ DWORD WINAPI attach_worker(void*) {
         return 1;
     }
 
+    g_vm = vm;
     jobject class_loader = find_minecraft_class_loader(env, vm);
     bool success = class_loader != nullptr;
     if (success) {
         success = add_jar_to_launch_loader(env, vm, class_loader, jar_path);
     }
     if (success) {
+        success = prepare_java_for_attach(env, class_loader);
+    }
+    if (success) {
         success = install_late_transformer(env, vm, class_loader);
+    }
+    if (success) {
+        success = register_deject_bridge(env, class_loader);
     }
     if (success) {
         success = invoke_bootstrap(env, class_loader);

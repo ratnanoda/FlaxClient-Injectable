@@ -751,7 +751,16 @@ public class NanoVGManager {
 		return nvgColor;
 	}
 	
-	public long getContext() {
-		return nvg;
-	}
+    public long getContext() {
+        return nvg;
+    }
+
+    public synchronized void shutdown() {
+        if(nvg == 0L) {
+            return;
+        }
+        NanoVGGL2.nvgDelete(nvg);
+        nvg = 0L;
+        colorCache.clear();
+    }
 }

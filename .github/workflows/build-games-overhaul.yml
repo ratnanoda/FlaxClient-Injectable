@@ -1,0 +1,183 @@
+name: Build Single-File Lunar Injector
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Apply single-file source patch
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $encoded = Get-Content ".github\patches\single-file-bundle.py.gz.b64" -Raw
+          $compressed = [Convert]::FromBase64String($encoded.Trim())
+          $gzipStream = New-Object System.IO.Compression.GZipStream(
+            (New-Object System.IO.MemoryStream(,$compressed)),
+            [System.IO.Compression.CompressionMode]::Decompress)
+          $reader = New-Object System.IO.StreamReader($gzipStream, [System.Text.Encoding]::UTF8)
+          $script = $reader.ReadToEnd()
+          $reader.Dispose()
+          $patchScript = Join-Path $env:RUNNER_TEMP "apply-single-file.py"
+          [System.IO.File]::WriteAllText($patchScript, $script, (New-Object System.Text.UTF8Encoding($false)))
+          python $patchScript
+
+      - name: Set up Java 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+          architecture: x64
+
+      - name: Build Lunar-compatible client jar
+        shell: powershell
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx6g
+        run: |
+          & ".\gradlew.bat" lunarJar --no-daemon --stacktrace
+          if (!(Test-Path "build\libs\FlaxClient-Lunar.jar")) {
+            throw "FlaxClient-Lunar.jar was not generated"
+          }
+
+      - name: Verify Java runtime classes
+        shell: powershell
+        run: |
+          $bootstrap = & javap -classpath "build\libs\FlaxClient-Lunar.jar" -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
+          if ($bootstrap -notmatch "prepareForAttach") {
+            throw "AttachBootstrap is not re-injection aware"
+          }
+          $entries = & jar tf "build\libs\FlaxClient-Lunar.jar" | Out-String
+          foreach ($entry in @(
+            "TetrisScene.class",
+            "DejectBridge.class",
+            "GuiDejectScreen.class",
+            "MediaToolResolver.class",
+            "MusicManager.class",
+            "YouTubeManager.class"
+          )) {
+            if ($entries -notmatch [Regex]::Escape($entry)) {
+              throw "Missing class in Lunar jar: $entry"
+            }
+          }
+
+      - name: Download embedded media runtime
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tools = Join-Path $PWD "build\media-tools"
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+
+          Invoke-WebRequest `
+            -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" `
+            -OutFile (Join-Path $tools "yt-dlp.exe")
+
+          $denoZip = Join-Path $env:RUNNER_TEMP "deno.zip"
+          $denoExtract = Join-Path $env:RUNNER_TEMP "deno"
+          Invoke-WebRequest `
+            -Uri "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip" `
+            -OutFile $denoZip
+          Expand-Archive -Path $denoZip -DestinationPath $denoExtract -Force
+          Copy-Item (Join-Path $denoExtract "deno.exe") (Join-Path $tools "deno.exe")
+
+          $ffmpegZip = Join-Path $env:RUNNER_TEMP "ffmpeg.zip"
+          $ffmpegExtract = Join-Path $env:RUNNER_TEMP "ffmpeg"
+          Invoke-WebRequest `
+            -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip" `
+            -OutFile $ffmpegZip
+          Expand-Archive -Path $ffmpegZip -DestinationPath $ffmpegExtract -Force
+          $ffmpeg = Get-ChildItem $ffmpegExtract -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          $ffprobe = Get-ChildItem $ffmpegExtract -Recurse -Filter "ffprobe.exe" | Select-Object -First 1
+          if ($null -eq $ffmpeg -or $null -eq $ffprobe) {
+            throw "The FFmpeg archive did not contain ffmpeg.exe and ffprobe.exe"
+          }
+          Copy-Item $ffmpeg.FullName (Join-Path $tools "ffmpeg.exe")
+          Copy-Item $ffprobe.FullName (Join-Path $tools "ffprobe.exe")
+
+          & (Join-Path $tools "yt-dlp.exe") --version
+          & (Join-Path $tools "deno.exe") --version
+          & (Join-Path $tools "ffmpeg.exe") -version
+          & (Join-Path $tools "ffprobe.exe") -version
+
+      - name: Build media-embedded DLL
+        shell: powershell
+        run: |
+          $jar = (Resolve-Path "build\libs\FlaxClient-Lunar.jar").Path.Replace('\', '/')
+          $yt = (Resolve-Path "build\media-tools\yt-dlp.exe").Path.Replace('\', '/')
+          $deno = (Resolve-Path "build\media-tools\deno.exe").Path.Replace('\', '/')
+          $ffmpeg = (Resolve-Path "build\media-tools\ffmpeg.exe").Path.Replace('\', '/')
+          $ffprobe = (Resolve-Path "build\media-tools\ffprobe.exe").Path.Replace('\', '/')
+          cmake -S attach -B attach/build-single-file -A x64 `
+            "-DFLAX_CLIENT_JAR=$jar" `
+            "-DFLAX_YTDLP=$yt" `
+            "-DFLAX_DENO=$deno" `
+            "-DFLAX_FFMPEG=$ffmpeg" `
+            "-DFLAX_FFPROBE=$ffprobe"
+          cmake --build attach/build-single-file --config Release --target FlaxClient
+          if (!(Test-Path "attach\build-single-file\bin\Release\FlaxClient.dll")) {
+            throw "Media-embedded FlaxClient.dll was not generated"
+          }
+
+      - name: Embed DLL into injector
+        shell: powershell
+        run: |
+          $jar = (Resolve-Path "build\libs\FlaxClient-Lunar.jar").Path.Replace('\', '/')
+          $yt = (Resolve-Path "build\media-tools\yt-dlp.exe").Path.Replace('\', '/')
+          $deno = (Resolve-Path "build\media-tools\deno.exe").Path.Replace('\', '/')
+          $ffmpeg = (Resolve-Path "build\media-tools\ffmpeg.exe").Path.Replace('\', '/')
+          $ffprobe = (Resolve-Path "build\media-tools\ffprobe.exe").Path.Replace('\', '/')
+          $dll = (Resolve-Path "attach\build-single-file\bin\Release\FlaxClient.dll").Path.Replace('\', '/')
+          cmake -S attach -B attach/build-single-file -A x64 `
+            "-DFLAX_CLIENT_JAR=$jar" `
+            "-DFLAX_YTDLP=$yt" `
+            "-DFLAX_DENO=$deno" `
+            "-DFLAX_FFMPEG=$ffmpeg" `
+            "-DFLAX_FFPROBE=$ffprobe" `
+            "-DFLAX_CLIENT_DLL=$dll"
+          cmake --build attach/build-single-file --config Release --target FlaxInjector
+          if (!(Test-Path "attach\build-single-file\bin\Release\FlaxInjector.exe")) {
+            throw "Single-file FlaxInjector.exe was not generated"
+          }
+
+      - name: Verify nested executable resources
+        shell: powershell
+        run: |
+          $injector = (Resolve-Path "attach\build-single-file\bin\Release\FlaxInjector.exe").Path
+          $result = Start-Process -FilePath $injector -ArgumentList "--verify-bundle" -Wait -PassThru
+          if ($result.ExitCode -ne 0) {
+            throw "Nested resource verification failed with exit code $($result.ExitCode)"
+          }
+          $size = (Get-Item $injector).Length
+          if ($size -lt 50000000) {
+            throw "Injector is unexpectedly small and probably does not contain the DLL"
+          }
+          Get-FileHash $injector -Algorithm SHA256
+          Write-Host "Single-file injector size: $size bytes"
+
+      - name: Stage single executable
+        shell: powershell
+        run: |
+          $package = "build\single-file-output"
+          New-Item -ItemType Directory -Force -Path $package | Out-Null
+          Copy-Item "attach\build-single-file\bin\Release\FlaxInjector.exe" "$package\FlaxInjector.exe"
+          $files = Get-ChildItem $package -File
+          if ($files.Count -ne 1 -or $files[0].Name -ne "FlaxInjector.exe") {
+            throw "The final package must contain exactly one executable"
+          }
+
+      - name: Upload single-file injector
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlaxClient-Single-File-Lunar-1.8.9-Windows-x64
+          path: build/single-file-output/FlaxInjector.exe
+          if-no-files-found: error
+          compression-level: 9
+          retention-days: 7

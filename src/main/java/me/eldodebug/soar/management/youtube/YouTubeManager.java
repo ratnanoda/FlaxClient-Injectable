@@ -37,10 +37,12 @@ public final class YouTubeManager {
     private final File playbackSettingsFile;
     private final String ytDlpCommand;
     private final String ffmpegCommand;
+    private final String denoCommand;
 
     private volatile YouTubeEntry current;
     private volatile Process videoProcess;
     private volatile Process audioProcess;
+    private volatile Process downloadProcess;
     private volatile SourceDataLine audioLine;
     private volatile byte[] latestFrame;
     private volatile long latestFrameSequence;
@@ -68,6 +70,7 @@ public final class YouTubeManager {
         playbackSettingsFile = new File(cacheDirectory, "playback-settings.txt");
         ytDlpCommand = MediaToolResolver.resolve("yt-dlp", "FLAX_YTDLP");
         ffmpegCommand = MediaToolResolver.resolve("ffmpeg", "FLAX_FFMPEG");
+        denoCommand = MediaToolResolver.resolve("deno", "FLAX_DENO");
         loadPlaybackSettings();
         loadPlaylist();
         verifyToolsAsync();
@@ -76,21 +79,16 @@ public final class YouTubeManager {
 
     private void verifyToolsAsync() {
         Thread thread = new Thread(() -> {
-            if(!canRun(ytDlpCommand, "--version")) status = "yt-dlp was not found";
-            else if(!canRun(ffmpegCommand, "-version")) status = "ffmpeg was not found";
+            if(!MediaToolResolver.canRun(ytDlpCommand, "--version")) {
+                status = "yt-dlp was not found beside FlaxClient";
+            } else if(!MediaToolResolver.canRun(ffmpegCommand, "-version")) {
+                status = "ffmpeg was not found beside FlaxClient";
+            } else if(!MediaToolResolver.canRun(denoCommand, "--version")) {
+                status = "Deno was not found beside FlaxClient";
+            }
         }, "Flax-YouTube-Tools");
         thread.setDaemon(true);
         thread.start();
-    }
-
-    private boolean canRun(String command, String argument) {
-        try {
-            Process process = new ProcessBuilder(command, argument).redirectErrorStream(true).start();
-            drain(process.getInputStream());
-            return process.waitFor() == 0;
-        } catch(Exception ignored) {
-            return false;
-        }
     }
 
     public void addUrl(String rawUrl) {
@@ -124,23 +122,40 @@ public final class YouTubeManager {
     private void loadMetadata(String url) {
         YouTubeEntry entry = findByUrl(url);
         if(entry == null) return;
+        Process process = null;
         try {
-            Process process = new ProcessBuilder(ytDlpCommand, "--encoding", "utf-8",
+            List<String> command = newYtDlpCommand();
+            Collections.addAll(command,
                     "--no-playlist", "--no-warnings", "--skip-download",
-                    "--print", "%(title)s", "--print", "%(duration)s", url)
-                    .redirectError(ProcessBuilder.Redirect.INHERIT).start();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+                    "--print", "%(title)s", "--print", "%(duration)s", url);
+            process = new ProcessBuilder(command)
+                    .redirectErrorStream(true).start();
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
             String title = reader.readLine();
             String seconds = reader.readLine();
             int exit = process.waitFor();
-            if(exit != 0) throw new IllegalStateException("yt-dlp exited with " + exit);
+            if(exit != 0 || title == null) {
+                throw new IllegalStateException("yt-dlp metadata exited with " + exit);
+            }
             entry.setTitle(title);
-            try { entry.setDurationMillis(Math.round(Double.parseDouble(seconds) * 1000.0)); } catch(Exception ignored) {}
+            try {
+                entry.setDurationMillis(
+                        Math.round(Double.parseDouble(seconds) * 1000.0D));
+            } catch(Exception ignored) {
+            }
             savePlaylist();
             status = "Added to playlist";
         } catch(Exception e) {
             status = "Unable to read that YouTube link";
             GlideLogger.error("Unable to read YouTube metadata", e);
+        } finally {
+            if(process != null && process.isAlive()) {
+                try {
+                    process.destroyForcibly();
+                } catch(Exception ignored) {
+                }
+            }
         }
     }
 
@@ -182,40 +197,150 @@ public final class YouTubeManager {
     }
 
     private void downloadAndPlay(YouTubeEntry entry, int expectedGeneration) {
-        String output = new File(cacheDirectory, cachePrefix(entry) + ".%(ext)s").getAbsolutePath();
-        try {
-            Process process = new ProcessBuilder(ytDlpCommand, "--encoding", "utf-8",
-                    "--no-playlist", "--no-warnings",
-                    "-f", "bv*[height<=" + qualityHeight + "]+ba/b[height<=" + qualityHeight + "]/b", "--merge-output-format", "mp4",
-                    "--ffmpeg-location", ffmpegCommand,
-                    "-o", output, "--print", "after_move:filepath", entry.getUrl())
-                    .redirectError(ProcessBuilder.Redirect.INHERIT).start();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
-            String line;
-            String lastPath = null;
-            while((line = reader.readLine()) != null) if(!line.trim().isEmpty()) lastPath = line.trim();
-            int exit = process.waitFor();
-            if(exit != 0 || lastPath == null) throw new IllegalStateException("yt-dlp exited with " + exit);
-            File media = new File(lastPath);
-            if(!media.isFile()) throw new IllegalStateException("Downloaded file was not found");
-            entry.setMediaFile(media);
-            if(expectedGeneration == generation && current == entry) startDecoders(entry, 0L, expectedGeneration);
-        } catch(Exception e) {
-            if(expectedGeneration == generation) {
-                loading = false;
-                status = "Video download failed; check yt-dlp and the link";
+        String output = new File(cacheDirectory,
+                cachePrefix(entry) + ".%(ext)s").getAbsolutePath();
+        String[] formats = {
+                "bv*[height<=" + qualityHeight + "][ext=mp4]+ba[ext=m4a]/"
+                        + "b[height<=" + qualityHeight + "][ext=mp4]/"
+                        + "b[height<=" + qualityHeight + "]/best",
+                "b[height<=" + qualityHeight + "]/best"
+        };
+        String lastFailure = "";
+
+        deletePartialDownloads(entry);
+        for(String format : formats) {
+            if(expectedGeneration != generation || current != entry) {
+                return;
             }
-            GlideLogger.error("Unable to download YouTube video", e);
+
+            Process process = null;
+            StringBuilder outputLog = new StringBuilder();
+            try {
+                List<String> command = newYtDlpCommand();
+                Collections.addAll(command,
+                        "--no-playlist", "--newline", "--no-colors",
+                        "--retries", "5", "--fragment-retries", "5",
+                        "--socket-timeout", "20", "--windows-filenames",
+                        "-f", format,
+                        "--merge-output-format", "mp4",
+                        "--ffmpeg-location",
+                        MediaToolResolver.containingDirectory(ffmpegCommand),
+                        "-o", output, entry.getUrl());
+
+                process = new ProcessBuilder(command)
+                        .directory(cacheDirectory)
+                        .redirectErrorStream(true).start();
+                downloadProcess = process;
+
+                BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+                String line;
+                while((line = reader.readLine()) != null) {
+                    if(outputLog.length() < 16000) {
+                        outputLog.append(line).append('\n');
+                    }
+                }
+
+                int exit = process.waitFor();
+                if(downloadProcess == process) {
+                    downloadProcess = null;
+                }
+                if(expectedGeneration != generation || current != entry) {
+                    return;
+                }
+
+                File media = findCachedMedia(entry);
+                if(exit == 0 && media != null && media.isFile()) {
+                    entry.setMediaFile(media);
+                    startDecoders(entry, 0L, expectedGeneration);
+                    return;
+                }
+
+                lastFailure = "yt-dlp exited with " + exit;
+                GlideLogger.warn(lastFailure + "\n" + outputLog.toString());
+            } catch(Exception e) {
+                lastFailure = e.getMessage() == null
+                        ? e.getClass().getSimpleName() : e.getMessage();
+                GlideLogger.error("Unable to download YouTube video", e);
+            } finally {
+                if(downloadProcess == process) {
+                    downloadProcess = null;
+                }
+                if(process != null && process.isAlive()) {
+                    try {
+                        process.destroyForcibly();
+                    } catch(Exception ignored) {
+                    }
+                }
+            }
+            deletePartialDownloads(entry);
+        }
+
+        if(expectedGeneration == generation) {
+            loading = false;
+            status = "Video download failed: "
+                    + (lastFailure.isEmpty() ? "yt-dlp could not select a format" : lastFailure);
+        }
+    }
+
+    private List<String> newYtDlpCommand() {
+        List<String> command = new ArrayList<String>();
+        Collections.addAll(command,
+                ytDlpCommand,
+                "--ignore-config",
+                "--encoding", "utf-8",
+                "--no-colors",
+                "--js-runtimes", "deno:" + denoCommand,
+                "--remote-components", "ejs:github");
+        return command;
+    }
+
+    private void deletePartialDownloads(YouTubeEntry entry) {
+        String prefix = cachePrefix(entry) + ".";
+        File[] files = cacheDirectory.listFiles();
+        if(files == null) {
+            return;
+        }
+        for(File file : files) {
+            String name = file.getName();
+            if(name.startsWith(prefix)
+                    && (name.endsWith(".part") || name.endsWith(".ytdl")
+                            || name.endsWith(".temp"))) {
+                try {
+                    file.delete();
+                } catch(Exception ignored) {
+                }
+            }
         }
     }
 
     private File findCachedMedia(YouTubeEntry entry) {
         String prefix = cachePrefix(entry) + ".";
         if(entry.getMediaFile() != null && entry.getMediaFile().isFile()
-                && entry.getMediaFile().getName().startsWith(prefix)) return entry.getMediaFile();
-        File[] files = cacheDirectory.listFiles(file -> file.isFile() && file.getName().startsWith(prefix)
-                && !file.getName().endsWith(".part") && !file.getName().endsWith(".ytdl"));
-        return files == null || files.length == 0 ? null : files[0];
+                && entry.getMediaFile().getName().startsWith(prefix)) {
+            return entry.getMediaFile();
+        }
+
+        File[] files = cacheDirectory.listFiles(file -> {
+            if(!file.isFile() || !file.getName().startsWith(prefix)) {
+                return false;
+            }
+            String lower = file.getName().toLowerCase(Locale.ROOT);
+            return lower.endsWith(".mp4") || lower.endsWith(".webm")
+                    || lower.endsWith(".mkv") || lower.endsWith(".mov")
+                    || lower.endsWith(".m4v");
+        });
+        if(files == null || files.length == 0) {
+            return null;
+        }
+
+        File newest = files[0];
+        for(File file : files) {
+            if(file.lastModified() > newest.lastModified()) {
+                newest = file;
+            }
+        }
+        return newest;
     }
 
     private void startDecoders(YouTubeEntry entry, long offsetMillis, int expectedGeneration) {
@@ -230,13 +355,15 @@ public final class YouTubeManager {
             String seek = String.format(Locale.ROOT, "%.3f", offsetMillis / 1000.0);
             int videoWidth = getVideoWidth();
             int videoHeight = getVideoHeight();
-            videoProcess = new ProcessBuilder(ffmpegCommand, "-loglevel", "quiet", "-re", "-ss", seek,
+            videoProcess = new ProcessBuilder(ffmpegCommand, "-nostdin", "-hide_banner",
+                    "-loglevel", "quiet", "-re", "-ss", seek,
                     "-i", entry.getMediaFile().getAbsolutePath(), "-an", "-vf",
                     "scale=" + videoWidth + ":" + videoHeight + ":force_original_aspect_ratio=decrease,pad="
                             + videoWidth + ":" + videoHeight + ":(ow-iw)/2:(oh-ih)/2",
                     "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1")
                     .redirectError(ProcessBuilder.Redirect.INHERIT).start();
-            audioProcess = new ProcessBuilder(ffmpegCommand, "-loglevel", "quiet", "-ss", seek,
+            audioProcess = new ProcessBuilder(ffmpegCommand, "-nostdin", "-hide_banner",
+                    "-loglevel", "quiet", "-ss", seek,
                     "-i", entry.getMediaFile().getAbsolutePath(), "-vn", "-f", "s16le", "-acodec", "pcm_s16le",
                     "-ar", "44100", "-ac", "2", "pipe:1")
                     .redirectError(ProcessBuilder.Redirect.INHERIT).start();
@@ -374,10 +501,13 @@ public final class YouTubeManager {
     private void stopDecoders() {
         Process video = videoProcess;
         Process audio = audioProcess;
+        Process download = downloadProcess;
         videoProcess = null;
         audioProcess = null;
+        downloadProcess = null;
         if(video != null) try { video.destroyForcibly(); } catch(Exception ignored) {}
         if(audio != null) try { audio.destroyForcibly(); } catch(Exception ignored) {}
+        if(download != null) try { download.destroyForcibly(); } catch(Exception ignored) {}
         SourceDataLine line = audioLine;
         audioLine = null;
         if(line != null) {
