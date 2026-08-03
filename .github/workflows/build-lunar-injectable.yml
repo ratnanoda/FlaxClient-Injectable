@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -21,32 +21,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          ref: chatgpt/beginner-guide-single-exe-20260803
-          fetch-depth: 0
-
-      - name: Apply Ghost onboarding scale fix
-        shell: powershell
-        run: |
-          $path = "src\main\java\me\eldodebug\soar\gui\modmenu\category\impl\ModuleCategory.java"
-          $text = Get-Content $path -Raw
-          $old = @"
-          `t`tnvg.save();
-          `t`tnvg.translate(bubbleX + bubbleWidth / 2.0F, bubbleY + bubbleHeight / 2.0F);
-          `t`tnvg.scale(scale, scale);
-          `t`tnvg.translate(-bubbleX - bubbleWidth / 2.0F, -bubbleY - bubbleHeight / 2.0F);
-          "@
-          $new = @"
-          `t`tnvg.save();
-          `t`tnvg.scale(bubbleX, bubbleY, bubbleWidth, bubbleHeight, scale);
-          "@
-          if (!$text.Contains($old)) { throw "Ghost tutorial scale marker not found" }
-          [IO.File]::WriteAllText((Resolve-Path $path), $text.Replace($old, $new), [Text.UTF8Encoding]::new($false))
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add $path
-          git commit -m "Fix Ghost resize tutorial scaling"
-          git push origin HEAD:chatgpt/beginner-guide-single-exe-20260803
 
       - name: Set up Java 8
         uses: actions/setup-java@v4
