@@ -593,9 +593,7 @@ public class ModuleCategory extends Category {
 				panelY + panelHeight * 0.5F - bubbleHeight * 0.5F));
 		float scale = 0.94F + alpha * 0.06F;
 		nvg.save();
-		nvg.translate(bubbleX + bubbleWidth / 2.0F, bubbleY + bubbleHeight / 2.0F);
-		nvg.scale(scale, scale);
-		nvg.translate(-bubbleX - bubbleWidth / 2.0F, -bubbleY - bubbleHeight / 2.0F);
+		nvg.scale(bubbleX, bubbleY, bubbleWidth, bubbleHeight, scale);
 		nvg.drawShadow(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 12.0F, 7.0F);
 		nvg.drawRoundedRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 12.0F,
 				translucent(palette.getBackgroundColor(ColorType.DARK), Math.round(245.0F * alpha)));
@@ -622,7 +620,7 @@ public class ModuleCategory extends Category {
 			nvg.drawCircle(dotX, dotY, 1.15F + t * 0.55F,
 					ColorUtils.applyAlpha(accentColor.getColor2(), Math.round(alpha * (100.0F + t * 145.0F))));
 		}
-		nvg.drawCenteredText("›", endX - 1.0F, endY - 8.0F,
+		nvg.drawCenteredText("â€º", endX - 1.0F, endY - 8.0F,
 				ColorUtils.applyAlpha(accentColor.getColor2(), Math.round(255.0F * alpha)), 16.0F, Fonts.SEMIBOLD);
 	}
 
@@ -667,7 +665,7 @@ public class ModuleCategory extends Category {
 		float promptHeight = 30;
 		float promptX = getX() + getWidth() / 2.0F - promptWidth / 2.0F;
 		float promptY = getY() + getHeight() - 39;
-		String bindText = "Press a key for " + bindingMod.getName() + "  •  right click to clear";
+		String bindText = "Press a key for " + bindingMod.getName() + "  â€¢  right click to clear";
 		nvg.drawShadow(promptX, promptY, promptWidth, promptHeight, 8);
 		nvg.drawRoundedRect(promptX, promptY, promptWidth, promptHeight, 8,
 				translucent(palette.getBackgroundColor(ColorType.DARK), 145));
