@@ -121,7 +121,6 @@ public class Glide {
 		securityFeatureManager = new SecurityFeatureManager();
 		changelogManager = new ChangelogManager();
 		newsManager = new NewsManager();
-		musicManager = new MusicManager();
 		youTubeManager = new YouTubeManager();
 		discordStats = new DiscordStats();
 		discordStats.check();

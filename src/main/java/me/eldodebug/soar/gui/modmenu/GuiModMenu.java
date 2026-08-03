@@ -17,7 +17,6 @@ import me.eldodebug.soar.gui.modmenu.category.impl.GamesCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.HomeCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.GhostCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.ModuleCategory;
-import me.eldodebug.soar.gui.modmenu.category.impl.MusicCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.ProfileCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.ScreenshotCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.SettingCategory;
@@ -81,7 +80,6 @@ public class GuiModMenu extends GuiScreen {
 	public GuiModMenu() {
 		categories.add(new HomeCategory(this));
 		categories.add(new GhostCategory(this));
-		categories.add(new MusicCategory(this));
 		categories.add(new YouTubeCategory(this));
 		categories.add(new CosmeticsCategory(this));
 		categories.add(new GamesCategory(this));

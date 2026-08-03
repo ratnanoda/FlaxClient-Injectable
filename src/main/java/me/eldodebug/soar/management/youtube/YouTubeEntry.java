@@ -8,6 +8,8 @@ public final class YouTubeEntry {
     private volatile String title;
     private volatile long durationMillis;
     private volatile File mediaFile;
+    private volatile boolean downloading;
+    private volatile String downloadError;
 
     YouTubeEntry(String url, String title, long durationMillis) {
         this.url = url;
@@ -19,7 +21,27 @@ public final class YouTubeEntry {
     public String getTitle() { return title; }
     public long getDurationMillis() { return durationMillis; }
     public File getMediaFile() { return mediaFile; }
-    void setTitle(String title) { if(title != null && !title.trim().isEmpty()) this.title = title.trim(); }
-    void setDurationMillis(long durationMillis) { this.durationMillis = Math.max(0L, durationMillis); }
-    void setMediaFile(File mediaFile) { this.mediaFile = mediaFile; }
+    public boolean isDownloading() { return downloading; }
+    public String getDownloadError() { return downloadError; }
+
+    void setTitle(String title) {
+        if(title != null && !title.trim().isEmpty()) this.title = title.trim();
+    }
+
+    void setDurationMillis(long durationMillis) {
+        this.durationMillis = Math.max(0L, durationMillis);
+    }
+
+    void setMediaFile(File mediaFile) {
+        this.mediaFile = mediaFile;
+        if(mediaFile != null) this.downloadError = null;
+    }
+
+    void setDownloading(boolean downloading) {
+        this.downloading = downloading;
+    }
+
+    void setDownloadError(String downloadError) {
+        this.downloadError = downloadError;
+    }
 }
