@@ -67,7 +67,6 @@ public class ModuleCategory extends Category {
 	private static final float MIN_RESIZABLE_WIDTH = 132.0F;
 	private static final float MIN_RESIZABLE_BODY_HEIGHT = 54.0F;
 	private static final float RESIZE_EDGE = 5.0F;
-	private static boolean resizeTutorialClaimed;
 
 	private final ModCategory defaultCategory;
 	private final boolean showAlphabetSections;
@@ -89,8 +88,6 @@ public class ModuleCategory extends Category {
 	private float resizeStartMouseX, resizeStartMouseY;
 	private float resizeStartOffsetX, resizeStartOffsetY;
 	private float resizeStartWidth, resizeStartBodyHeight;
-	private final SimpleAnimation resizeTutorialAnimation = new SimpleAnimation();
-	private boolean resizeTutorialActive;
 
 	public ModuleCategory(GuiModMenu parent) {
 		this(parent, TranslateText.MODULE, LegacyIcon.ARCHIVE, Fonts.LEGACYICON, ModCategory.ALL, true);
@@ -125,13 +122,6 @@ public class ModuleCategory extends Category {
 	@Override
 	public void initCategory() {
 		resetScene();
-		resizeTutorialActive = isResizableLayout()
-				&& Glide.getInstance().getFileManager().isFirstInstallation()
-				&& !resizeTutorialClaimed;
-		if(resizeTutorialActive) {
-			resizeTutorialClaimed = true;
-			resizeTutorialAnimation.setValue(0.0F);
-		}
 	}
 
 	private void resetScene() {
@@ -166,7 +156,6 @@ public class ModuleCategory extends Category {
 					getScreenHeight() / 2.0F - 18.0F, new Color(255, 255, 255, 28), 42.0F, Fonts.SEMIBOLD);
 		}
 		drawDropdowns(nvg, palette, accentColor, mouseX, mouseY, partialTicks);
-		drawResizeTutorial(nvg, palette, accentColor);
 
 		if(bindingMod != null) {
 			drawBindingPrompt(nvg, palette, accentColor);
@@ -452,16 +441,9 @@ public class ModuleCategory extends Category {
 	private void drawResizeHandles(NanoVGManager nvg, float x, float y, float width, float height,
 			int mouseX, int mouseY) {
 		int edges = getResizeEdges(mouseX, mouseY, x, y, width, height);
-		Color edge = new Color(255, 255, 255, edges == 0 ? 34 : 105);
-		// Clip two concentric rounded outlines to the corner. The grip now follows
-		// the panel radius instead of drawing a square L over a rounded window.
-		nvg.save();
-		nvg.scissor(x + width - 15.0F, y + height - 15.0F, 15.0F, 15.0F);
-		nvg.drawOutlineRoundedRect(x + width - 14.0F, y + height - 14.0F,
-				13.0F, 13.0F, 7.0F, 1.0F, edge);
-		nvg.drawOutlineRoundedRect(x + width - 10.0F, y + height - 10.0F,
-				9.0F, 9.0F, 5.0F, 0.8F, edge);
-		nvg.restore();
+		Color edge = new Color(255, 255, 255, edges == 0 ? 28 : 82);
+		nvg.drawRect(x + width - 10.0F, y + height - 2.0F, 8.0F, 1.0F, edge);
+		nvg.drawRect(x + width - 2.0F, y + height - 10.0F, 1.0F, 8.0F, edge);
 	}
 
 	private int getResizeEdges(int mouseX, int mouseY, float x, float y, float width, float height) {
@@ -545,85 +527,6 @@ public class ModuleCategory extends Category {
 		section.open = true;
 	}
 
-	public boolean isResizeTutorialVisible() {
-		return resizeTutorialActive || resizeTutorialAnimation.getValue() > 0.02F;
-	}
-
-	private void dismissResizeTutorial() {
-		resizeTutorialActive = false;
-	}
-
-	private void drawResizeTutorial(NanoVGManager nvg, ColorPalette palette, AccentColor accentColor) {
-		if(!isResizableLayout()) return;
-		resizeTutorialAnimation.setAnimation(resizeTutorialActive ? 1.0F : 0.0F, 18);
-		float alpha = resizeTutorialAnimation.getValue();
-		if(alpha <= 0.02F || sections.isEmpty()) return;
-
-		DropdownSection section = sections.get(0);
-		float defaultWidth = calculatePanelWidth();
-		initializeSectionPositions(defaultWidth);
-		float panelWidth = getPanelWidth(section, defaultWidth);
-		float panelX = getX() + section.offsetX;
-		float panelY = getY() + section.offsetY;
-		float panelHeight = HEADER_HEIGHT + Math.max(MIN_RESIZABLE_BODY_HEIGHT, section.visibleBodyHeight);
-		int shade = Math.min(205, Math.round(178.0F * alpha));
-
-		// Four rectangles form a cut-out, leaving only the Ghost list undimmed.
-		nvg.drawRect(0, 0, getScreenWidth(), Math.max(0.0F, panelY - 5.0F), new Color(3, 5, 10, shade));
-		nvg.drawRect(0, panelY - 5.0F, Math.max(0.0F, panelX - 5.0F), panelHeight + 10.0F, new Color(3, 5, 10, shade));
-		nvg.drawRect(panelX + panelWidth + 5.0F, panelY - 5.0F,
-				Math.max(0.0F, getScreenWidth() - panelX - panelWidth - 5.0F), panelHeight + 10.0F,
-				new Color(3, 5, 10, shade));
-		nvg.drawRect(0, panelY + panelHeight + 5.0F, getScreenWidth(),
-				Math.max(0.0F, getScreenHeight() - panelY - panelHeight - 5.0F), new Color(3, 5, 10, shade));
-
-		Color glow = ColorUtils.applyAlpha(accentColor.getColor1(), Math.round(235.0F * alpha));
-		nvg.drawRoundedGlow(panelX - 3.0F, panelY - 3.0F, panelWidth + 6.0F, panelHeight + 6.0F, 11.0F, glow, 9);
-		nvg.drawGradientOutlineRoundedRect(panelX - 2.0F, panelY - 2.0F,
-				panelWidth + 4.0F, panelHeight + 4.0F, 10.0F, 1.4F,
-				ColorUtils.applyAlpha(accentColor.getColor1(), Math.round(255.0F * alpha)),
-				ColorUtils.applyAlpha(accentColor.getColor2(), Math.round(255.0F * alpha)));
-
-		float bubbleWidth = Math.min(285.0F, getScreenWidth() - 20.0F);
-		float bubbleHeight = 74.0F;
-		float bubbleX = Math.max(10.0F, Math.min(getScreenWidth() - bubbleWidth - 10.0F,
-				panelX + panelWidth + 28.0F));
-		if(bubbleX < panelX + panelWidth + 12.0F) bubbleX = Math.max(10.0F, panelX - bubbleWidth - 28.0F);
-		float bubbleY = Math.max(10.0F, Math.min(getScreenHeight() - bubbleHeight - 10.0F,
-				panelY + panelHeight * 0.5F - bubbleHeight * 0.5F));
-		float scale = 0.94F + alpha * 0.06F;
-		nvg.save();
-		nvg.scale(bubbleX, bubbleY, bubbleWidth, bubbleHeight, scale);
-		nvg.drawShadow(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 12.0F, 7);
-		nvg.drawRoundedRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight, 12.0F,
-				translucent(palette.getBackgroundColor(ColorType.DARK), Math.round(245.0F * alpha)));
-		nvg.drawOutlineRoundedRect(bubbleX + 0.5F, bubbleY + 0.5F, bubbleWidth - 1.0F, bubbleHeight - 1.0F,
-				12.0F, 0.8F, new Color(255, 255, 255, Math.round(70.0F * alpha)));
-		nvg.drawText("Resize the Ghost module list", bubbleX + 15.0F, bubbleY + 12.0F,
-				new Color(255, 255, 255, Math.round(255.0F * alpha)), 12.0F, Fonts.SEMIBOLD);
-		nvg.drawText("Drag any edge or corner to change its size.", bubbleX + 15.0F, bubbleY + 33.0F,
-				new Color(225, 230, 242, Math.round(225.0F * alpha)), 8.8F, Fonts.REGULAR);
-		nvg.drawText("Use Reset to restore it. Click anywhere to continue.", bubbleX + 15.0F, bubbleY + 49.0F,
-				new Color(225, 230, 242, Math.round(200.0F * alpha)), 8.0F, Fonts.REGULAR);
-		nvg.restore();
-
-		float startX = bubbleX < panelX ? bubbleX + bubbleWidth : bubbleX;
-		float startY = bubbleY + bubbleHeight / 2.0F;
-		float endX = panelX + panelWidth - 5.0F;
-		float endY = panelY + panelHeight - 5.0F;
-		int dots = 13;
-		for(int i = 0; i < dots; i++) {
-			float t = i / (float) (dots - 1);
-			float curve = (float) Math.sin(t * Math.PI) * 22.0F;
-			float dotX = startX + (endX - startX) * t;
-			float dotY = startY + (endY - startY) * t - curve;
-			nvg.drawCircle(dotX, dotY, 1.15F + t * 0.55F,
-					ColorUtils.applyAlpha(accentColor.getColor2(), Math.round(alpha * (100.0F + t * 145.0F))));
-		}
-		nvg.drawCenteredText("Ã¢â‚¬Âº", endX - 1.0F, endY - 8.0F,
-				ColorUtils.applyAlpha(accentColor.getColor2(), Math.round(255.0F * alpha)), 16.0F, Fonts.SEMIBOLD);
-	}
-
 	private Color translucent(Color color, int alpha) {
 		return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
 	}
@@ -677,10 +580,6 @@ public class ModuleCategory extends Category {
 
 	@Override
 	public void mouseClicked(int mouseX, int mouseY, int mouseButton) {
-		if(mouseButton == 0 && isResizeTutorialVisible()) {
-			dismissResizeTutorial();
-			return;
-		}
 		if(bindingMod != null) {
 			if(mouseButton == 1) {
 				bindingMod.setKeyCode(Keyboard.KEY_NONE);

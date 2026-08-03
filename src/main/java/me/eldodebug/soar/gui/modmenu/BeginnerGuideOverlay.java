@@ -23,6 +23,7 @@ public final class BeginnerGuideOverlay {
     private static final String[] PAGE_TITLES = {
             "Welcome to FlaxClient",
             "Finding Your Way Around",
+            "Resizing the Ghost List",
             "YouTube: Video and Music",
             "Useful Tips"
     };
@@ -34,6 +35,9 @@ public final class BeginnerGuideOverlay {
                     + "2. Click a module or control to enable it and open its options.\n\n"
                     + "3. Use the search field when a page contains many items.\n\n"
                     + "4. Select the layout icon at the bottom of the sidebar to move and resize HUD elements.",
+            "The Ghost module list works like a small desktop window.\n\n"
+                    + "Drag its left, right, top, or bottom edge to resize one direction. Drag a corner to change width and height together.\n\n"
+                    + "The two small lines in the bottom-right corner show that the list is resizable. Use Reset in the title bar to restore the default size, position, open state, and scroll position.",
             "Paste a supported YouTube URL into the YouTube page and select Download. FlaxClient includes yt-dlp and FFmpeg, so no separate tools are required.\n\n"
                     + "Video mode uses the normal picture-in-picture player. Music mode plays the same downloaded media as audio and shows the compact player in the bottom-right corner. You can switch modes before or during playback.",
             "- Wait for the Minecraft or Lunar Client 1.8.9 main menu before injecting.\n\n"
