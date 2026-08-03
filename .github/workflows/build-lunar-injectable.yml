@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   promote_release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -40,10 +41,15 @@ jobs:
           cp "$exe_path" FlaxClient-Beta-1.0.exe
           sha256sum FlaxClient-Beta-1.0.exe | tee FlaxClient-Beta-1.0.sha256
 
-      - name: Create release snapshot without workflow changes
+      - name: Ensure release tag exists
         shell: bash
         run: |
           set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release tag already exists."
+            exit 0
+          fi
+
           source_tree="$(gh api "repos/${GITHUB_REPOSITORY}/git/commits/${SOURCE_SHA}" --jq '.tree.sha')"
           jq -n \
             --arg base "$source_tree" \
@@ -65,9 +71,8 @@ jobs:
             '{ref:$ref,sha:$sha}' > release-ref.json
           gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
             --input release-ref.json >/dev/null
-          echo "RELEASE_COMMIT=${release_commit}" >> "$GITHUB_ENV"
 
-      - name: Publish as a standard release
+      - name: Publish and verify standard release
         shell: bash
         run: |
           set -euo pipefail
@@ -86,13 +91,15 @@ jobs:
           This build is published as a standard GitHub Release.
           EOF
 
-          gh release create "$RELEASE_TAG" \
-            FlaxClient-Beta-1.0.exe \
-            FlaxClient-Beta-1.0.sha256 \
-            --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
-            --title "$RELEASE_NAME" \
-            --notes-file release-notes.md
+          if ! gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              FlaxClient-Beta-1.0.exe \
+              FlaxClient-Beta-1.0.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "$RELEASE_NAME" \
+              --notes-file release-notes.md
+          fi
 
           release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
           jq -e '
