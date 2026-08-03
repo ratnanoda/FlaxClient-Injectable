@@ -11,9 +11,43 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  promote_release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: flaxclient-beta-1.0
+    steps:
+      - name: Recreate Beta 1.0 as a full release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+          jq -r '.body // ""' <<<"$release_json" > release-notes.md
+          release_name="$(jq -r '.name // "FlaxClient Beta 1.0"' <<<"$release_json")"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets
+          test -f release-assets/FlaxClient-Beta-1.0.exe
+          test -f release-assets/FlaxClient-Beta-1.0.sha256
+          gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes
+          gh release create "$RELEASE_TAG" \
+            release-assets/FlaxClient-Beta-1.0.exe \
+            release-assets/FlaxClient-Beta-1.0.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$release_name" \
+            --notes-file release-notes.md
+          release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+          jq -e '
+            .name == "FlaxClient Beta 1.0" and
+            .draft == false and
+            .prerelease == false and
+            ([.assets[].name] | sort) == (["FlaxClient-Beta-1.0.exe", "FlaxClient-Beta-1.0.sha256"] | sort)
+          ' <<<"$release" >/dev/null
+          jq '{name, tag_name, prerelease, draft, html_url, assets: [.assets[].name]}' <<<"$release"
+
   build:
     runs-on: windows-latest
     timeout-minutes: 90
