@@ -79,8 +79,8 @@ jobs:
           $dll = "attach\build-lunar\bin\Release\FlaxClient.dll"
           if (!(Test-Path $exe)) { throw "FlaxClient.exe was not generated" }
           if (!(Test-Path $dll)) { throw "Intermediate FlaxClient.dll was not generated" }
-          & $exe --verify-embedded
-          if ($LASTEXITCODE -ne 0) { throw "The EXE could not verify or extract its embedded DLL" }
+          $verification = Start-Process -FilePath $exe -ArgumentList "--verify-embedded" -Wait -PassThru
+          if ($verification.ExitCode -ne 0) { throw "The EXE could not verify or extract its embedded DLL" }
           if ((Get-Item $exe).Length -le (Get-Item $dll).Length) {
             throw "The final EXE does not appear to contain the DLL resource"
           }
