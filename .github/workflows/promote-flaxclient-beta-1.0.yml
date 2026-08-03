@@ -1,0 +1,61 @@
+name: Promote FlaxClient Beta 1.0
+
+on:
+  push:
+    branches:
+      - chatgpt/beginner-guide-single-exe-20260803
+    paths:
+      - .github/workflows/promote-flaxclient-beta-1.0.yml
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: flaxclient-beta-1.0
+    steps:
+      - name: Download current release assets and metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+          jq -r '.body // ""' <<<"$release_json" > release-notes.md
+          jq -r '.name // "FlaxClient Beta 1.0"' <<<"$release_json" > release-name.txt
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir release-assets
+          test -f release-assets/FlaxClient-Beta-1.0.exe
+          test -f release-assets/FlaxClient-Beta-1.0.sha256
+
+      - name: Recreate as a full release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_name="$(cat release-name.txt)"
+          gh release delete "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --yes
+          gh release create "$RELEASE_TAG" \
+            release-assets/FlaxClient-Beta-1.0.exe \
+            release-assets/FlaxClient-Beta-1.0.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$release_name" \
+            --notes-file release-notes.md
+
+      - name: Verify full release state
+        shell: bash
+        run: |
+          set -euo pipefail
+          release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+          jq '{name, tag_name, prerelease, draft, html_url, assets: [.assets[].name]}' <<<"$release"
+          jq -e '
+            .name == "FlaxClient Beta 1.0" and
+            .draft == false and
+            .prerelease == false and
+            ([.assets[].name] | sort) == (["FlaxClient-Beta-1.0.exe", "FlaxClient-Beta-1.0.sha256"] | sort)
+          ' <<<"$release" >/dev/null
