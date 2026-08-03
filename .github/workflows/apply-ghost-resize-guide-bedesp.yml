@@ -1,0 +1,34 @@
+name: Apply Ghost resize and BedESP fixes
+
+on:
+  push:
+    branches:
+      - chatgpt/beginner-guide-single-exe-20260803
+    paths:
+      - tools/apply_ghost_resize_guide_bedesp.py
+      - .github/workflows/apply-ghost-resize-guide-bedesp.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/beginner-guide-single-exe-20260803
+          fetch-depth: 0
+      - name: Apply source changes
+        run: python tools/apply_ghost_resize_guide_bedesp.py
+      - name: Commit generated source changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/java/me/eldodebug/soar/management/file/FileManager.java \
+                  src/main/java/me/eldodebug/soar/gui/modmenu/BeginnerGuideOverlay.java \
+                  src/main/java/me/eldodebug/soar/gui/modmenu/category/impl/ModuleCategory.java \
+                  src/main/java/me/eldodebug/soar/management/mods/impl/BedESPMod.java
+          git commit -m "Resize Ghost window and fix first-run guide and BedESP icons"
+          git push origin HEAD:chatgpt/beginner-guide-single-exe-20260803
