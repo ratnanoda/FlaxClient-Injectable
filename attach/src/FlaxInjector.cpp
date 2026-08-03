@@ -8,8 +8,12 @@
 #include <iterator>
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cwctype>
+#include <fstream>
+#include <iomanip>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -55,6 +59,121 @@ std::filesystem::path executable_path() {
     }
     buffer.resize(length);
     return std::filesystem::path(buffer);
+}
+
+
+constexpr int embedded_dll_resource_id = 201;
+
+std::filesystem::path embedded_runtime_directory() {
+    std::wstring buffer(32768, L'\0');
+    DWORD length = GetTempPathW(static_cast<DWORD>(buffer.size()), buffer.data());
+    if (length == 0 || length >= buffer.size()) {
+        return {};
+    }
+    buffer.resize(length);
+    std::filesystem::path directory(buffer);
+    directory /= L"FlaxClient";
+    directory /= L"runtime";
+    std::error_code error;
+    std::filesystem::create_directories(directory, error);
+    return error ? std::filesystem::path{} : directory;
+}
+
+std::uint64_t hash_bytes(const unsigned char* bytes, std::size_t size) {
+    std::uint64_t hash = 1469598103934665603ULL;
+    for (std::size_t index = 0; index < size; ++index) {
+        hash ^= bytes[index];
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+void cleanup_stale_embedded_dlls(
+    const std::filesystem::path& directory,
+    const std::filesystem::path& active_path) {
+    std::error_code error;
+    if (!std::filesystem::is_directory(directory, error)) {
+        return;
+    }
+    for (const auto& entry : std::filesystem::directory_iterator(directory, error)) {
+        if (error || !entry.is_regular_file()) {
+            continue;
+        }
+        const std::filesystem::path path = entry.path();
+        const std::wstring filename = path.filename().wstring();
+        if (path == active_path || filename.rfind(L"FlaxClient-", 0) != 0 ||
+            path.extension() != L".dll") {
+            continue;
+        }
+        std::error_code remove_error;
+        std::filesystem::remove(path, remove_error);
+    }
+}
+
+std::filesystem::path materialize_embedded_dll() {
+    HMODULE module = GetModuleHandleW(nullptr);
+    HRSRC resource = FindResourceW(
+        module,
+        MAKEINTRESOURCEW(embedded_dll_resource_id),
+        RT_RCDATA);
+    if (resource == nullptr) {
+        return {};
+    }
+
+    HGLOBAL loaded = LoadResource(module, resource);
+    DWORD size = SizeofResource(module, resource);
+    const auto* bytes = static_cast<const unsigned char*>(
+        loaded == nullptr ? nullptr : LockResource(loaded));
+    if (bytes == nullptr || size < 2 || bytes[0] != 'M' || bytes[1] != 'Z') {
+        return {};
+    }
+
+    std::filesystem::path directory = embedded_runtime_directory();
+    if (directory.empty()) {
+        return {};
+    }
+
+    std::wstringstream filename;
+    filename << L"FlaxClient-" << std::hex << std::setw(16)
+             << std::setfill(L'0') << hash_bytes(bytes, size) << L".dll";
+    std::filesystem::path target = directory / filename.str();
+    cleanup_stale_embedded_dlls(directory, target);
+
+    std::error_code file_error;
+    if (std::filesystem::is_regular_file(target, file_error) &&
+        std::filesystem::file_size(target, file_error) == size) {
+        return target;
+    }
+
+    std::filesystem::path temporary = target;
+    temporary += L".tmp-" + std::to_wstring(GetCurrentProcessId());
+    {
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        if (!output) {
+            return {};
+        }
+        output.write(
+            reinterpret_cast<const char*>(bytes),
+            static_cast<std::streamsize>(size));
+        output.flush();
+        if (!output) {
+            output.close();
+            std::filesystem::remove(temporary, file_error);
+            return {};
+        }
+    }
+
+    if (!MoveFileExW(
+            temporary.c_str(),
+            target.c_str(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        std::filesystem::remove(temporary, file_error);
+        if (!std::filesystem::is_regular_file(target, file_error) ||
+            std::filesystem::file_size(target, file_error) != size) {
+            return {};
+        }
+    }
+    return target;
 }
 
 uintptr_t remote_module_base(DWORD process_id, const wchar_t* module_name) {
@@ -267,6 +386,8 @@ HWND main_window = nullptr;
 UiState ui_state = UiState::idle;
 UINT ui_dpi = 96;
 std::filesystem::path configured_dll;
+bool configured_dll_override = false;
+bool verify_embedded_only = false;
 DWORD configured_process_id = 0;
 std::wstring status_text = L"Ready to attach to Minecraft 1.8.9";
 int animation_frame = 0;
@@ -436,7 +557,7 @@ InjectionResult perform_injection() {
     std::filesystem::path dll_path =
         std::filesystem::weakly_canonical(configured_dll, path_error);
     if (path_error || !std::filesystem::is_regular_file(dll_path)) {
-        return {false, L"FlaxClient.dll was not found beside the injector"};
+        return {false, L"The embedded FlaxClient runtime could not be prepared"};
     }
 
     DWORD process_id = configured_process_id;
@@ -594,7 +715,7 @@ LRESULT CALLBACK window_procedure(
 }
 
 void parse_arguments() {
-    configured_dll = executable_path().parent_path() / L"FlaxClient.dll";
+    configured_dll.clear();
     int argument_count = 0;
     LPWSTR* arguments = CommandLineToArgvW(GetCommandLineW(), &argument_count);
     if (arguments == nullptr) {
@@ -610,6 +731,9 @@ void parse_arguments() {
             }
         } else if (argument == L"--dll" && index + 1 < argument_count) {
             configured_dll = std::filesystem::absolute(arguments[++index]);
+            configured_dll_override = true;
+        } else if (argument == L"--verify-embedded") {
+            verify_embedded_only = true;
         }
     }
     LocalFree(arguments);
@@ -637,6 +761,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     }
 
     parse_arguments();
+    if (!configured_dll_override) {
+        configured_dll = materialize_embedded_dll();
+    }
+    if (verify_embedded_only) {
+        std::error_code verify_error;
+        return !configured_dll.empty() &&
+                       std::filesystem::is_regular_file(configured_dll, verify_error)
+                   ? 0
+                   : 2;
+    }
+    if (configured_dll.empty()) {
+        ui_state = UiState::error;
+        status_text = L"The embedded FlaxClient runtime could not be prepared";
+    }
 
     const wchar_t* class_name = L"FlaxClientInjectorWindow";
     WNDCLASSEXW window_class{};

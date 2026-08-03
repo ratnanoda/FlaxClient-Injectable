@@ -39,9 +39,23 @@ add_library(FlaxClient SHARED
     ${FLAX_CLIENT_SOURCES}
 )
 
+# Release packages are built with the Visual Studio multi-config generator.
+# Embed the finished DLL into the injector so users only receive one EXE.
+file(TO_CMAKE_PATH
+    "${CMAKE_BINARY_DIR}/bin/Release/FlaxClient.dll"
+    FLAX_CLIENT_DLL_RC
+)
+configure_file(
+    resources/FlaxInjector.rc.in
+    "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjector.rc"
+    @ONLY
+)
+
 add_executable(FlaxInjector WIN32
     src/FlaxInjector.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjector.rc"
 )
+add_dependencies(FlaxInjector FlaxClient)
 
 target_compile_features(FlaxClient PRIVATE cxx_std_17)
 target_compile_features(FlaxInjector PRIVATE cxx_std_17)
@@ -71,6 +85,6 @@ set_target_properties(FlaxClient PROPERTIES
 )
 
 set_target_properties(FlaxInjector PROPERTIES
-    OUTPUT_NAME "FlaxInjector"
+    OUTPUT_NAME "FlaxClient"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )

@@ -1,11 +1,12 @@
-name: Build Lunar Injectable Package
+name: Build Lunar Single-EXE Package
 
 on:
   push:
     branches:
-      - chatgpt/unify-youtube-music-20260803
+      - chatgpt/beginner-guide-single-exe-20260803
   pull_request:
     branches:
+      - chatgpt/unify-youtube-music-20260803
       - main
   workflow_dispatch:
 
@@ -57,41 +58,48 @@ jobs:
           if ($entries -notcontains "assets/minecraft/soar/tools/windows-x64/ffmpeg.zip") {
             throw "Bundled ffmpeg resource is missing"
           }
+          if ($entries -notcontains "me/eldodebug/soar/gui/modmenu/BeginnerGuideOverlay.class") {
+            throw "Beginner guide class is missing"
+          }
 
-      - name: Configure Lunar DLL
+      - name: Configure Lunar single-EXE build
         shell: powershell
         run: |
           $jar = (Resolve-Path "build\libs\FlaxClient-Lunar.jar").Path.Replace('\', '/')
           cmake -S attach -B attach/build-lunar -A x64 "-DFLAX_CLIENT_JAR=$jar"
 
-      - name: Build Lunar DLL and injector
+      - name: Build embedded DLL and single EXE
         shell: powershell
-        run: cmake --build attach/build-lunar --config Release
+        run: cmake --build attach/build-lunar --config Release --target FlaxInjector
 
-      - name: Stage package
+      - name: Verify embedded runtime
         shell: powershell
         run: |
-          New-Item -ItemType Directory -Force -Path "build\attach-lunar" | Out-Null
-          Copy-Item "attach\build-lunar\bin\Release\FlaxClient.dll" "build\attach-lunar\FlaxClient.dll"
-          Copy-Item "attach\build-lunar\bin\Release\FlaxInjector.exe" "build\attach-lunar\FlaxInjector.exe"
-          @"
-          FlaxClient Lunar Client OptiFine 1.8.9 Windows x64 package.
+          $exe = "attach\build-lunar\bin\Release\FlaxClient.exe"
+          $dll = "attach\build-lunar\bin\Release\FlaxClient.dll"
+          if (!(Test-Path $exe)) { throw "FlaxClient.exe was not generated" }
+          if (!(Test-Path $dll)) { throw "Intermediate FlaxClient.dll was not generated" }
+          $verification = Start-Process -FilePath $exe -ArgumentList "--verify-embedded" -Wait -PassThru
+          if ($verification.ExitCode -ne 0) { throw "The EXE could not verify or extract its embedded DLL" }
+          if ((Get-Item $exe).Length -le (Get-Item $dll).Length) {
+            throw "The final EXE does not appear to contain the DLL resource"
+          }
+          Get-FileHash $exe -Algorithm SHA256
 
-          Music is integrated into the YouTube page. Add a YouTube URL to download it,
-          then switch playback between Video (PiP) and Music (bottom-right compact HUD).
-          yt-dlp and ffmpeg are embedded in FlaxClient.dll and extracted automatically.
+      - name: Stage one-file distribution
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path "build\single-exe" | Out-Null
+          Copy-Item "attach\build-lunar\bin\Release\FlaxClient.exe" "build\single-exe\FlaxClient.exe"
+          $files = @(Get-ChildItem "build\single-exe" -File)
+          if ($files.Count -ne 1 -or $files[0].Name -ne "FlaxClient.exe") {
+            throw "Distribution must contain exactly one FlaxClient.exe"
+          }
 
-          Open Lunar Client 1.8.9 and wait for the main menu before running FlaxInjector.exe.
-          "@ | Set-Content -Encoding UTF8 "build\attach-lunar\README.txt"
-          if (!(Test-Path "build\attach-lunar\FlaxInjector.exe")) { throw "FlaxInjector.exe was not generated" }
-          if (!(Test-Path "build\attach-lunar\FlaxClient.dll")) { throw "FlaxClient.dll was not generated" }
-          Get-FileHash "build\attach-lunar\FlaxInjector.exe" -Algorithm SHA256
-          Get-FileHash "build\attach-lunar\FlaxClient.dll" -Algorithm SHA256
-
-      - name: Upload Lunar package
+      - name: Upload single EXE
         uses: actions/upload-artifact@v4
         with:
-          name: FlaxClient-Lunar-YouTube-Music-Windows-x64
-          path: build/attach-lunar/*
+          name: FlaxClient-Lunar-Single-EXE-Windows-x64
+          path: build/single-exe/FlaxClient.exe
           if-no-files-found: error
           retention-days: 7

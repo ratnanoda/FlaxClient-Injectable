@@ -64,6 +64,9 @@ public class ModuleCategory extends Category {
 	private static final float INLINE_SETTINGS_PADDING = 5.0F;
 	private static final float DEFAULT_SECTION_OFFSET_Y = -62.0F;
 	private static final float SCREEN_EDGE_MARGIN = 8.0F;
+	private static final float MIN_RESIZABLE_WIDTH = 132.0F;
+	private static final float MIN_RESIZABLE_BODY_HEIGHT = 54.0F;
+	private static final float RESIZE_EDGE = 5.0F;
 
 	private final ModCategory defaultCategory;
 	private final boolean showAlphabetSections;
@@ -80,6 +83,11 @@ public class ModuleCategory extends Category {
 	private float sectionPressX, sectionPressY;
 	private boolean sectionPositionsInitialized;
 	private DropdownSection settingsSection;
+	private DropdownSection resizingSection;
+	private int resizeEdges;
+	private float resizeStartMouseX, resizeStartMouseY;
+	private float resizeStartOffsetX, resizeStartOffsetY;
+	private float resizeStartWidth, resizeStartBodyHeight;
 
 	public ModuleCategory(GuiModMenu parent) {
 		this(parent, TranslateText.MODULE, LegacyIcon.ARCHIVE, Fonts.LEGACYICON, ModCategory.ALL, true);
@@ -131,6 +139,8 @@ public class ModuleCategory extends Category {
 			section.scrollAnimation.setValue(0.0F);
 		}
 		draggingSection = null;
+		resizingSection = null;
+		resizeEdges = 0;
 	}
 
 	@Override
@@ -154,10 +164,12 @@ public class ModuleCategory extends Category {
 
 	private void drawDropdowns(NanoVGManager nvg, ColorPalette palette, AccentColor accentColor,
 			int mouseX, int mouseY, float partialTicks) {
-		float panelWidth = calculatePanelWidth();
-		initializeSectionPositions(panelWidth);
+		float defaultPanelWidth = calculatePanelWidth();
+		initializeSectionPositions(defaultPanelWidth);
 
-		if(draggingSection != null) {
+		if(resizingSection != null) {
+			updateResize(mouseX, mouseY);
+		} else if(draggingSection != null) {
 			draggingSection.offsetX = mouseX - getX() - sectionDragX;
 			draggingSection.offsetY = mouseY - getY() - sectionDragY;
 			draggingSection.moved = draggingSection.moved
@@ -168,6 +180,7 @@ public class ModuleCategory extends Category {
 
 		for(int i = sections.size() - 1; i >= 0; i--) {
 			DropdownSection section = sections.get(i);
+			float panelWidth = getPanelWidth(section, defaultPanelWidth);
 			float panelX = getX() + section.offsetX;
 			float panelY = getY() + section.offsetY;
 			if(MouseUtils.isInside(mouseX, mouseY, panelX, panelY, panelWidth,
@@ -180,21 +193,24 @@ public class ModuleCategory extends Category {
 		for(int i = 0; i < sections.size(); i++) {
 			DropdownSection section = sections.get(i);
 			List<Mod> modules = getSectionModules(section);
+			float panelWidth = getPanelWidth(section, defaultPanelWidth);
+			clampSectionWindow(section, panelWidth);
 			float panelX = getX() + section.offsetX;
 			float panelY = getY() + section.offsetY;
-			float defaultPanelY = Math.max(SCREEN_EDGE_MARGIN, getY() + DEFAULT_SECTION_OFFSET_Y);
 			float maxBodyHeight = Math.max(42.0F,
-					getScreenHeight() - defaultPanelY * 2.0F - HEADER_HEIGHT);
+					getScreenHeight() - panelY - SCREEN_EDGE_MARGIN - HEADER_HEIGHT);
 			boolean headerHovered = MouseUtils.isInside(mouseX, mouseY, panelX, panelY, panelWidth, HEADER_HEIGHT);
 
 			section.openAnimation.setAnimation(section.open ? 1.0F : 0.0F, 18);
 			section.hoverAnimation.setAnimation(headerHovered ? 1.0F : 0.0F, 18);
 
 			float contentHeight = getSectionContentHeight(modules);
-			float expandedHeight = Math.min(maxBodyHeight, contentHeight);
+			float expandedHeight = section.bodyHeightOverride > 0.0F
+					? Math.max(MIN_RESIZABLE_BODY_HEIGHT, Math.min(maxBodyHeight, section.bodyHeightOverride))
+					: Math.min(maxBodyHeight, Math.max(42.0F, contentHeight));
 			float bodyHeight = expandedHeight * section.openAnimation.getValue();
 			section.visibleBodyHeight = bodyHeight;
-			section.maxScroll = Math.max(0.0F, contentHeight - maxBodyHeight);
+			section.maxScroll = Math.max(0.0F, contentHeight - expandedHeight);
 
 			if(wheel != 0 && section.open && MouseUtils.isInside(mouseX, mouseY, panelX, panelY + HEADER_HEIGHT, panelWidth, maxBodyHeight)) {
 				section.scrollTarget += wheel / 2.4F;
@@ -216,11 +232,25 @@ public class ModuleCategory extends Category {
 			nvg.drawText(section.title, panelX + 10, panelY + 8.5F, Color.WHITE, 10.5F, Fonts.SEMIBOLD);
 			String count = String.valueOf(modules.size());
 			float countWidth = Math.max(17.0F, nvg.getTextWidth(count, 7.5F, Fonts.SEMIBOLD) + 9.0F);
+			section.lastCountWidth = countWidth;
 			float arrowX = panelX + panelWidth - 13.0F;
 			nvg.drawRoundedRect(arrowX - countWidth - 7.0F, panelY + 7.0F, countWidth, 14.0F, 7.0F, new Color(9, 13, 24, 55));
 			nvg.drawCenteredText(count, arrowX - 7.0F - countWidth / 2.0F, panelY + 11.0F, Color.WHITE, 7.5F, Fonts.SEMIBOLD);
+			if(isResizableLayout()) {
+				float resetWidth = 34.0F;
+				float resetX = arrowX - countWidth - resetWidth - 12.0F;
+				boolean resetHovered = MouseUtils.isInside(mouseX, mouseY, resetX, panelY + 6.0F, resetWidth, 16.0F);
+				nvg.drawRoundedRect(resetX, panelY + 6.0F, resetWidth, 16.0F, 6.0F,
+						new Color(255, 255, 255, resetHovered ? 40 : 22));
+				nvg.drawCenteredText("Reset", resetX + resetWidth / 2.0F, panelY + 10.5F,
+						palette.getFontColor(ColorType.NORMAL), 7.0F, Fonts.MEDIUM);
+			}
 			nvg.drawCenteredText(section.open ? LegacyIcon.CHEVRON_UP : LegacyIcon.CHEVRON_DOWN,
 					arrowX, panelY + 9.0F, Color.WHITE, 8.0F, Fonts.LEGACYICON);
+
+			if(isResizableLayout() && section.open) {
+				drawResizeHandles(nvg, panelX, panelY, panelWidth, totalHeight, mouseX, mouseY);
+			}
 
 			if(bodyHeight <= 0.5F) continue;
 			float bodyY = panelY + HEADER_HEIGHT;
@@ -400,6 +430,103 @@ public class ModuleCategory extends Category {
 		return (availableWidth - PANEL_GAP * (sections.size() - 1)) / sections.size();
 	}
 
+	private boolean isResizableLayout() {
+		return !showAlphabetSections && sections.size() == 1;
+	}
+
+	private float getPanelWidth(DropdownSection section, float defaultWidth) {
+		return section.widthOverride > 0.0F ? section.widthOverride : defaultWidth;
+	}
+
+	private void drawResizeHandles(NanoVGManager nvg, float x, float y, float width, float height,
+			int mouseX, int mouseY) {
+		int edges = getResizeEdges(mouseX, mouseY, x, y, width, height);
+		Color edge = new Color(255, 255, 255, edges == 0 ? 28 : 82);
+		nvg.drawRect(x + width - 10.0F, y + height - 2.0F, 8.0F, 1.0F, edge);
+		nvg.drawRect(x + width - 2.0F, y + height - 10.0F, 1.0F, 8.0F, edge);
+	}
+
+	private int getResizeEdges(int mouseX, int mouseY, float x, float y, float width, float height) {
+		if(!isResizableLayout()) return 0;
+		int edges = 0;
+		if(mouseX >= x - RESIZE_EDGE && mouseX <= x + RESIZE_EDGE
+				&& mouseY >= y - RESIZE_EDGE && mouseY <= y + height + RESIZE_EDGE) edges |= 1;
+		if(mouseX >= x + width - RESIZE_EDGE && mouseX <= x + width + RESIZE_EDGE
+				&& mouseY >= y - RESIZE_EDGE && mouseY <= y + height + RESIZE_EDGE) edges |= 2;
+		if(mouseY >= y - RESIZE_EDGE && mouseY <= y + RESIZE_EDGE
+				&& mouseX >= x - RESIZE_EDGE && mouseX <= x + width + RESIZE_EDGE) edges |= 4;
+		if(mouseY >= y + height - RESIZE_EDGE && mouseY <= y + height + RESIZE_EDGE
+				&& mouseX >= x - RESIZE_EDGE && mouseX <= x + width + RESIZE_EDGE) edges |= 8;
+		return edges;
+	}
+
+	private void beginResize(DropdownSection section, int edges, int mouseX, int mouseY, float width) {
+		resizingSection = section;
+		resizeEdges = edges;
+		resizeStartMouseX = mouseX;
+		resizeStartMouseY = mouseY;
+		resizeStartOffsetX = section.offsetX;
+		resizeStartOffsetY = section.offsetY;
+		resizeStartWidth = width;
+		resizeStartBodyHeight = Math.max(MIN_RESIZABLE_BODY_HEIGHT, section.visibleBodyHeight);
+		section.widthOverride = width;
+		section.bodyHeightOverride = resizeStartBodyHeight;
+	}
+
+	private void updateResize(int mouseX, int mouseY) {
+		DropdownSection section = resizingSection;
+		if(section == null) return;
+		float dx = mouseX - resizeStartMouseX;
+		float dy = mouseY - resizeStartMouseY;
+		float maxWidth = Math.max(MIN_RESIZABLE_WIDTH, getScreenWidth() - SCREEN_EDGE_MARGIN * 2.0F);
+		float width = resizeStartWidth;
+		float offsetX = resizeStartOffsetX;
+		if((resizeEdges & 1) != 0) {
+			width = Math.max(MIN_RESIZABLE_WIDTH, Math.min(maxWidth, resizeStartWidth - dx));
+			offsetX = resizeStartOffsetX + (resizeStartWidth - width);
+		} else if((resizeEdges & 2) != 0) {
+			width = Math.max(MIN_RESIZABLE_WIDTH, Math.min(maxWidth, resizeStartWidth + dx));
+		}
+		float bodyHeight = resizeStartBodyHeight;
+		float offsetY = resizeStartOffsetY;
+		if((resizeEdges & 4) != 0) {
+			bodyHeight = Math.max(MIN_RESIZABLE_BODY_HEIGHT, resizeStartBodyHeight - dy);
+			offsetY = resizeStartOffsetY + (resizeStartBodyHeight - bodyHeight);
+		} else if((resizeEdges & 8) != 0) {
+			bodyHeight = Math.max(MIN_RESIZABLE_BODY_HEIGHT, resizeStartBodyHeight + dy);
+		}
+		section.widthOverride = width;
+		section.bodyHeightOverride = bodyHeight;
+		section.offsetX = offsetX;
+		section.offsetY = offsetY;
+		clampSectionWindow(section, width);
+	}
+
+	private void clampSectionWindow(DropdownSection section, float width) {
+		float minOffsetX = SCREEN_EDGE_MARGIN - getX();
+		float maxOffsetX = getScreenWidth() - SCREEN_EDGE_MARGIN - width - getX();
+		section.offsetX = Math.max(minOffsetX, Math.min(maxOffsetX, section.offsetX));
+		float minOffsetY = SCREEN_EDGE_MARGIN - getY();
+		float maxOffsetY = getScreenHeight() - SCREEN_EDGE_MARGIN - HEADER_HEIGHT - MIN_RESIZABLE_BODY_HEIGHT - getY();
+		section.offsetY = Math.max(minOffsetY, Math.min(maxOffsetY, section.offsetY));
+		if(section.bodyHeightOverride > 0.0F) {
+			float absoluteY = getY() + section.offsetY;
+			float maxBody = Math.max(MIN_RESIZABLE_BODY_HEIGHT,
+					getScreenHeight() - SCREEN_EDGE_MARGIN - absoluteY - HEADER_HEIGHT);
+			section.bodyHeightOverride = Math.min(section.bodyHeightOverride, maxBody);
+		}
+	}
+
+	private void resetSectionLayout(DropdownSection section, float defaultWidth) {
+		section.widthOverride = -1.0F;
+		section.bodyHeightOverride = -1.0F;
+		section.offsetX = (getWidth() - defaultWidth) / 2.0F;
+		section.offsetY = Math.max(DEFAULT_SECTION_OFFSET_Y, SCREEN_EDGE_MARGIN - getY());
+		section.scrollTarget = 0.0F;
+		section.scrollAnimation.setValue(0.0F);
+		section.open = true;
+	}
+
 	private Color translucent(Color color, int alpha) {
 		return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
 	}
@@ -441,7 +568,7 @@ public class ModuleCategory extends Category {
 		float promptHeight = 30;
 		float promptX = getX() + getWidth() / 2.0F - promptWidth / 2.0F;
 		float promptY = getY() + getHeight() - 39;
-		String bindText = "Press a key for " + bindingMod.getName() + "  •  right click to clear";
+		String bindText = "Press a key for " + bindingMod.getName() + "  Ã¢â‚¬Â¢  right click to clear";
 		nvg.drawShadow(promptX, promptY, promptWidth, promptHeight, 8);
 		nvg.drawRoundedRect(promptX, promptY, promptWidth, promptHeight, 8,
 				translucent(palette.getBackgroundColor(ColorType.DARK), 145));
@@ -471,14 +598,35 @@ public class ModuleCategory extends Category {
 	}
 
 	private boolean handleDropdownClick(int mouseX, int mouseY, int mouseButton) {
-		float panelWidth = calculatePanelWidth();
-		initializeSectionPositions(panelWidth);
+		float defaultPanelWidth = calculatePanelWidth();
+		initializeSectionPositions(defaultPanelWidth);
 
 		for(int i = sections.size() - 1; i >= 0; i--) {
 			DropdownSection section = sections.get(i);
+			float panelWidth = getPanelWidth(section, defaultPanelWidth);
 			float panelX = getX() + section.offsetX;
 			float panelY = getY() + section.offsetY;
 			float bodyY = panelY + HEADER_HEIGHT;
+			float totalHeight = HEADER_HEIGHT + Math.max(MIN_RESIZABLE_BODY_HEIGHT, section.visibleBodyHeight);
+
+			if(mouseButton == 0 && isResizableLayout()) {
+				float countWidth = Math.max(17.0F, section.lastCountWidth);
+				float arrowX = panelX + panelWidth - 13.0F;
+				float resetWidth = 34.0F;
+				float resetX = arrowX - countWidth - resetWidth - 12.0F;
+				if(MouseUtils.isInside(mouseX, mouseY, resetX, panelY + 6.0F, resetWidth, 16.0F)) {
+					resetSectionLayout(section, defaultPanelWidth);
+					return true;
+				}
+				if(section.open) {
+					int edges = getResizeEdges(mouseX, mouseY, panelX, panelY, panelWidth, totalHeight);
+					if(edges != 0) {
+						beginResize(section, edges, mouseX, mouseY, panelWidth);
+						return true;
+					}
+				}
+			}
+
 			if(MouseUtils.isInside(mouseX, mouseY, panelX, panelY, panelWidth, HEADER_HEIGHT) && mouseButton == 0) {
 				draggingSection = section;
 				sectionDragX = mouseX - panelX;
@@ -586,6 +734,10 @@ public class ModuleCategory extends Category {
 
 	@Override
 	public void mouseReleased(int mouseX, int mouseY, int mouseButton) {
+		if(mouseButton == 0 && resizingSection != null) {
+			resizingSection = null;
+			resizeEdges = 0;
+		}
 		if(mouseButton == 0 && draggingSection != null) {
 			if(!draggingSection.moved) draggingSection.open = !draggingSection.open;
 			draggingSection = null;
@@ -643,6 +795,9 @@ public class ModuleCategory extends Category {
 		private float maxScroll;
 		private float visibleBodyHeight;
 		private float offsetX, offsetY;
+		private float widthOverride = -1.0F;
+		private float bodyHeightOverride = -1.0F;
+		private float lastCountWidth = 17.0F;
 		private boolean moved;
 
 		private DropdownSection(String title, char start, char end, boolean ghost) {
