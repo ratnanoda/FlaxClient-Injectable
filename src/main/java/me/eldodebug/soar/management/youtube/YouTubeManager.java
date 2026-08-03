@@ -292,7 +292,7 @@ public final class YouTubeManager {
                 int videoHeight = getVideoHeight();
                 videoProcess = new ProcessBuilder(ffmpegCommand, "-nostdin", "-hide_banner", "-loglevel", "quiet",
                         "-re", "-ss", seek, "-i", entry.getMediaFile().getAbsolutePath(), "-an", "-vf",
-                        "scale=" + videoWidth + ":" + videoHeight + ":force_original_aspect_ratio=decrease,pad="
+                        "fps=60,scale=" + videoWidth + ":" + videoHeight + ":force_original_aspect_ratio=decrease,pad="
                                 + videoWidth + ":" + videoHeight + ":(ow-iw)/2:(oh-ih)/2",
                         "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1")
                         .redirectError(ProcessBuilder.Redirect.INHERIT).start();

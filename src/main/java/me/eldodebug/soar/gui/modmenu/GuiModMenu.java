@@ -168,7 +168,9 @@ public class GuiModMenu extends GuiScreen {
 		if(!modulePage) drawContentGlass(nvg, palette, accent);
 		drawFloatingToolbar(nvg, palette, accent, mouseX, mouseY, partialTicks, modulePage);
 		drawCurrentCategory(nvg, mouseX, mouseY, partialTicks, modulePage);
-		beginnerGuide.draw(mouseX, mouseY, partialTicks);
+		boolean resizeTutorial = currentCategory instanceof ModuleCategory
+				&& ((ModuleCategory) currentCategory).isResizeTutorialVisible();
+		if(!resizeTutorial) beginnerGuide.draw(mouseX, mouseY, partialTicks);
 
 		if(!beginnerGuide.isOpen() && MouseUtils.isInside(mouseX, mouseY, contentX, contentY + 31, contentWidth, contentHeight - 31)) {
 			scroll.onScroll();
@@ -290,7 +292,9 @@ public class GuiModMenu extends GuiScreen {
 
 	@Override
 	public void mouseClicked(int mouseX, int mouseY, int mouseButton) {
-		if(beginnerGuide.mouseClicked(mouseX, mouseY, mouseButton)) return;
+		boolean resizeTutorial = currentCategory instanceof ModuleCategory
+				&& ((ModuleCategory) currentCategory).isResizeTutorialVisible();
+		if(!resizeTutorial && beginnerGuide.mouseClicked(mouseX, mouseY, mouseButton)) return;
 		if(mouseButton == 0 && MouseUtils.isInside(mouseX, mouseY, sidebarX, sidebarY,
 				SIDEBAR_WIDTH, SIDEBAR_GRIP_HEIGHT)) {
 			draggingSidebar = true;

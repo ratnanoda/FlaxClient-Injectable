@@ -11,6 +11,7 @@ import java.util.Map;
 import org.lwjgl.opengl.GL11;
 
 import me.eldodebug.soar.management.event.EventTarget;
+import me.eldodebug.soar.management.event.impl.EventRender2D;
 import me.eldodebug.soar.management.event.impl.EventRender3D;
 import me.eldodebug.soar.management.event.impl.EventUpdate;
 import me.eldodebug.soar.management.language.TranslateText;
@@ -24,10 +25,12 @@ import me.eldodebug.soar.management.mods.settings.impl.combo.Option;
 import me.eldodebug.soar.utils.ColorUtils;
 import me.eldodebug.soar.utils.Render3DUtils;
 import me.eldodebug.soar.utils.render.RenderUtils;
+import me.eldodebug.soar.utils.render.WorldToScreen;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockBed;
 import net.minecraft.block.BlockDirectional;
 import net.minecraft.block.state.IBlockState;
+import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.RenderGlobal;
 import net.minecraft.client.renderer.RenderHelper;
@@ -237,6 +240,10 @@ public class BedESPMod extends Mod {
 	public void onRender3D(EventRender3D event) {
 		if(mc.theWorld == null || mc.thePlayer == null || beds.isEmpty()) return;
 
+		// Capture the active camera matrices once. Item labels are rendered later
+		// as flat screen-space panels, avoiding billboard pitch and third-person flips.
+		WorldToScreen.capture();
+
 		RenderManager rm = mc.getRenderManager();
 		double viewX = rm.viewerPosX;
 		double viewY = rm.viewerPosY;
@@ -284,11 +291,34 @@ public class BedESPMod extends Mod {
 		ColorUtils.resetColor();
 		GlStateManager.popMatrix();
 
-		if(showBedColorSetting.isToggled() || checkDefBlockSetting.isToggled()) {
-			for(Bed bed : beds) {
-				List<ItemStack> icons = buildDisplayIcons(bed);
-				if(!icons.isEmpty()) renderIconsAboveBed(bed, icons, rm);
-			}
+	}
+
+	@EventTarget
+	public void onRender2D(EventRender2D event) {
+		if(mc.theWorld == null || mc.thePlayer == null || beds.isEmpty()) return;
+		if(!showBedColorSetting.isToggled() && !checkDefBlockSetting.isToggled()) return;
+
+		ScaledResolution resolution = new ScaledResolution(mc);
+		List<ProjectedPanel> panels = new ArrayList<ProjectedPanel>();
+		for(Bed bed : beds) {
+			List<ItemStack> icons = buildDisplayIcons(bed);
+			if(icons.isEmpty()) continue;
+
+			double centerX = (bed.box.minX + bed.box.maxX) / 2.0D;
+			double centerY = bed.box.maxY + 0.82D;
+			double centerZ = (bed.box.minZ + bed.box.maxZ) / 2.0D;
+			float[] screen = WorldToScreen.project(centerX, centerY, centerZ);
+			if(screen == null) continue;
+
+			double distance = mc.thePlayer.getDistance(centerX, centerY, centerZ);
+			if(distance > MAX_SCAN_CHUNKS * 16.0D + 16.0D) continue;
+			panels.add(new ProjectedPanel(screen[0], screen[1], distance, icons));
+		}
+
+		// Far labels first, so closer beds remain readable when projected panels overlap.
+		Collections.sort(panels, (first, second) -> Double.compare(second.distance, first.distance));
+		for(ProjectedPanel panel : panels) {
+			renderProjectedIcons(panel, resolution);
 		}
 	}
 
@@ -299,30 +329,27 @@ public class BedESPMod extends Mod {
 		return icons;
 	}
 
-	private void renderIconsAboveBed(Bed bed, List<ItemStack> icons, RenderManager rm) {
-		double centerX = (bed.box.minX + bed.box.maxX) / 2.0D;
-		// Anchor the bottom of the billboard just above the bed. Centering the panel
-		// around this point made multi-row defense icons sink into or drift below the bed.
-		double centerY = bed.box.maxY + 0.35D;
-		double centerZ = (bed.box.minZ + bed.box.maxZ) / 2.0D;
-		double distance = mc.thePlayer.getDistance(centerX, centerY, centerZ);
-		float scale = (float) Math.max(0.025D, Math.min(0.12D, distance * 0.0025D));
-
+	private void renderProjectedIcons(ProjectedPanel panel, ScaledResolution resolution) {
+		List<ItemStack> icons = panel.icons;
 		int columns = Math.min(MAX_ICONS_PER_ROW, icons.size());
 		int rows = (icons.size() + MAX_ICONS_PER_ROW - 1) / MAX_ICONS_PER_ROW;
-		int contentWidth = columns * ICON_SIZE + (columns - 1) * ICON_GAP;
+		int contentWidth = columns * ICON_SIZE + Math.max(0, columns - 1) * ICON_GAP;
 		int panelWidth = contentWidth + PANEL_PADDING * 2;
-		int panelHeight = rows * ICON_SIZE
-				+ Math.max(0, rows - 1) * ICON_GAP + PANEL_PADDING * 2;
-		int panelTop = -panelHeight;
+		int panelHeight = rows * ICON_SIZE + Math.max(0, rows - 1) * ICON_GAP + PANEL_PADDING * 2;
+
+		// Keep labels a consistent GUI size. A small distance reduction prevents
+		// far-away panels from dominating the screen without causing perspective drift.
+		float scale = (float) Math.max(0.78D, Math.min(1.0D, 1.04D - panel.distance / 520.0D));
+		float scaledWidth = panelWidth * scale;
+		float scaledHeight = panelHeight * scale;
+		float centerX = Math.max(scaledWidth / 2.0F + 3.0F,
+				Math.min(resolution.getScaledWidth() - scaledWidth / 2.0F - 3.0F, panel.screenX));
+		float bottomY = Math.max(scaledHeight + 3.0F,
+				Math.min(resolution.getScaledHeight() - 3.0F, panel.screenY));
 
 		GlStateManager.pushMatrix();
-		GlStateManager.translate(centerX - rm.viewerPosX, centerY - rm.viewerPosY, centerZ - rm.viewerPosZ);
-		GlStateManager.rotate(-rm.playerViewY, 0.0F, 1.0F, 0.0F);
-		float cameraPitch = rm.playerViewX * (mc.gameSettings.thirdPersonView == 2 ? -1.0F : 1.0F);
-		GlStateManager.rotate(cameraPitch, 1.0F, 0.0F, 0.0F);
-		GlStateManager.scale(-scale, -scale, scale);
-
+		GlStateManager.translate(centerX, bottomY - scaledHeight, 0.0F);
+		GlStateManager.scale(scale, scale, 1.0F);
 		GlStateManager.disableLighting();
 		GlStateManager.disableDepth();
 		GlStateManager.depthMask(false);
@@ -333,32 +360,26 @@ public class BedESPMod extends Mod {
 		GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 
 		Color accent = colorSetting.getColor();
-		RenderUtils.drawRoundedRect(-panelWidth / 2.0F - 1.5F, panelTop - 1.5F,
+		RenderUtils.drawRoundedRect(-panelWidth / 2.0F - 1.5F, -1.5F,
 				panelWidth + 3.0F, panelHeight + 3.0F, 5.0F, new Color(0, 0, 0, 105));
-		RenderUtils.drawRoundedRect(-panelWidth / 2.0F, panelTop,
+		RenderUtils.drawRoundedRect(-panelWidth / 2.0F, 0.0F,
 				panelWidth, panelHeight, 4.0F, new Color(0, 0, 0, 191));
-		RenderUtils.drawRoundedOutline(-panelWidth / 2.0F, panelTop,
+		RenderUtils.drawRoundedOutline(-panelWidth / 2.0F, 0.0F,
 				panelWidth, panelHeight, 4.0F, 0.8F,
 				new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 205));
-
-		GlStateManager.enableBlend();
-		GlStateManager.enableTexture2D();
 
 		GlStateManager.enableRescaleNormal();
 		GlStateManager.enableColorMaterial();
 		RenderHelper.enableGUIStandardItemLighting();
-
 		float oldZLevel = mc.getRenderItem().zLevel;
-		// RenderItem adds 100 to zLevel for GUI rendering. Cancel that translation
-		// because this GUI is already positioned in the 3D world.
-		mc.getRenderItem().zLevel = -100.0F;
+		mc.getRenderItem().zLevel = 0.0F;
 		for(int i = 0; i < icons.size(); i++) {
 			int row = i / MAX_ICONS_PER_ROW;
 			int column = i % MAX_ICONS_PER_ROW;
 			int itemsInRow = Math.min(MAX_ICONS_PER_ROW, icons.size() - row * MAX_ICONS_PER_ROW);
-			int rowWidth = itemsInRow * ICON_SIZE + (itemsInRow - 1) * ICON_GAP;
+			int rowWidth = itemsInRow * ICON_SIZE + Math.max(0, itemsInRow - 1) * ICON_GAP;
 			int itemX = -rowWidth / 2 + column * (ICON_SIZE + ICON_GAP);
-			int itemY = panelTop + PANEL_PADDING + row * (ICON_SIZE + ICON_GAP);
+			int itemY = PANEL_PADDING + row * (ICON_SIZE + ICON_GAP);
 			GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 			mc.getRenderItem().renderItemAndEffectIntoGUI(icons.get(i), itemX, itemY);
 		}
@@ -367,13 +388,26 @@ public class BedESPMod extends Mod {
 		RenderHelper.disableStandardItemLighting();
 		GlStateManager.disableRescaleNormal();
 		GlStateManager.disableColorMaterial();
-		GlStateManager.enableDepth();
 		GlStateManager.depthMask(true);
+		GlStateManager.enableDepth();
 		GlStateManager.disableBlend();
 		GlStateManager.enableLighting();
 		GlStateManager.enableTexture2D();
 		GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 		GlStateManager.popMatrix();
+	}
+
+	private static class ProjectedPanel {
+		private final float screenX, screenY;
+		private final double distance;
+		private final List<ItemStack> icons;
+
+		private ProjectedPanel(float screenX, float screenY, double distance, List<ItemStack> icons) {
+			this.screenX = screenX;
+			this.screenY = screenY;
+			this.distance = distance;
+			this.icons = icons;
+		}
 	}
 
 	private static class DefenseIcon {
