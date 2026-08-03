@@ -1,0 +1,31 @@
+name: Remove resize tutorial references
+
+on:
+  push:
+    branches:
+      - chatgpt/beginner-guide-single-exe-20260803
+    paths:
+      - tools/remove_resize_tutorial_refs.py
+      - .github/workflows/remove-resize-tutorial-refs.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/beginner-guide-single-exe-20260803
+          fetch-depth: 0
+      - name: Remove stale references
+        run: python tools/remove_resize_tutorial_refs.py
+      - name: Commit source cleanup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/java/me/eldodebug/soar/gui/modmenu/GuiModMenu.java
+          git commit -m "Remove Ghost spotlight tutorial references"
+          git push origin HEAD:chatgpt/beginner-guide-single-exe-20260803
