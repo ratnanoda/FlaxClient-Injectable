@@ -59,3 +59,5 @@ jobs:
             .prerelease == false and
             ([.assets[].name] | sort) == (["FlaxClient-Beta-1.0.exe", "FlaxClient-Beta-1.0.sha256"] | sort)
           ' <<<"$release" >/dev/null
+
+# One-time promotion workflow; remove after a successful run.
