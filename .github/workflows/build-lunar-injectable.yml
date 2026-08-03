@@ -16,7 +16,6 @@ permissions:
 
 jobs:
   promote_release:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -70,7 +69,8 @@ jobs:
             --arg sha "$release_commit" \
             '{ref:$ref,sha:$sha}' > release-ref.json
           gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-            --input release-ref.json >/dev/null
+            --input release-ref.json >/dev/null 2>&1 || true
+          gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" >/dev/null
 
       - name: Publish and verify standard release
         shell: bash
@@ -98,10 +98,17 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --title "$RELEASE_NAME" \
-              --notes-file release-notes.md
+              --notes-file release-notes.md || true
           fi
 
-          release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+          release=""
+          for attempt in $(seq 1 12); do
+            if release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" 2>/dev/null)"; then
+              break
+            fi
+            sleep 5
+          done
+          test -n "$release"
           jq -e '
             .name == "FlaxClient Beta 1.0" and
             .draft == false and
