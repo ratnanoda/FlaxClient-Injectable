@@ -1,0 +1,47 @@
+name: Run BedESP PiP onboarding source update
+
+on:
+  pull_request:
+    branches:
+      - chatgpt/unify-youtube-music-20260803
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/beginner-guide-single-exe-20260803
+          fetch-depth: 0
+      - name: Apply encoded source update
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64
+          import gzip
+          import pathlib
+          import re
+
+          workflow = pathlib.Path('.github/workflows/apply-bedesp-pip-onboarding.yml').read_text(encoding='utf-8')
+          match = re.search(r'payload = "([A-Za-z0-9+/=]+)"', workflow)
+          if match is None:
+              raise SystemExit('Encoded source payload was not found')
+          script = gzip.decompress(base64.b64decode(match.group(1))).decode('utf-8')
+          namespace = {'__name__': '__main__'}
+          exec(compile(script, '<bedesp-pip-onboarding>', 'exec'), namespace)
+          PY
+      - name: Commit source changes
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/main/java/me/eldodebug/soar/management/mods/impl/BedESPMod.java \
+                  src/main/java/me/eldodebug/soar/management/youtube/YouTubeManager.java \
+                  src/main/java/me/eldodebug/soar/gui/modmenu/category/impl/ModuleCategory.java \
+                  src/main/java/me/eldodebug/soar/gui/modmenu/GuiModMenu.java
+          git commit -m "Redesign BedESP and add Ghost resize onboarding"
+          git push origin HEAD:chatgpt/beginner-guide-single-exe-20260803
