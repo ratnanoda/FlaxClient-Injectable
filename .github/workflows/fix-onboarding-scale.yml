@@ -1,6 +1,11 @@
 name: Fix Ghost onboarding scale
 
 on:
+  push:
+    branches:
+      - chatgpt/beginner-guide-single-exe-20260803
+    paths:
+      - .github/workflows/fix-onboarding-scale.yml
   pull_request:
     branches:
       - chatgpt/unify-youtube-music-20260803
