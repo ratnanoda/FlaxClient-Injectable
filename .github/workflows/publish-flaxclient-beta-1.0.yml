@@ -67,7 +67,7 @@ jobs:
           cp "$exe_path" FlaxClient-Beta-1.0.exe
           sha256sum FlaxClient-Beta-1.0.exe | tee FlaxClient-Beta-1.0.sha256
 
-      - name: Create or update Beta 1.0 release
+      - name: Create draft, upload assets, and publish Beta 1.0
         shell: bash
         run: |
           set -euo pipefail
@@ -87,28 +87,31 @@ jobs:
           EOF
 
           if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id')"
-            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
-              -f name="$RELEASE_NAME" \
-              -f target_commitish="$RELEASE_TARGET" \
-              -F draft=false \
-              -F prerelease=true \
-              --raw-field body="$(cat release-notes.md)" >/dev/null
-          else
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
-              -f tag_name="$RELEASE_TAG" \
-              -f target_commitish="$RELEASE_TARGET" \
-              -f name="$RELEASE_NAME" \
-              -F draft=false \
-              -F prerelease=true \
-              --raw-field body="$(cat release-notes.md)" >/dev/null
+            existing_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id')"
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${existing_id}"
           fi
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}" >/dev/null 2>&1 || true
+
+          release_id="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+            -f tag_name="$RELEASE_TAG" \
+            -f target_commitish="$RELEASE_TARGET" \
+            -f name="$RELEASE_NAME" \
+            -F draft=true \
+            -F prerelease=true \
+            --raw-field body="$(cat release-notes.md)" \
+            --jq '.id')"
 
           gh release upload "$RELEASE_TAG" \
             FlaxClient-Beta-1.0.exe \
             FlaxClient-Beta-1.0.sha256 \
             --clobber \
             --repo "$GITHUB_REPOSITORY"
+
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            -f name="$RELEASE_NAME" \
+            -F draft=false \
+            -F prerelease=true \
+            --raw-field body="$(cat release-notes.md)" >/dev/null
 
       - name: Verify published release
         shell: bash
