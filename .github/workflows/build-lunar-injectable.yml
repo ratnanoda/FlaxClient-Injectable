@@ -57,6 +57,9 @@ jobs:
           This build retains the Beta 1.0 name while being published as a standard GitHub Release.
           EOF
 
+          # A failed immutable-release promotion left this draft unreachable by tag.
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/364367472" >/dev/null 2>&1 || true
+
           gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
             --jq ".[] | select(.tag_name == \"${RELEASE_TAG}\") | .id" |
           while read -r release_id; do
