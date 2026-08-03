@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   promote_release:
@@ -19,26 +20,58 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: flaxclient-beta-1.0
+      RELEASE_NAME: FlaxClient Beta 1.0
+      ARTIFACT_RUN_ID: '30828655071'
+      ARTIFACT_NAME: FlaxClient-Lunar-Single-EXE-Windows-x64
     steps:
-      - name: Recreate Beta 1.0 as a full release
+      - name: Download verified release build
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p release-assets
-          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
-          jq -r '.body // ""' <<<"$release_json" > release-notes.md
-          release_name="$(jq -r '.name // "FlaxClient Beta 1.0"' <<<"$release_json")"
-          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets
-          test -f release-assets/FlaxClient-Beta-1.0.exe
-          test -f release-assets/FlaxClient-Beta-1.0.sha256
-          gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes
+          mkdir -p release-artifact
+          gh run download "$ARTIFACT_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" \
+            --dir release-artifact
+          exe_path="$(find release-artifact -type f -iname '*.exe' -print -quit)"
+          test -n "$exe_path"
+          cp "$exe_path" FlaxClient-Beta-1.0.exe
+          sha256sum FlaxClient-Beta-1.0.exe | tee FlaxClient-Beta-1.0.sha256
+
+      - name: Publish as a full release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          # FlaxClient Beta 1.0
+
+          Windows x64 single-file release for Lunar Client 1.8.9.
+
+          ## Highlights
+          - Flappy Steve with smoother controls and Minecraft-style visuals
+          - Tetris with enhanced effects, plus Snake
+          - Improved BedESP defense-block panels and smoother tracking
+          - Resizable Ghost module list and updated beginner guide
+          - Unified YouTube/Music playback with PiP capped at 60 FPS
+
+          This build retains the Beta 1.0 name while being published as a standard GitHub Release.
+          EOF
+
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"${RELEASE_TAG}\") | .id" |
+          while read -r release_id; do
+            [ -n "${release_id:-}" ] || continue
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+          done
+
           gh release create "$RELEASE_TAG" \
-            release-assets/FlaxClient-Beta-1.0.exe \
-            release-assets/FlaxClient-Beta-1.0.sha256 \
+            FlaxClient-Beta-1.0.exe \
+            FlaxClient-Beta-1.0.sha256 \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --title "$release_name" \
+            --title "$RELEASE_NAME" \
             --notes-file release-notes.md
+
           release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
           jq -e '
             .name == "FlaxClient Beta 1.0" and
