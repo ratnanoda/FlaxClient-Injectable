@@ -17,7 +17,6 @@ import me.eldodebug.soar.gui.modmenu.category.impl.GamesCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.HomeCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.GhostCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.ModuleCategory;
-import me.eldodebug.soar.gui.modmenu.category.impl.MusicCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.ProfileCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.ScreenshotCategory;
 import me.eldodebug.soar.gui.modmenu.category.impl.SettingCategory;
@@ -69,6 +68,7 @@ public class GuiModMenu extends GuiScreen {
 	private final ScreenAnimation screenAnimation = new ScreenAnimation();
 	private final Scroll scroll = new Scroll();
 	private final CompSearchBox searchBox = new CompSearchBox();
+	private final BeginnerGuideOverlay beginnerGuide = new BeginnerGuideOverlay(this);
 
 	private boolean toEditHUD, canClose;
 	private boolean sidebarPositioned;
@@ -81,7 +81,6 @@ public class GuiModMenu extends GuiScreen {
 	public GuiModMenu() {
 		categories.add(new HomeCategory(this));
 		categories.add(new GhostCategory(this));
-		categories.add(new MusicCategory(this));
 		categories.add(new YouTubeCategory(this));
 		categories.add(new CosmeticsCategory(this));
 		categories.add(new GamesCategory(this));
@@ -103,7 +102,7 @@ public class GuiModMenu extends GuiScreen {
 		currentCategory = getCategoryByClass(GhostCategory.class);
 
 		contentWidth = Math.min(798, Math.max(418, scaledWidth - 92));
-		contentHeight = Math.min(360, Math.max(280, scaledHeight - 44));
+		contentHeight = Math.min(360, Math.max(250, scaledHeight - 76));
 		contentX = (scaledWidth - contentWidth) / 2 + 20;
 		contentY = (scaledHeight - contentHeight) / 2;
 
@@ -129,6 +128,7 @@ public class GuiModMenu extends GuiScreen {
 		toEditHUD = false;
 		canClose = true;
 		draggingSidebar = false;
+		beginnerGuide.initGui();
 		initSnow();
 	}
 
@@ -168,8 +168,9 @@ public class GuiModMenu extends GuiScreen {
 		if(!modulePage) drawContentGlass(nvg, palette, accent);
 		drawFloatingToolbar(nvg, palette, accent, mouseX, mouseY, partialTicks, modulePage);
 		drawCurrentCategory(nvg, mouseX, mouseY, partialTicks, modulePage);
+		beginnerGuide.draw(mouseX, mouseY, partialTicks);
 
-		if(MouseUtils.isInside(mouseX, mouseY, contentX, contentY + 31, contentWidth, contentHeight - 31)) {
+		if(!beginnerGuide.isOpen() && MouseUtils.isInside(mouseX, mouseY, contentX, contentY + 31, contentWidth, contentHeight - 31)) {
 			scroll.onScroll();
 		}
 		scroll.onAnimation();
@@ -289,6 +290,7 @@ public class GuiModMenu extends GuiScreen {
 
 	@Override
 	public void mouseClicked(int mouseX, int mouseY, int mouseButton) {
+		if(beginnerGuide.mouseClicked(mouseX, mouseY, mouseButton)) return;
 		if(mouseButton == 0 && MouseUtils.isInside(mouseX, mouseY, sidebarX, sidebarY,
 				SIDEBAR_WIDTH, SIDEBAR_GRIP_HEIGHT)) {
 			draggingSidebar = true;
@@ -360,6 +362,7 @@ public class GuiModMenu extends GuiScreen {
 
 	@Override
 	public void keyTyped(char typedChar, int keyCode) {
+		if(beginnerGuide.keyTyped(typedChar, keyCode)) return;
 		boolean shiftDown = Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) || Keyboard.isKeyDown(Keyboard.KEY_RSHIFT);
 		if(keyCode == Keyboard.KEY_DELETE && shiftDown && Glide.getInstance().getMusicManager() != null
 				&& Glide.getInstance().getMusicManager().isPlaying()) {

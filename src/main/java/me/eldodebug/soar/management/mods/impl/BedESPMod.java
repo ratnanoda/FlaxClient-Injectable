@@ -4,13 +4,17 @@ import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.lwjgl.opengl.GL11;
 
 import me.eldodebug.soar.management.event.EventTarget;
+import me.eldodebug.soar.management.event.impl.EventRender2D;
 import me.eldodebug.soar.management.event.impl.EventRender3D;
 import me.eldodebug.soar.management.event.impl.EventUpdate;
 import me.eldodebug.soar.management.language.TranslateText;
@@ -24,10 +28,12 @@ import me.eldodebug.soar.management.mods.settings.impl.combo.Option;
 import me.eldodebug.soar.utils.ColorUtils;
 import me.eldodebug.soar.utils.Render3DUtils;
 import me.eldodebug.soar.utils.render.RenderUtils;
+import me.eldodebug.soar.utils.render.WorldToScreen;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockBed;
 import net.minecraft.block.BlockDirectional;
 import net.minecraft.block.state.IBlockState;
+import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.RenderGlobal;
 import net.minecraft.client.renderer.RenderHelper;
@@ -51,9 +57,9 @@ public class BedESPMod extends Mod {
 	private static final int SCAN_INTERVAL_TICKS = 20;
 	private static final int MAX_DEFENSE_ICONS = 8;
 
-	private static final int ICON_SIZE = 16;
-	private static final int ICON_GAP = 2;
-	private static final int PANEL_PADDING = 4;
+	private static final int ICON_SIZE = 18;
+	private static final int ICON_GAP = 3;
+	private static final int PANEL_PADDING = 6;
 	private static final int MAX_ICONS_PER_ROW = 4;
 
 	private final ColorSetting colorSetting = new ColorSetting(TranslateText.COLOR, this, new Color(255, 64, 64), false);
@@ -65,7 +71,9 @@ public class BedESPMod extends Mod {
 	private final BooleanSetting checkDefBlockSetting = new BooleanSetting(TranslateText.CHECK_DEF_BLOCK, this, false);
 
 	private final List<Bed> beds = new ArrayList<Bed>();
+	private final Map<BlockPos, PanelMotion> panelMotions = new HashMap<BlockPos, PanelMotion>();
 	private int scanTimer;
+	private long lastPanelFrameNanos;
 
 	public BedESPMod() {
 		super(TranslateText.BED_ESP, TranslateText.BED_ESP_DESCRIPTION, ModCategory.GHOST);
@@ -75,6 +83,8 @@ public class BedESPMod extends Mod {
 	public void onEnable() {
 		super.onEnable();
 		beds.clear();
+		panelMotions.clear();
+		lastPanelFrameNanos = 0L;
 		scanTimer = 0;
 	}
 
@@ -82,12 +92,16 @@ public class BedESPMod extends Mod {
 	public void onDisable() {
 		super.onDisable();
 		beds.clear();
+		panelMotions.clear();
+		lastPanelFrameNanos = 0L;
 	}
 
 	@EventTarget
 	public void onUpdate(EventUpdate event) {
 		if(mc.theWorld == null || mc.thePlayer == null) {
 			beds.clear();
+			panelMotions.clear();
+			lastPanelFrameNanos = 0L;
 			return;
 		}
 
@@ -156,6 +170,7 @@ public class BedESPMod extends Mod {
 
 		beds.clear();
 		beds.addAll(found.values());
+		panelMotions.keySet().retainAll(found.keySet());
 	}
 
 	private List<ItemStack> computeDefenseBlocks(BlockPos footPos, BlockPos headPos) {
@@ -237,6 +252,10 @@ public class BedESPMod extends Mod {
 	public void onRender3D(EventRender3D event) {
 		if(mc.theWorld == null || mc.thePlayer == null || beds.isEmpty()) return;
 
+		// Capture the active camera matrices once. Item labels are rendered later
+		// as flat screen-space panels, avoiding billboard pitch and third-person flips.
+		WorldToScreen.capture();
+
 		RenderManager rm = mc.getRenderManager();
 		double viewX = rm.viewerPosX;
 		double viewY = rm.viewerPosY;
@@ -284,12 +303,77 @@ public class BedESPMod extends Mod {
 		ColorUtils.resetColor();
 		GlStateManager.popMatrix();
 
-		if(showBedColorSetting.isToggled() || checkDefBlockSetting.isToggled()) {
-			for(Bed bed : beds) {
-				List<ItemStack> icons = buildDisplayIcons(bed);
-				if(!icons.isEmpty()) renderIconsAboveBed(bed, icons, rm);
+	}
+
+	@EventTarget
+	public void onRender2D(EventRender2D event) {
+		if(mc.theWorld == null || mc.thePlayer == null || beds.isEmpty()) return;
+		if(!showBedColorSetting.isToggled() && !checkDefBlockSetting.isToggled()) return;
+
+		ScaledResolution resolution = new ScaledResolution(mc);
+		float dt = panelFrameDelta();
+		List<ProjectedPanel> panels = new ArrayList<ProjectedPanel>();
+		Set<BlockPos> activeKeys = new HashSet<BlockPos>();
+
+		for(Bed bed : beds) {
+			activeKeys.add(bed.footPos);
+			List<ItemStack> icons = buildDisplayIcons(bed);
+			if(icons.isEmpty()) continue;
+
+			double centerX = (bed.box.minX + bed.box.maxX) / 2.0D;
+			double centerY = bed.box.maxY + 0.96D;
+			double centerZ = (bed.box.minZ + bed.box.maxZ) / 2.0D;
+			float[] screen = WorldToScreen.project(centerX, centerY, centerZ);
+			if(screen == null) continue;
+
+			double distance = mc.thePlayer.getDistance(centerX, centerY, centerZ);
+			if(distance > MAX_SCAN_CHUNKS * 16.0D + 16.0D) continue;
+
+			int columns = Math.min(MAX_ICONS_PER_ROW, icons.size());
+			int rows = (icons.size() + MAX_ICONS_PER_ROW - 1) / MAX_ICONS_PER_ROW;
+			int panelWidth = columns * ICON_SIZE + Math.max(0, columns - 1) * ICON_GAP + PANEL_PADDING * 2;
+			int panelHeight = rows * ICON_SIZE + Math.max(0, rows - 1) * ICON_GAP + PANEL_PADDING * 2;
+			float scale = (float)Math.max(0.82D, Math.min(1.0D, 1.05D - distance / 560.0D));
+			float scaledWidth = panelWidth * scale;
+			float scaledHeight = panelHeight * scale;
+
+			// Do not pin labels to screen edges. Edge-clamping made panels jump and
+			// slide along the border when the camera crossed behind a bed.
+			float margin = Math.max(28.0F, scaledWidth * 0.65F);
+			if(screen[0] < -margin || screen[0] > resolution.getScaledWidth() + margin
+					|| screen[1] < -margin || screen[1] > resolution.getScaledHeight() + margin) {
+				continue;
 			}
+
+			float targetX = screen[0];
+			float targetBottomY = screen[1];
+			PanelMotion motion = panelMotions.get(bed.footPos);
+			if(motion == null) {
+				motion = new PanelMotion(targetX, targetBottomY, scale);
+				panelMotions.put(bed.footPos, motion);
+			} else {
+				motion.update(targetX, targetBottomY, scale, dt);
+			}
+			panels.add(new ProjectedPanel(motion.x, motion.y, motion.scale,
+					distance, icons));
 		}
+
+		panelMotions.keySet().retainAll(activeKeys);
+		Collections.sort(panels, (first, second) -> Double.compare(second.distance, first.distance));
+		for(ProjectedPanel panel : panels) {
+			renderProjectedIcons(panel, resolution);
+		}
+	}
+
+	private float panelFrameDelta() {
+		long now = System.nanoTime();
+		if(lastPanelFrameNanos == 0L) {
+			lastPanelFrameNanos = now;
+			return 1.0F / 60.0F;
+		}
+		float dt = (now - lastPanelFrameNanos) / 1000000000.0F;
+		lastPanelFrameNanos = now;
+		return Math.max(0.0F, Math.min(0.05F, dt));
 	}
 
 	private List<ItemStack> buildDisplayIcons(Bed bed) {
@@ -299,78 +383,113 @@ public class BedESPMod extends Mod {
 		return icons;
 	}
 
-	private void renderIconsAboveBed(Bed bed, List<ItemStack> icons, RenderManager rm) {
-		double centerX = (bed.box.minX + bed.box.maxX) / 2.0D;
-		double centerY = bed.box.maxY + 1.05D;
-		double centerZ = (bed.box.minZ + bed.box.maxZ) / 2.0D;
-		double distance = mc.thePlayer.getDistance(centerX, centerY, centerZ);
-		float scale = (float) Math.max(0.025D, Math.min(0.12D, distance * 0.0025D));
-
+	private void renderProjectedIcons(ProjectedPanel panel, ScaledResolution resolution) {
+		List<ItemStack> icons = panel.icons;
 		int columns = Math.min(MAX_ICONS_PER_ROW, icons.size());
 		int rows = (icons.size() + MAX_ICONS_PER_ROW - 1) / MAX_ICONS_PER_ROW;
-		int contentWidth = columns * ICON_SIZE + (columns - 1) * ICON_GAP;
+		int contentWidth = columns * ICON_SIZE + Math.max(0, columns - 1) * ICON_GAP;
 		int panelWidth = contentWidth + PANEL_PADDING * 2;
-		int panelHeight = rows * ICON_SIZE
-				+ Math.max(0, rows - 1) * ICON_GAP + PANEL_PADDING * 2;
-		int panelTop = -panelHeight / 2;
+		int panelHeight = rows * ICON_SIZE + Math.max(0, rows - 1) * ICON_GAP + PANEL_PADDING * 2;
+
+		float scale = panel.scale;
+		float scaledWidth = panelWidth * scale;
+		float scaledHeight = panelHeight * scale;
+		float centerX = Math.max(scaledWidth / 2.0F + 3.0F,
+				Math.min(resolution.getScaledWidth() - scaledWidth / 2.0F - 3.0F, panel.screenX));
+		float bottomY = Math.max(scaledHeight + 3.0F,
+				Math.min(resolution.getScaledHeight() - 3.0F, panel.screenY));
 
 		GlStateManager.pushMatrix();
-		GlStateManager.translate(centerX - rm.viewerPosX, centerY - rm.viewerPosY, centerZ - rm.viewerPosZ);
-		GlStateManager.rotate(-rm.playerViewY, 0.0F, 1.0F, 0.0F);
-		GlStateManager.rotate(rm.playerViewX, 1.0F, 0.0F, 0.0F);
-		GlStateManager.scale(-scale, -scale, scale);
-
-		GlStateManager.disableLighting();
-		GlStateManager.disableDepth();
-		GlStateManager.depthMask(false);
-		GlStateManager.enableBlend();
-		GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
-		GlStateManager.enableAlpha();
-		GlStateManager.enableTexture2D();
-		GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
-
-		Color accent = colorSetting.getColor();
-		RenderUtils.drawRoundedRect(-panelWidth / 2.0F - 1.5F, panelTop - 1.5F,
-				panelWidth + 3.0F, panelHeight + 3.0F, 5.0F, new Color(0, 0, 0, 105));
-		RenderUtils.drawRoundedRect(-panelWidth / 2.0F, panelTop,
-				panelWidth, panelHeight, 4.0F, new Color(0, 0, 0, 191));
-		RenderUtils.drawRoundedOutline(-panelWidth / 2.0F, panelTop,
-				panelWidth, panelHeight, 4.0F, 0.8F,
-				new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 205));
-
-		GlStateManager.enableBlend();
-		GlStateManager.enableTexture2D();
-
-		GlStateManager.enableRescaleNormal();
-		GlStateManager.enableColorMaterial();
-		RenderHelper.enableGUIStandardItemLighting();
-
-		float oldZLevel = mc.getRenderItem().zLevel;
-		// RenderItem adds 100 to zLevel for GUI rendering. Cancel that translation
-		// because this GUI is already positioned in the 3D world.
-		mc.getRenderItem().zLevel = -100.0F;
-		for(int i = 0; i < icons.size(); i++) {
-			int row = i / MAX_ICONS_PER_ROW;
-			int column = i % MAX_ICONS_PER_ROW;
-			int itemsInRow = Math.min(MAX_ICONS_PER_ROW, icons.size() - row * MAX_ICONS_PER_ROW);
-			int rowWidth = itemsInRow * ICON_SIZE + (itemsInRow - 1) * ICON_GAP;
-			int itemX = -rowWidth / 2 + column * (ICON_SIZE + ICON_GAP);
-			int itemY = panelTop + PANEL_PADDING + row * (ICON_SIZE + ICON_GAP);
+		try {
+			GlStateManager.translate(centerX, bottomY - scaledHeight, 0.0F);
+			GlStateManager.scale(scale, scale, 1.0F);
+			GlStateManager.disableLighting();
+			GlStateManager.disableDepth();
+			GlStateManager.depthMask(false);
+			GlStateManager.enableBlend();
+			GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+			GlStateManager.enableAlpha();
+			GlStateManager.enableTexture2D();
 			GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
-			mc.getRenderItem().renderItemAndEffectIntoGUI(icons.get(i), itemX, itemY);
-		}
-		mc.getRenderItem().zLevel = oldZLevel;
 
-		RenderHelper.disableStandardItemLighting();
-		GlStateManager.disableRescaleNormal();
-		GlStateManager.disableColorMaterial();
-		GlStateManager.enableDepth();
-		GlStateManager.depthMask(true);
-		GlStateManager.disableBlend();
-		GlStateManager.enableLighting();
-		GlStateManager.enableTexture2D();
-		GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
-		GlStateManager.popMatrix();
+			// Opaque rounded black panel matching the ClickGUI glass-card shape.
+			RenderUtils.drawRoundedRect(-panelWidth / 2.0F - 2.5F, -2.5F,
+					panelWidth + 5.0F, panelHeight + 5.0F, 7.0F, new Color(0, 0, 0, 255));
+			RenderUtils.drawRoundedRect(-panelWidth / 2.0F, 0.0F,
+					panelWidth, panelHeight, 6.0F, new Color(5, 5, 7, 248));
+			RenderUtils.drawRoundedOutline(-panelWidth / 2.0F, 0.0F,
+					panelWidth, panelHeight, 6.0F, 1.0F, new Color(0, 0, 0, 255));
+
+			GlStateManager.enableRescaleNormal();
+			GlStateManager.enableColorMaterial();
+			RenderHelper.enableGUIStandardItemLighting();
+			float oldZLevel = mc.getRenderItem().zLevel;
+			mc.getRenderItem().zLevel = 220.0F;
+			try {
+				for(int i = 0; i < icons.size(); i++) {
+					int row = i / MAX_ICONS_PER_ROW;
+					int column = i % MAX_ICONS_PER_ROW;
+					int itemsInRow = Math.min(MAX_ICONS_PER_ROW, icons.size() - row * MAX_ICONS_PER_ROW);
+					int rowWidth = itemsInRow * ICON_SIZE + Math.max(0, itemsInRow - 1) * ICON_GAP;
+					int slotX = -rowWidth / 2 + column * (ICON_SIZE + ICON_GAP);
+					int slotY = PANEL_PADDING + row * (ICON_SIZE + ICON_GAP);
+					RenderUtils.drawRoundedRect(slotX - 1.0F, slotY - 1.0F,
+							ICON_SIZE + 2.0F, ICON_SIZE + 2.0F, 4.0F,
+							new Color(0, 0, 0, 230));
+					RenderUtils.drawRoundedOutline(slotX - 1.0F, slotY - 1.0F,
+							ICON_SIZE + 2.0F, ICON_SIZE + 2.0F, 4.0F, 0.6F,
+							new Color(42, 42, 46, 235));
+					GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+					mc.getRenderItem().renderItemAndEffectIntoGUI(icons.get(i), slotX + 1, slotY + 1);
+				}
+			} finally {
+				mc.getRenderItem().zLevel = oldZLevel;
+				RenderHelper.disableStandardItemLighting();
+				GlStateManager.disableRescaleNormal();
+				GlStateManager.disableColorMaterial();
+			}
+		} finally {
+			GlStateManager.depthMask(true);
+			GlStateManager.enableDepth();
+			GlStateManager.disableBlend();
+			GlStateManager.enableLighting();
+			GlStateManager.enableTexture2D();
+			GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+			GlStateManager.popMatrix();
+		}
+	}
+
+	private static class ProjectedPanel {
+		private final float screenX, screenY, scale;
+		private final double distance;
+		private final List<ItemStack> icons;
+
+		private ProjectedPanel(float screenX, float screenY, float scale,
+				double distance, List<ItemStack> icons) {
+			this.screenX = screenX;
+			this.screenY = screenY;
+			this.scale = scale;
+			this.distance = distance;
+			this.icons = icons;
+		}
+	}
+
+	private static class PanelMotion {
+		private float x, y, scale;
+
+		private PanelMotion(float x, float y, float scale) {
+			this.x = x;
+			this.y = y;
+			this.scale = scale;
+		}
+
+		private void update(float targetX, float targetY, float targetScale, float dt) {
+			float positionFactor = 1.0F - (float)Math.exp(-18.0F * dt);
+			float scaleFactor = 1.0F - (float)Math.exp(-12.0F * dt);
+			x += (targetX - x) * positionFactor;
+			y += (targetY - y) * positionFactor;
+			scale += (targetScale - scale) * scaleFactor;
+		}
 	}
 
 	private static class DefenseIcon {

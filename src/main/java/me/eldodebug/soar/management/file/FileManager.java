@@ -12,6 +12,8 @@ public class FileManager {
 
 	private File glideDir, profileDir, cacheDir, screenshotDir, soarDir, customCapeDir, capeCacheDir;
 	private boolean migrationSuccess = false;
+	private final boolean firstInstallation;
+	private boolean beginnerGuidePromptPending;
 	
 	public FileManager() {
 		
@@ -22,6 +24,11 @@ public class FileManager {
 		screenshotDir = new File(glideDir, "screenshots");
 		customCapeDir = new File(cacheDir, "custom-cape");
 		capeCacheDir = new File(cacheDir, "cape");
+
+		// Capture this before any migration or directory creation. Existing users,
+		// including users of the legacy soar directory, must never be treated as new.
+		firstInstallation = !glideDir.exists() && !soarDir.exists();
+		beginnerGuidePromptPending = firstInstallation;
 
 		try{
 
@@ -90,6 +97,21 @@ public class FileManager {
 
 	public File getCapeCacheDir() {
 		return capeCacheDir;
+	}
+
+	public boolean isFirstInstallation() {
+		return firstInstallation;
+	}
+
+	/**
+	 * Returns true exactly once during the first FlaxClient session. The value is
+	 * based on whether neither the current nor legacy data directory existed before
+	 * FileManager created anything.
+	 */
+	public synchronized boolean consumeBeginnerGuidePrompt() {
+		if(!beginnerGuidePromptPending) return false;
+		beginnerGuidePromptPending = false;
+		return true;
 	}
 
 }

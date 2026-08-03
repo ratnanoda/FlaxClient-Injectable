@@ -26,10 +26,16 @@ import me.eldodebug.soar.logger.GlideLogger;
 import me.eldodebug.soar.management.media.MediaToolResolver;
 
 /**
- * YouTube playlist and playback controller. yt-dlp resolves/downloads a URL,
- * while ffmpeg provides fixed-size RGBA frames and PCM audio for Minecraft.
+ * Unified YouTube download and playback controller. Every playlist item is
+ * cached locally through yt-dlp. FFmpeg then exposes either video + audio for
+ * PiP playback or audio only for the compact music player.
  */
 public final class YouTubeManager {
+
+    public enum PlaybackMode {
+        VIDEO,
+        MUSIC
+    }
 
     private final List<YouTubeEntry> playlist = new ArrayList<YouTubeEntry>();
     private final File cacheDirectory;
@@ -51,9 +57,10 @@ public final class YouTubeManager {
     private volatile long pausedPositionMillis;
     private volatile long playbackStartNanos;
     private volatile int generation;
-    private volatile String status = "Paste a YouTube link to begin";
+    private volatile String status = "Paste a YouTube link to download";
     private volatile int qualityHeight = 480;
     private volatile RepeatMode repeatMode = RepeatMode.OFF;
+    private volatile PlaybackMode playbackMode = PlaybackMode.VIDEO;
 
     private enum RepeatMode {
         OFF,
@@ -76,8 +83,8 @@ public final class YouTubeManager {
 
     private void verifyToolsAsync() {
         Thread thread = new Thread(() -> {
-            if(!canRun(ytDlpCommand, "--version")) status = "yt-dlp was not found";
-            else if(!canRun(ffmpegCommand, "-version")) status = "ffmpeg was not found";
+            if(!canRun(ytDlpCommand, "--version")) status = "Bundled yt-dlp could not be started";
+            else if(!canRun(ffmpegCommand, "-version")) status = "Bundled ffmpeg could not be started";
         }, "Flax-YouTube-Tools");
         thread.setDaemon(true);
         thread.start();
@@ -93,6 +100,7 @@ public final class YouTubeManager {
         }
     }
 
+    /** Adds an item and immediately downloads a local copy in the background. */
     public void addUrl(String rawUrl) {
         final String url = rawUrl == null ? "" : rawUrl.trim();
         if(!isSupportedUrl(url)) {
@@ -102,7 +110,8 @@ public final class YouTubeManager {
         synchronized(playlist) {
             for(YouTubeEntry entry : playlist) {
                 if(entry.getUrl().equals(url)) {
-                    status = "That video is already in the playlist";
+                    status = entry.getMediaFile() != null ? "That item is already downloaded"
+                            : "That item is already in the playlist";
                     return;
                 }
             }
@@ -110,7 +119,7 @@ public final class YouTubeManager {
             savePlaylist();
         }
         status = "Reading video information...";
-        Thread thread = new Thread(() -> loadMetadata(url), "Flax-YouTube-Metadata");
+        Thread thread = new Thread(() -> loadMetadata(url, true), "Flax-YouTube-Metadata");
         thread.setDaemon(true);
         thread.start();
     }
@@ -121,7 +130,7 @@ public final class YouTubeManager {
                 && (lower.contains("youtube.com/") || lower.contains("youtu.be/"));
     }
 
-    private void loadMetadata(String url) {
+    private void loadMetadata(String url, boolean downloadAfter) {
         YouTubeEntry entry = findByUrl(url);
         if(entry == null) return;
         try {
@@ -137,9 +146,11 @@ public final class YouTubeManager {
             entry.setTitle(title);
             try { entry.setDurationMillis(Math.round(Double.parseDouble(seconds) * 1000.0)); } catch(Exception ignored) {}
             savePlaylist();
-            status = "Added to playlist";
+            status = downloadAfter ? "Downloading video..." : "Video information updated";
+            if(downloadAfter) prefetch(entry);
         } catch(Exception e) {
             status = "Unable to read that YouTube link";
+            entry.setDownloadError("Metadata failed");
             GlideLogger.error("Unable to read YouTube metadata", e);
         }
     }
@@ -150,10 +161,32 @@ public final class YouTubeManager {
             for(YouTubeEntry entry : snapshot) {
                 String title = entry.getTitle();
                 if(title == null || title.equals(entry.getUrl()) || title.indexOf('\uFFFD') >= 0) {
-                    loadMetadata(entry.getUrl());
+                    loadMetadata(entry.getUrl(), false);
                 }
             }
         }, "Flax-YouTube-Metadata-Repair");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private void prefetch(final YouTubeEntry entry) {
+        File cached = findCachedMedia(entry);
+        if(cached != null) {
+            entry.setMediaFile(cached);
+            status = "Downloaded and ready";
+            return;
+        }
+        Thread thread = new Thread(() -> {
+            try {
+                File media = downloadMedia(entry);
+                if(current == null || current == entry) status = "Downloaded and ready";
+                entry.setMediaFile(media);
+            } catch(Exception e) {
+                entry.setDownloadError("Download failed");
+                if(current == null || current == entry) status = "Video download failed; check the link";
+                GlideLogger.error("Unable to pre-download YouTube video", e);
+            }
+        }, "Flax-YouTube-Prefetch");
         thread.setDaemon(true);
         thread.start();
     }
@@ -163,7 +196,9 @@ public final class YouTubeManager {
         generation++;
         stopDecoders();
         current = entry;
+        playing = false;
         paused = false;
+        loading = false;
         pausedPositionMillis = 0L;
         latestFrame = null;
         File cached = findCachedMedia(entry);
@@ -172,9 +207,8 @@ public final class YouTubeManager {
             startDecoders(entry, 0L, generation);
             return;
         }
-        playing = false;
         loading = true;
-        status = "Downloading video for smooth PiP playback...";
+        status = "Downloading video before playback...";
         final int expectedGeneration = generation;
         Thread thread = new Thread(() -> downloadAndPlay(entry, expectedGeneration), "Flax-YouTube-Download");
         thread.setDaemon(true);
@@ -182,30 +216,53 @@ public final class YouTubeManager {
     }
 
     private void downloadAndPlay(YouTubeEntry entry, int expectedGeneration) {
-        String output = new File(cacheDirectory, cachePrefix(entry) + ".%(ext)s").getAbsolutePath();
         try {
-            Process process = new ProcessBuilder(ytDlpCommand, "--encoding", "utf-8",
-                    "--no-playlist", "--no-warnings",
-                    "-f", "bv*[height<=" + qualityHeight + "]+ba/b[height<=" + qualityHeight + "]/b", "--merge-output-format", "mp4",
-                    "--ffmpeg-location", ffmpegCommand,
-                    "-o", output, "--print", "after_move:filepath", entry.getUrl())
-                    .redirectError(ProcessBuilder.Redirect.INHERIT).start();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
-            String line;
-            String lastPath = null;
-            while((line = reader.readLine()) != null) if(!line.trim().isEmpty()) lastPath = line.trim();
-            int exit = process.waitFor();
-            if(exit != 0 || lastPath == null) throw new IllegalStateException("yt-dlp exited with " + exit);
-            File media = new File(lastPath);
-            if(!media.isFile()) throw new IllegalStateException("Downloaded file was not found");
+            File media = downloadMedia(entry);
             entry.setMediaFile(media);
-            if(expectedGeneration == generation && current == entry) startDecoders(entry, 0L, expectedGeneration);
+            if(expectedGeneration == generation && current == entry) {
+                startDecoders(entry, 0L, expectedGeneration);
+            }
         } catch(Exception e) {
+            entry.setDownloadError("Download failed");
             if(expectedGeneration == generation) {
                 loading = false;
                 status = "Video download failed; check yt-dlp and the link";
             }
             GlideLogger.error("Unable to download YouTube video", e);
+        }
+    }
+
+    /** Serialises downloads per entry so prefetch and play never download twice. */
+    private File downloadMedia(YouTubeEntry entry) throws Exception {
+        synchronized(entry) {
+            File cached = findCachedMedia(entry);
+            if(cached != null) return cached;
+
+            entry.setDownloading(true);
+            entry.setDownloadError(null);
+            String output = new File(cacheDirectory, cachePrefix(entry) + ".%(ext)s").getAbsolutePath();
+            try {
+                Process process = new ProcessBuilder(ytDlpCommand, "--encoding", "utf-8",
+                        "--no-playlist", "--no-warnings", "--newline",
+                        "-f", "bv*[height<=" + qualityHeight + "]+ba/b[height<=" + qualityHeight + "]/b",
+                        "--merge-output-format", "mp4", "--ffmpeg-location", ffmpegCommand,
+                        "-o", output, "--print", "after_move:filepath", entry.getUrl())
+                        .redirectError(ProcessBuilder.Redirect.INHERIT).start();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
+                String line;
+                String lastPath = null;
+                while((line = reader.readLine()) != null) {
+                    if(!line.trim().isEmpty()) lastPath = line.trim();
+                }
+                int exit = process.waitFor();
+                if(exit != 0 || lastPath == null) throw new IllegalStateException("yt-dlp exited with " + exit);
+                File media = new File(lastPath);
+                if(!media.isFile()) throw new IllegalStateException("Downloaded file was not found");
+                entry.setMediaFile(media);
+                return media;
+            } finally {
+                entry.setDownloading(false);
+            }
         }
     }
 
@@ -220,32 +277,36 @@ public final class YouTubeManager {
 
     private void startDecoders(YouTubeEntry entry, long offsetMillis, int expectedGeneration) {
         if(entry.getMediaFile() == null || !entry.getMediaFile().isFile()) return;
+        PlaybackMode mode = playbackMode;
         loading = false;
         paused = false;
         playing = true;
         pausedPositionMillis = Math.max(0L, offsetMillis);
         playbackStartNanos = System.nanoTime();
-        status = "Playing in picture-in-picture";
+        latestFrame = null;
+        status = mode == PlaybackMode.MUSIC ? "Playing as music" : "Playing video in picture-in-picture";
         try {
             String seek = String.format(Locale.ROOT, "%.3f", offsetMillis / 1000.0);
-            int videoWidth = getVideoWidth();
-            int videoHeight = getVideoHeight();
-            videoProcess = new ProcessBuilder(ffmpegCommand, "-loglevel", "quiet", "-re", "-ss", seek,
-                    "-i", entry.getMediaFile().getAbsolutePath(), "-an", "-vf",
-                    "scale=" + videoWidth + ":" + videoHeight + ":force_original_aspect_ratio=decrease,pad="
-                            + videoWidth + ":" + videoHeight + ":(ow-iw)/2:(oh-ih)/2",
-                    "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1")
-                    .redirectError(ProcessBuilder.Redirect.INHERIT).start();
-            audioProcess = new ProcessBuilder(ffmpegCommand, "-loglevel", "quiet", "-ss", seek,
-                    "-i", entry.getMediaFile().getAbsolutePath(), "-vn", "-f", "s16le", "-acodec", "pcm_s16le",
-                    "-ar", "44100", "-ac", "2", "pipe:1")
-                    .redirectError(ProcessBuilder.Redirect.INHERIT).start();
+            if(mode == PlaybackMode.VIDEO) {
+                int videoWidth = getVideoWidth();
+                int videoHeight = getVideoHeight();
+                videoProcess = new ProcessBuilder(ffmpegCommand, "-nostdin", "-hide_banner", "-loglevel", "quiet",
+                        "-re", "-ss", seek, "-i", entry.getMediaFile().getAbsolutePath(), "-an", "-vf",
+                        "fps=60,scale=" + videoWidth + ":" + videoHeight + ":force_original_aspect_ratio=decrease,pad="
+                                + videoWidth + ":" + videoHeight + ":(ow-iw)/2:(oh-ih)/2",
+                        "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1")
+                        .redirectError(ProcessBuilder.Redirect.INHERIT).start();
+                startVideoReader(videoProcess.getInputStream(), expectedGeneration);
+            }
 
-            startVideoReader(videoProcess.getInputStream(), expectedGeneration);
+            audioProcess = new ProcessBuilder(ffmpegCommand, "-nostdin", "-hide_banner", "-loglevel", "quiet",
+                    "-ss", seek, "-i", entry.getMediaFile().getAbsolutePath(), "-vn", "-f", "s16le",
+                    "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2", "pipe:1")
+                    .redirectError(ProcessBuilder.Redirect.INHERIT).start();
             startAudioReader(audioProcess.getInputStream(), expectedGeneration, entry);
         } catch(Exception e) {
             playing = false;
-            status = "Unable to start ffmpeg playback";
+            status = "Unable to start bundled ffmpeg playback";
             GlideLogger.error("Unable to start YouTube playback", e);
         }
     }
@@ -354,9 +415,46 @@ public final class YouTubeManager {
         if(remainPaused) {
             paused = true;
             playing = false;
+            status = "Paused";
         } else {
             startDecoders(entry, target, nextGeneration);
         }
+    }
+
+    public void setPlaybackMode(PlaybackMode mode) {
+        if(mode == null || mode == playbackMode) return;
+        playbackMode = mode;
+        savePlaybackSettings();
+        latestFrame = null;
+
+        YouTubeEntry entry = current;
+        if(entry == null) {
+            status = mode == PlaybackMode.MUSIC ? "Music mode selected" : "Video mode selected";
+            return;
+        }
+        if(loading) {
+            status = mode == PlaybackMode.MUSIC
+                    ? "Downloading video; music mode will start when ready"
+                    : "Downloading video; PiP will start when ready";
+            return;
+        }
+
+        long position = getPositionMillis();
+        boolean remainPaused = paused;
+        int nextGeneration = ++generation;
+        stopDecoders();
+        pausedPositionMillis = position;
+        if(remainPaused) {
+            playing = false;
+            paused = true;
+            status = mode == PlaybackMode.MUSIC ? "Paused in music mode" : "Paused in video mode";
+        } else if(entry.getMediaFile() != null && entry.getMediaFile().isFile()) {
+            startDecoders(entry, position, nextGeneration);
+        }
+    }
+
+    public void togglePlaybackMode() {
+        setPlaybackMode(playbackMode == PlaybackMode.VIDEO ? PlaybackMode.MUSIC : PlaybackMode.VIDEO);
     }
 
     public void stop() {
@@ -444,7 +542,12 @@ public final class YouTubeManager {
                 String title = decode(parts[1]);
                 long duration = 0L;
                 try { duration = Long.parseLong(parts[2]); } catch(Exception ignored) {}
-                if(isSupportedUrl(url)) playlist.add(new YouTubeEntry(url, title, duration));
+                if(isSupportedUrl(url)) {
+                    YouTubeEntry entry = new YouTubeEntry(url, title, duration);
+                    File cached = findCachedMedia(entry);
+                    if(cached != null) entry.setMediaFile(cached);
+                    playlist.add(entry);
+                }
             }
         } catch(Exception e) {
             GlideLogger.error("Unable to load YouTube playlist", e);
@@ -467,10 +570,13 @@ public final class YouTubeManager {
         if(!playbackSettingsFile.isFile()) return;
         try(BufferedReader reader = new BufferedReader(new InputStreamReader(
                 new FileInputStream(playbackSettingsFile), StandardCharsets.UTF_8))) {
-            String value = reader.readLine();
-            if(value != null) repeatMode = RepeatMode.valueOf(value.trim().toUpperCase(Locale.ROOT));
+            String repeat = reader.readLine();
+            String mode = reader.readLine();
+            if(repeat != null) repeatMode = RepeatMode.valueOf(repeat.trim().toUpperCase(Locale.ROOT));
+            if(mode != null) playbackMode = PlaybackMode.valueOf(mode.trim().toUpperCase(Locale.ROOT));
         } catch(Exception e) {
             repeatMode = RepeatMode.OFF;
+            playbackMode = PlaybackMode.VIDEO;
             GlideLogger.error("Unable to load YouTube playback settings", e);
         }
     }
@@ -479,6 +585,7 @@ public final class YouTubeManager {
         try(PrintWriter writer = new PrintWriter(new OutputStreamWriter(
                 new FileOutputStream(playbackSettingsFile), StandardCharsets.UTF_8))) {
             writer.println(repeatMode.name());
+            writer.println(playbackMode.name());
         } catch(Exception e) {
             GlideLogger.error("Unable to save YouTube playback settings", e);
         }
@@ -490,7 +597,7 @@ public final class YouTubeManager {
     public void toggleVideoLoop() {
         repeatMode = repeatMode == RepeatMode.VIDEO ? RepeatMode.OFF : RepeatMode.VIDEO;
         savePlaybackSettings();
-        status = repeatMode == RepeatMode.VIDEO ? "Video loop enabled" : "Video loop disabled";
+        status = repeatMode == RepeatMode.VIDEO ? "Item loop enabled" : "Item loop disabled";
     }
 
     public void togglePlaylistLoop() {
@@ -499,22 +606,42 @@ public final class YouTubeManager {
         status = repeatMode == RepeatMode.PLAYLIST ? "Playlist loop enabled" : "Playlist loop disabled";
     }
 
-    private String encode(String value) { return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8)); }
-    private String decode(String value) { return new String(Base64.getDecoder().decode(value), StandardCharsets.UTF_8); }
+    private String encode(String value) {
+        return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String decode(String value) {
+        return new String(Base64.getDecoder().decode(value), StandardCharsets.UTF_8);
+    }
+
     private void drain(InputStream input) {
         try { while(input.read() >= 0) {} } catch(Exception ignored) {}
     }
 
     public List<YouTubeEntry> getPlaylist() {
-        synchronized(playlist) { return Collections.unmodifiableList(new ArrayList<YouTubeEntry>(playlist)); }
+        synchronized(playlist) {
+            return Collections.unmodifiableList(new ArrayList<YouTubeEntry>(playlist));
+        }
     }
+
     public YouTubeEntry getCurrent() { return current; }
     public byte[] getLatestFrame() { return latestFrame; }
     public long getLatestFrameSequence() { return latestFrameSequence; }
     public boolean isPlaying() { return playing; }
     public boolean isPaused() { return paused; }
     public boolean isLoading() { return loading; }
-    public boolean isPipVisible() { return current != null && latestFrame != null && (playing || paused); }
+    public PlaybackMode getPlaybackMode() { return playbackMode; }
+    public boolean isVideoMode() { return playbackMode == PlaybackMode.VIDEO; }
+    public boolean isMusicMode() { return playbackMode == PlaybackMode.MUSIC; }
+    public boolean isPipVisible() {
+        return playbackMode == PlaybackMode.VIDEO && current != null && latestFrame != null && (playing || paused);
+    }
+    public boolean isMusicHudVisible() {
+        return playbackMode == PlaybackMode.MUSIC && current != null && (playing || paused || loading);
+    }
+    public boolean isMusicPlaybackActive() {
+        return playbackMode == PlaybackMode.MUSIC && current != null && (playing || paused || loading);
+    }
     public float getVolume() { return volume; }
     public void setVolume(float volume) { this.volume = Math.max(0.0F, Math.min(2.0F, volume)); }
     public long getPositionMillis() {
@@ -529,16 +656,19 @@ public final class YouTubeManager {
     public int getQualityHeight() { return qualityHeight; }
     public int getVideoHeight() { return qualityHeight; }
     public int getVideoWidth() { return qualityHeight == 480 ? 854 : qualityHeight * 16 / 9; }
+
     public void setQualityHeight(int qualityHeight) {
         int normalized = qualityHeight <= 360 ? 360 : qualityHeight >= 720 ? 720 : 480;
         if(this.qualityHeight == normalized) return;
         this.qualityHeight = normalized;
         status = "Quality set to " + normalized + "p";
         YouTubeEntry entry = current;
-        if(entry != null && (playing || paused || loading)) play(entry);
+        if(playbackMode == PlaybackMode.VIDEO && entry != null && (playing || paused || loading)) play(entry);
     }
+
     private String cachePrefix(YouTubeEntry entry) {
         return Integer.toHexString(entry.getUrl().hashCode()) + "-" + qualityHeight;
     }
+
     public void shutdown() { stop(); }
 }

@@ -118,6 +118,10 @@ task buildNativeMouseLinux {
 
 processResources.dependsOn buildNativeMouseLinux
 
+def windowsYtDlp = file("FlaxClientLauncher/assets/tools/yt-dlp-windows-x86_64.exe")
+def windowsFfmpegArchive = file("FlaxClientLauncher/assets/tools/ffmpeg-windows-x86_64.zip")
+def bundledWindowsToolPath = "assets/minecraft/soar/tools/windows-x64"
+
 minecraft {
     version = "1.8.9"
     tweakClass = "me.eldodebug.soar.injection.mixin.GlideTweaker"
@@ -179,10 +183,21 @@ mixin {
 
 processResources {
     inputs.files "src/main/resources"
+    inputs.file windowsYtDlp
+    inputs.file windowsFfmpegArchive
     outputs.dir "build/classes/main"
     copy {
         from("src/main/resources")
         into("build/classes/main")
+    }
+    copy {
+        from(windowsYtDlp) {
+            rename { "yt-dlp.exe" }
+        }
+        from(windowsFfmpegArchive) {
+            rename { "ffmpeg.zip" }
+        }
+        into("build/classes/main/${bundledWindowsToolPath}")
     }
 }
 
@@ -192,6 +207,14 @@ jar {
         configurations.embed.collect {
             it.isDirectory() ? it : zipTree(it)
         }
+    }
+    from(windowsYtDlp) {
+        into bundledWindowsToolPath
+        rename { "yt-dlp.exe" }
+    }
+    from(windowsFfmpegArchive) {
+        into bundledWindowsToolPath
+        rename { "ffmpeg.zip" }
     }
     exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
 }
@@ -223,6 +246,14 @@ task lunarJar(type: Jar) {
     dependsOn classes
     archiveName = "FlaxClient-Lunar.jar"
     from sourceSets.main.output
+    from(windowsYtDlp) {
+        into bundledWindowsToolPath
+        rename { "yt-dlp.exe" }
+    }
+    from(windowsFfmpegArchive) {
+        into bundledWindowsToolPath
+        rename { "ffmpeg.zip" }
+    }
     from {
         (configurations.embed + configurations.asmRuntime).collect {
             it.isDirectory() ? it : zipTree(it)
@@ -285,14 +316,14 @@ def findCmakeExecutable = {
 }
 
 task configureAttachDll(type: Exec) {
-    dependsOn reobfJar
+    dependsOn lunarJar
     onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
     doFirst {
         commandLine findCmakeExecutable().absolutePath,
                 "-S", file("attach").absolutePath,
                 "-B", file("attach/build").absolutePath,
                 "-A", "x64",
-                "-DFLAX_CLIENT_JAR=${jar.archivePath.absolutePath}"
+                "-DFLAX_CLIENT_JAR=${tasks.lunarJar.archivePath.absolutePath}"
     }
 }
 
