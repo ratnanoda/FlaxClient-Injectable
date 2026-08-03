@@ -19,8 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_TAG: flaxclient-beta-1.0
+      RELEASE_TAG: flaxclient-beta-1.0-release
       RELEASE_NAME: FlaxClient Beta 1.0
+      RELEASE_TARGET: de75cbdc25f1856f0da711253d222b8c6bf29d37
       ARTIFACT_RUN_ID: '30828655071'
       ARTIFACT_NAME: FlaxClient-Lunar-Single-EXE-Windows-x64
     steps:
@@ -38,7 +39,7 @@ jobs:
           cp "$exe_path" FlaxClient-Beta-1.0.exe
           sha256sum FlaxClient-Beta-1.0.exe | tee FlaxClient-Beta-1.0.sha256
 
-      - name: Publish as a full release
+      - name: Publish as a standard release
         shell: bash
         run: |
           set -euo pipefail
@@ -54,24 +55,25 @@ jobs:
           - Resizable Ghost module list and updated beginner guide
           - Unified YouTube/Music playback with PiP capped at 60 FPS
 
-          This build retains the Beta 1.0 name while being published as a standard GitHub Release.
+          This build is published as a standard GitHub Release.
           EOF
 
-          # A failed immutable-release promotion left this draft unreachable by tag.
-          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/364367472" >/dev/null 2>&1 || true
-
-          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-            --jq ".[] | select(.tag_name == \"${RELEASE_TAG}\") | .id" |
-          while read -r release_id; do
-            [ -n "${release_id:-}" ] || continue
-            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+          # Remove drafts left by earlier immutable-release promotion attempts.
+          for release_id in 364342464 364346417 364367472 364368346; do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}" >/dev/null 2>&1 || true
           done
+
+          existing_id="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"${RELEASE_TAG}\") | .id" | head -n 1)"
+          if [ -n "$existing_id" ]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${existing_id}"
+          fi
 
           gh release create "$RELEASE_TAG" \
             FlaxClient-Beta-1.0.exe \
             FlaxClient-Beta-1.0.sha256 \
             --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
+            --target "$RELEASE_TARGET" \
             --title "$RELEASE_NAME" \
             --notes-file release-notes.md
 
