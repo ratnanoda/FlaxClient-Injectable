@@ -1,5 +1,6 @@
 name: Publish FlaxClient Beta 1.0
 
+# Publishes the verified Windows x64 single-EXE artifact.
 on:
   push:
     branches:
