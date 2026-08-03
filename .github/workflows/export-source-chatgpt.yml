@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - chatgpt/unify-youtube-music-20260803
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
