@@ -7,6 +7,10 @@ on:
       - chatgpt/beginner-guide-single-exe-20260803
     paths:
       - .github/workflows/publish-flaxclient-beta-1.0.yml
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/workflows/publish-flaxclient-beta-1.0.yml
   workflow_dispatch:
 
 permissions:
@@ -20,11 +24,14 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: flaxclient-beta-1.0
       RELEASE_NAME: FlaxClient Beta 1.0
+      RELEASE_TARGET: ${{ github.event.pull_request.head.sha || github.sha }}
       ARTIFACT_RUN_ID: '30828655071'
       ARTIFACT_NAME: FlaxClient-Lunar-Single-EXE-Windows-x64
     steps:
       - name: Check out release commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TARGET }}
 
       - name: Mark earlier releases as old
         shell: bash
@@ -83,14 +90,14 @@ jobs:
             release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id')"
             gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
               -f name="$RELEASE_NAME" \
-              -f target_commitish="$GITHUB_SHA" \
+              -f target_commitish="$RELEASE_TARGET" \
               -F draft=false \
               -F prerelease=true \
               --raw-field body="$(cat release-notes.md)" >/dev/null
           else
             gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
               -f tag_name="$RELEASE_TAG" \
-              -f target_commitish="$GITHUB_SHA" \
+              -f target_commitish="$RELEASE_TARGET" \
               -f name="$RELEASE_NAME" \
               -F draft=false \
               -F prerelease=true \
