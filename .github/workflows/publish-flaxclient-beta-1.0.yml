@@ -67,7 +67,7 @@ jobs:
           cp "$exe_path" FlaxClient-Beta-1.0.exe
           sha256sum FlaxClient-Beta-1.0.exe | tee FlaxClient-Beta-1.0.sha256
 
-      - name: Create draft, upload assets, and publish Beta 1.0
+      - name: Prepare asset-complete Beta draft
         shell: bash
         run: |
           set -euo pipefail
@@ -86,27 +86,44 @@ jobs:
           This is a beta build. Visual and gameplay behavior may still receive further adjustments.
           EOF
 
-          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            existing_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id')"
-            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${existing_id}"
-          fi
-          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}" >/dev/null 2>&1 || true
+          release_id="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"${RELEASE_TAG}\") | .id" | head -n 1)"
 
-          release_json="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
-            -f tag_name="$RELEASE_TAG" \
-            -f target_commitish="$RELEASE_TARGET" \
-            -f name="$RELEASE_NAME" \
-            -F draft=true \
-            -F prerelease=true \
-            --raw-field body="$(cat release-notes.md)")"
-          release_id="$(jq -r '.id' <<<"$release_json")"
+          if [ -n "$release_id" ]; then
+            release_state="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}")"
+            is_draft="$(jq -r '.draft' <<<"$release_state")"
+            asset_count="$(jq -r '.assets | length' <<<"$release_state")"
+            if [ "$is_draft" != "true" ] && [ "$asset_count" -lt 2 ]; then
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+              release_id=""
+            fi
+          fi
+
+          if [ -z "$release_id" ]; then
+            jq -n \
+              --arg tag "$RELEASE_TAG" \
+              --arg target "$RELEASE_TARGET" \
+              --arg name "$RELEASE_NAME" \
+              --rawfile body release-notes.md \
+              '{tag_name:$tag,target_commitish:$target,name:$name,body:$body,draft:true,prerelease:true}' \
+              > create-release.json
+            release_id="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+              --input create-release.json --jq '.id')"
+          fi
+
+          release_json="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}")"
           upload_url="$(jq -r '.upload_url' <<<"$release_json" | sed 's/{?name,label}$//')"
 
           upload_asset() {
             local file="$1"
             local mime="$2"
-            local name
+            local name asset_id
             name="$(basename "$file")"
+            asset_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets" \
+              --jq ".[] | select(.name == \"${name}\") | .id" | head -n 1)"
+            if [ -n "$asset_id" ]; then
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
+            fi
             curl --fail-with-body --silent --show-error --location \
               --request POST \
               --header "Accept: application/vnd.github+json" \
@@ -123,15 +140,23 @@ jobs:
 
           asset_count="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq '.assets | length')"
           if [ "$asset_count" -ne 2 ]; then
-            echo "Expected 2 release assets before publishing, found ${asset_count}." >&2
+            echo "Expected 2 release assets, found ${asset_count}." >&2
             exit 1
           fi
 
-          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
-            -f name="$RELEASE_NAME" \
-            -F draft=false \
-            -F prerelease=true \
-            --raw-field body="$(cat release-notes.md)" >/dev/null
+          echo "RELEASE_ID=${release_id}" >> "$GITHUB_ENV"
+
+      - name: Publish Beta 1.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg name "$RELEASE_NAME" \
+            --rawfile body release-notes.md \
+            '{name:$name,body:$body,draft:false,prerelease:true}' \
+            > publish-release.json
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            --input publish-release.json >/dev/null
 
       - name: Verify published release
         shell: bash
