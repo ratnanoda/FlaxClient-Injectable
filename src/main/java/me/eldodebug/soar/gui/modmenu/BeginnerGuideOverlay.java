@@ -1,13 +1,9 @@
 package me.eldodebug.soar.gui.modmenu;
 
 import java.awt.Color;
-import java.io.File;
-import java.io.IOException;
-
 import org.lwjgl.input.Keyboard;
 
 import me.eldodebug.soar.Glide;
-import me.eldodebug.soar.logger.GlideLogger;
 import me.eldodebug.soar.management.color.AccentColor;
 import me.eldodebug.soar.management.color.ColorManager;
 import me.eldodebug.soar.management.color.palette.ColorPalette;
@@ -49,7 +45,7 @@ public final class BeginnerGuideOverlay {
 
     private final GuiModMenu parent;
     private boolean open;
-    private boolean firstRun;
+    private boolean visible;
     private boolean previousCanClose = true;
     private int page;
 
@@ -60,7 +56,7 @@ public final class BeginnerGuideOverlay {
     public void initGui() {
         open = false;
         page = 0;
-        firstRun = !markerFile().isFile();
+        visible = Glide.getInstance().getFileManager().consumeBeginnerGuidePrompt();
     }
 
     public boolean isOpen() {
@@ -74,7 +70,9 @@ public final class BeginnerGuideOverlay {
         ColorPalette palette = colors.getPalette();
         AccentColor accent = colors.getCurrentColor();
 
-        drawGuideButton(nvg, palette, accent, mouseX, mouseY);
+        if(visible) {
+            drawGuideButton(nvg, palette, accent, mouseX, mouseY);
+        }
         if(open) {
             drawModal(nvg, palette, accent, mouseX, mouseY);
         }
@@ -85,7 +83,13 @@ public final class BeginnerGuideOverlay {
             return open;
         }
 
-        if(!open && MouseUtils.isInside(mouseX, mouseY,
+        if(!open && visible && MouseUtils.isInside(mouseX, mouseY,
+                closeButtonX(), closeButtonY(), closeButtonSize(), closeButtonSize())) {
+            visible = false;
+            return true;
+        }
+
+        if(!open && visible && MouseUtils.isInside(mouseX, mouseY,
                 buttonX(), buttonY(), buttonWidth(), buttonHeight())) {
             openGuide();
             return true;
@@ -139,7 +143,6 @@ public final class BeginnerGuideOverlay {
         parent.setCanClose(false);
         open = true;
         page = 0;
-        markViewed();
     }
 
     private void closeGuide() {
@@ -165,13 +168,18 @@ public final class BeginnerGuideOverlay {
         nvg.drawCenteredText("Open Beginner's Guide", x + width / 2.0F, y + 6.2F,
                 Color.WHITE, 10.5F, Fonts.SEMIBOLD);
 
-        if(firstRun) {
-            float pillWidth = 27;
-            nvg.drawRoundedRect(x + width - pillWidth - 5, y - 5, pillWidth, 12, 6,
-                    new Color(255, 255, 255, 235));
-            nvg.drawCenteredText("NEW", x + width - pillWidth / 2.0F - 5, y - 2.2F,
-                    new Color(31, 35, 52), 6.5F, Fonts.SEMIBOLD);
-        }
+        float closeX = closeButtonX();
+        float closeY = closeButtonY();
+        float closeSize = closeButtonSize();
+        boolean closeHovered = MouseUtils.isInside(mouseX, mouseY, closeX, closeY, closeSize, closeSize);
+        nvg.drawRoundedGlow(closeX, closeY, closeSize, closeSize, 6,
+                new Color(0, 0, 0, closeHovered ? 105 : 70), closeHovered ? 4 : 2);
+        nvg.drawRoundedRect(closeX, closeY, closeSize, closeSize, 6,
+                new Color(25, 29, 43, closeHovered ? 245 : 225));
+        nvg.drawOutlineRoundedRect(closeX + 0.5F, closeY + 0.5F, closeSize - 1, closeSize - 1, 6,
+                0.7F, new Color(255, 255, 255, closeHovered ? 95 : 55));
+        nvg.drawCenteredText("x", closeX + closeSize / 2.0F, closeY + 3.1F,
+                Color.WHITE, 8.5F, Fonts.SEMIBOLD);
     }
 
     private void drawModal(NanoVGManager nvg, ColorPalette palette, AccentColor accent,
@@ -241,34 +249,24 @@ public final class BeginnerGuideOverlay {
                 9.5F, Fonts.SEMIBOLD);
     }
 
-    private File markerFile() {
-        return new File(Glide.getInstance().getFileManager().getCacheDir(), "beginner-guide-viewed-v1.dat");
-    }
-
-    private void markViewed() {
-        if(!firstRun) {
-            return;
-        }
-        File marker = markerFile();
-        try {
-            File parentDir = marker.getParentFile();
-            if(parentDir != null && !parentDir.isDirectory()) {
-                parentDir.mkdirs();
-            }
-            if(marker.createNewFile() || marker.isFile()) {
-                firstRun = false;
-            }
-        } catch(IOException exception) {
-            GlideLogger.warn("Could not save the beginner guide viewed state: " + exception.getMessage());
-        }
-    }
-
     private float buttonWidth() {
         return 168;
     }
 
     private float buttonHeight() {
         return 23;
+    }
+
+    private float closeButtonSize() {
+        return 15;
+    }
+
+    private float closeButtonX() {
+        return buttonX() + buttonWidth() - closeButtonSize() / 2.0F;
+    }
+
+    private float closeButtonY() {
+        return buttonY() - closeButtonSize() / 2.0F;
     }
 
     private float buttonX() {

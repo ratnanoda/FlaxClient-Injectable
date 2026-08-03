@@ -301,7 +301,9 @@ public class BedESPMod extends Mod {
 
 	private void renderIconsAboveBed(Bed bed, List<ItemStack> icons, RenderManager rm) {
 		double centerX = (bed.box.minX + bed.box.maxX) / 2.0D;
-		double centerY = bed.box.maxY + 1.05D;
+		// Anchor the bottom of the billboard just above the bed. Centering the panel
+		// around this point made multi-row defense icons sink into or drift below the bed.
+		double centerY = bed.box.maxY + 0.35D;
 		double centerZ = (bed.box.minZ + bed.box.maxZ) / 2.0D;
 		double distance = mc.thePlayer.getDistance(centerX, centerY, centerZ);
 		float scale = (float) Math.max(0.025D, Math.min(0.12D, distance * 0.0025D));
@@ -312,12 +314,13 @@ public class BedESPMod extends Mod {
 		int panelWidth = contentWidth + PANEL_PADDING * 2;
 		int panelHeight = rows * ICON_SIZE
 				+ Math.max(0, rows - 1) * ICON_GAP + PANEL_PADDING * 2;
-		int panelTop = -panelHeight / 2;
+		int panelTop = -panelHeight;
 
 		GlStateManager.pushMatrix();
 		GlStateManager.translate(centerX - rm.viewerPosX, centerY - rm.viewerPosY, centerZ - rm.viewerPosZ);
 		GlStateManager.rotate(-rm.playerViewY, 0.0F, 1.0F, 0.0F);
-		GlStateManager.rotate(rm.playerViewX, 1.0F, 0.0F, 0.0F);
+		float cameraPitch = rm.playerViewX * (mc.gameSettings.thirdPersonView == 2 ? -1.0F : 1.0F);
+		GlStateManager.rotate(cameraPitch, 1.0F, 0.0F, 0.0F);
 		GlStateManager.scale(-scale, -scale, scale);
 
 		GlStateManager.disableLighting();
