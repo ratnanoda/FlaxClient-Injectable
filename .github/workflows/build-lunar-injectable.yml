@@ -58,11 +58,15 @@ jobs:
           This build is published as a standard GitHub Release.
           EOF
 
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${RELEASE_TAG}" \
+            -f sha="$RELEASE_TARGET" >/dev/null 2>&1 || true
+
           gh release create "$RELEASE_TAG" \
             FlaxClient-Beta-1.0.exe \
             FlaxClient-Beta-1.0.sha256 \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$RELEASE_TARGET" \
+            --verify-tag \
             --title "$RELEASE_NAME" \
             --notes-file release-notes.md
 
