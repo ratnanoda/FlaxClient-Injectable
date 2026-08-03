@@ -1,0 +1,110 @@
+name: Publish FlaxClient Beta 1.0
+
+on:
+  push:
+    branches:
+      - chatgpt/beginner-guide-single-exe-20260803
+    paths:
+      - .github/workflows/publish-flaxclient-beta-1.0.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: flaxclient-beta-1.0
+      RELEASE_NAME: FlaxClient Beta 1.0
+      ARTIFACT_RUN_ID: '30828655071'
+      ARTIFACT_NAME: FlaxClient-Lunar-Single-EXE-Windows-x64
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v4
+
+      - name: Mark earlier releases as old
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+            --jq '.[] | [.id, .tag_name, (.name // .tag_name)] | @tsv' |
+          while IFS=$'\t' read -r release_id tag_name release_name; do
+            [ -n "${release_id:-}" ] || continue
+            [ "$tag_name" = "$RELEASE_TAG" ] && continue
+            case "$release_name" in
+              "[Old]"*) continue ;;
+            esac
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              -f name="[Old] ${release_name}" >/dev/null
+            echo "Renamed release ${tag_name}: [Old] ${release_name}"
+          done
+
+      - name: Download verified single-EXE artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifact
+          gh run download "$ARTIFACT_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" \
+            --dir release-artifact
+          exe_path="$(find release-artifact -type f -iname '*.exe' -print -quit)"
+          if [ -z "$exe_path" ]; then
+            echo "No EXE was found in the workflow artifact." >&2
+            exit 1
+          fi
+          cp "$exe_path" FlaxClient-Beta-1.0.exe
+          sha256sum FlaxClient-Beta-1.0.exe | tee FlaxClient-Beta-1.0.sha256
+
+      - name: Create or update Beta 1.0 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'EOF'
+          # FlaxClient Beta 1.0
+
+          Windows x64 single-file beta release for Lunar Client 1.8.9.
+
+          ## Highlights
+          - Flappy Steve with smoother controls and Minecraft-style visuals
+          - Tetris with enhanced effects, plus Snake
+          - Improved BedESP defense-block panels and smoother tracking
+          - Resizable Ghost module list and updated beginner guide
+          - Unified YouTube/Music playback with PiP capped at 60 FPS
+
+          This is a beta build. Visual and gameplay behavior may still receive further adjustments.
+          EOF
+
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.id')"
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+              -f name="$RELEASE_NAME" \
+              -f target_commitish="$GITHUB_SHA" \
+              -F draft=false \
+              -F prerelease=true \
+              --raw-field body="$(cat release-notes.md)" >/dev/null
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+              -f tag_name="$RELEASE_TAG" \
+              -f target_commitish="$GITHUB_SHA" \
+              -f name="$RELEASE_NAME" \
+              -F draft=false \
+              -F prerelease=true \
+              --raw-field body="$(cat release-notes.md)" >/dev/null
+          fi
+
+          gh release upload "$RELEASE_TAG" \
+            FlaxClient-Beta-1.0.exe \
+            FlaxClient-Beta-1.0.sha256 \
+            --clobber \
+            --repo "$GITHUB_REPOSITORY"
+
+      - name: Verify published release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+            --jq '{name, tag_name, prerelease, draft, html_url, assets: [.assets[].name]}'
