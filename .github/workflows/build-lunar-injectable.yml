@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -21,24 +21,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          ref: chatgpt/beginner-guide-single-exe-20260803
-          fetch-depth: 0
-
-      - name: Apply BedESP PiP and tutorial polish
-        shell: powershell
-        run: |
-          python tools/apply_bedesp_pip_tutorial_polish.py
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main/java/me/eldodebug/soar/management/mods/impl/BedESPMod.java `
-                  src/main/java/me/eldodebug/soar/management/youtube/YouTubeManager.java `
-                  src/main/java/me/eldodebug/soar/gui/modmenu/category/impl/ModuleCategory.java
-          if (-not (git diff --cached --quiet)) {
-            git commit -m "Redesign BedESP icons and cap PiP at 60 FPS"
-            git pull --rebase origin chatgpt/beginner-guide-single-exe-20260803
-            git push origin HEAD:chatgpt/beginner-guide-single-exe-20260803
-          }
 
       - name: Set up Java 8
         uses: actions/setup-java@v4
