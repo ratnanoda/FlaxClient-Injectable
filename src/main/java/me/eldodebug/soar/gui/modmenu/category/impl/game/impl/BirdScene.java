@@ -20,13 +20,29 @@ import me.eldodebug.soar.utils.mouse.MouseUtils;
 public class BirdScene extends GameScene {
 
     private static final float FIXED_STEP = 1.0F / 120.0F;
-    private static final float GRAVITY = 520.0F;
-    private static final float JUMP_VELOCITY = -190.0F;
-    private static final float MAX_FALL_SPEED = 300.0F;
-    private static final float HEAD_SIZE = 19.0F;
-    private static final float PIPE_WIDTH = 38.0F;
-    private static final float PIPE_SPACING = 176.0F;
-    private static final float LAVA_HEIGHT = 22.0F;
+    private static final float RISE_GRAVITY = 405.0F;
+    private static final float FALL_GRAVITY = 485.0F;
+    private static final float JUMP_VELOCITY = -166.0F;
+    private static final float MAX_FALL_SPEED = 255.0F;
+    private static final float HEAD_SIZE = 22.0F;
+    private static final float PIPE_WIDTH = 42.0F;
+    private static final float PIPE_SPACING = 190.0F;
+    private static final float LAVA_HEIGHT = 26.0F;
+
+    // Front-face pixels sampled from the classic default Steve skin reference
+    // published online. Keeping the pixels in code avoids any network request at
+    // runtime and keeps the game usable offline.
+    private static final int[][] STEVE_FACE = {
+            {0x2B1B12, 0x332016, 0x3A2519, 0x40281C, 0x3A2418, 0x342016, 0x2E1C13, 0x28180F},
+            {0x321F15, 0x3A2418, 0x452C1F, 0x4A3021, 0x43291C, 0x3D261A, 0x352116, 0x2D1B12},
+            {0x3B2519, 0xB97857, 0xC88764, 0xD0916D, 0xCC8966, 0xC27F5D, 0xB87454, 0x382217},
+            {0x4A2E20, 0xC98664, 0xD49672, 0xD89A76, 0xD2926D, 0xC98763, 0xBD7959, 0x43291C},
+            {0xB87354, 0xF3F2EA, 0x4A6EA8, 0xC58463, 0xC08060, 0x4A6EA8, 0xF3F2EA, 0xB36E51},
+            {0xB87556, 0xC78463, 0xC98665, 0xA96149, 0xA96149, 0xC37F60, 0xBD795A, 0xAE694F},
+            {0x9E5A43, 0x74402F, 0x7E4936, 0xB36B50, 0xB36B50, 0x7C4735, 0x70402F, 0x96533E},
+            {0x7A4634, 0x6B3C2C, 0x734130, 0x7F4936, 0x7D4735, 0x70402F, 0x683929, 0x74402F}
+    };
+
 
     private final Random random = new Random();
     private final List<Pipe> pipes = new ArrayList<Pipe>();
@@ -46,6 +62,9 @@ public class BirdScene extends GameScene {
     private float jumpBuffer;
     private float idleTime;
     private float cloudTime;
+    private float jumpCooldown;
+    private float cameraKick;
+    private final List<FlightParticle> flightParticles = new ArrayList<FlightParticle>();
 
     private int score;
     private boolean started;
@@ -54,7 +73,7 @@ public class BirdScene extends GameScene {
     private long lastFrameNanos;
 
     public BirdScene(GamesCategory parent) {
-        super(parent, "Flappy Glide", "Smooth Steve-head flight through Minecraft terrain", LegacyIcon.PLAY);
+        super(parent, "Flappy Steve", "Smooth Steve flight through Minecraft terrain", LegacyIcon.PLAY);
     }
 
     @Override
@@ -69,6 +88,8 @@ public class BirdScene extends GameScene {
         float dt = frameDelta();
         cloudTime += dt;
         idleTime += dt;
+        cameraKick = approach(cameraKick, 0.0F, 12.0F, dt);
+        updateFlightParticles(dt);
 
         if(started && !dead) {
             accumulator = Math.min(accumulator + dt, FIXED_STEP * 8.0F);
@@ -95,7 +116,8 @@ public class BirdScene extends GameScene {
         drawCloudLayer(nvg);
         drawPipes(nvg, alpha);
         drawLava(nvg);
-        drawSteveHead(nvg, renderPlayerY);
+        drawFlightParticles(nvg);
+        drawSteveHead(nvg, renderPlayerY - cameraKick);
         drawHud(nvg, palette);
         drawOverlay(nvg, palette);
         nvg.restore();
@@ -148,6 +170,9 @@ public class BirdScene extends GameScene {
         score = 0;
         accumulator = 0.0F;
         jumpBuffer = 0.0F;
+        jumpCooldown = 0.0F;
+        cameraKick = 0.0F;
+        flightParticles.clear();
         velocityY = 0.0F;
         playerY = Math.max(50.0F, (height - LAVA_HEIGHT) * 0.50F);
         previousPlayerY = playerY;
@@ -161,6 +186,9 @@ public class BirdScene extends GameScene {
         dead = false;
         score = 0;
         accumulator = 0.0F;
+        jumpCooldown = 0.0F;
+        cameraKick = 2.2F;
+        flightParticles.clear();
         velocityY = JUMP_VELOCITY;
         playerY = Math.max(50.0F, (height - LAVA_HEIGHT) * 0.50F);
         previousPlayerY = playerY;
@@ -186,20 +214,30 @@ public class BirdScene extends GameScene {
             }
             return;
         }
-        jumpBuffer = 0.12F;
+        jumpBuffer = 0.15F;
     }
 
     private void updateFixed(float step) {
         previousPlayerY = playerY;
         jumpBuffer = Math.max(0.0F, jumpBuffer - step);
-        if(jumpBuffer > 0.0F) {
-            velocityY = JUMP_VELOCITY;
+        jumpCooldown = Math.max(0.0F, jumpCooldown - step);
+        if(jumpBuffer > 0.0F && jumpCooldown <= 0.0F) {
+            // Preserve a little upward momentum while cancelling harsh downward
+            // speed. This makes repeated taps responsive without feeling jerky.
+            float carriedMomentum = Math.min(0.0F, velocityY) * 0.24F;
+            velocityY = JUMP_VELOCITY + carriedMomentum;
             jumpBuffer = 0.0F;
+            jumpCooldown = 0.072F;
+            cameraKick = 2.6F;
+            spawnJumpParticles();
         }
-        velocityY = Math.min(MAX_FALL_SPEED, velocityY + GRAVITY * step);
+
+        float gravity = velocityY < 0.0F ? RISE_GRAVITY : FALL_GRAVITY;
+        velocityY = Math.min(MAX_FALL_SPEED, velocityY + gravity * step);
+        velocityY *= (float)Math.pow(0.9965F, step * 120.0F);
         playerY += velocityY * step;
 
-        float speed = Math.min(154.0F, 96.0F + score * 2.6F);
+        float speed = Math.min(146.0F, 88.0F + score * 2.25F);
         for(Pipe pipe : pipes) {
             pipe.previousX = pipe.x;
             pipe.x -= speed * step;
@@ -226,7 +264,7 @@ public class BirdScene extends GameScene {
     }
 
     private float currentGapHeight() {
-        return Math.max(72.0F, 96.0F - score * 0.65F);
+        return Math.max(78.0F, 104.0F - score * 0.58F);
     }
 
     private float randomGapY() {
@@ -241,7 +279,7 @@ public class BirdScene extends GameScene {
     }
 
     private void detectCollisionsAndScore() {
-        float half = HEAD_SIZE * 0.43F;
+        float half = HEAD_SIZE * 0.355F;
         float left = playerX - half;
         float right = playerX + half;
         float top = playerY - half;
@@ -331,111 +369,100 @@ public class BirdScene extends GameScene {
         if(columnHeight <= 0.0F) {
             return;
         }
+
         nvg.drawRect(columnX, columnY, columnWidth, columnHeight,
-                new Color(104, 68, 40));
-        float tile = 8.0F;
+                new Color(72, 43, 27));
+        float block = 12.0F;
         int row = 0;
-        for(float py = 0.0F; py < columnHeight; py += tile) {
+        for(float py = 0.0F; py < columnHeight; py += block) {
             int col = 0;
-            for(float px = 0.0F; px < columnWidth; px += tile) {
-                float tileWidth = Math.min(tile, columnWidth - px);
-                float tileHeight = Math.min(tile, columnHeight - py);
-                Color dirt = ((row + col) & 1) == 0
-                        ? new Color(126, 82, 48) : new Color(113, 72, 43);
-                nvg.drawRect(columnX + px, columnY + py,
-                        tileWidth, tileHeight, dirt);
-                nvg.drawRect(columnX + px + 1.0F, columnY + py + 1.0F,
-                        Math.max(1.0F, tileWidth - 5.0F), 1.2F,
-                        new Color(157, 107, 66, 180));
-                nvg.drawRect(columnX + px + tileWidth - 2.5F,
-                        columnY + py + tileHeight - 2.5F,
-                        1.5F, 1.5F, new Color(76, 48, 31, 190));
+            for(float px = 0.0F; px < columnWidth; px += block) {
+                float bw = Math.min(block, columnWidth - px);
+                float bh = Math.min(block, columnHeight - py);
+                float bx = columnX + px;
+                float by = columnY + py;
+                Color base = ((row + col) & 1) == 0
+                        ? new Color(128, 84, 49) : new Color(116, 73, 43);
+                nvg.drawRect(bx, by, bw, bh, base);
+                nvg.drawRect(bx + 1.0F, by + 1.0F, Math.max(1.0F, bw - 2.0F), 1.0F,
+                        new Color(157, 108, 67, 175));
+                nvg.drawRect(bx + bw * 0.18F, by + bh * 0.34F, 2.0F, 2.0F,
+                        new Color(91, 56, 35, 215));
+                nvg.drawRect(bx + bw * 0.62F, by + bh * 0.62F, 2.5F, 1.5F,
+                        new Color(78, 48, 31, 205));
+                nvg.drawRect(bx + bw * 0.52F, by + bh * 0.18F, 2.0F, 1.2F,
+                        new Color(176, 122, 75, 150));
                 col++;
             }
             row++;
         }
 
-        float grassY = hangingFromTop
-                ? columnY + columnHeight - 7.0F : columnY;
-        nvg.drawRect(columnX - 2.0F, grassY, columnWidth + 4.0F, 7.0F,
-                new Color(73, 139, 45));
-        nvg.drawRect(columnX - 2.0F, grassY, columnWidth + 4.0F, 2.5F,
-                new Color(132, 193, 72));
-        for(float grassX = 1.0F; grassX < columnWidth; grassX += 6.0F) {
-            float bladeY = hangingFromTop ? grassY + 4.0F : grassY + 2.0F;
-            nvg.drawRect(columnX + grassX, bladeY, 2.0F, 2.0F,
-                    new Color(92, 165, 55));
+        float capY = hangingFromTop ? columnY + columnHeight - 9.0F : columnY;
+        nvg.drawRect(columnX - 2.0F, capY, columnWidth + 4.0F, 9.0F,
+                new Color(72, 126, 42));
+        nvg.drawRect(columnX - 2.0F, capY, columnWidth + 4.0F, 3.0F,
+                new Color(127, 188, 67));
+        for(float gx = 0.0F; gx < columnWidth + 2.0F; gx += 5.0F) {
+            float blade = ((int)(gx / 5.0F) & 1) == 0 ? 2.0F : 3.0F;
+            float grassPixelY = hangingFromTop ? capY + 5.0F : capY + 3.0F;
+            nvg.drawRect(columnX - 1.0F + gx, grassPixelY, 2.5F, blade,
+                    new Color(91, 158, 48));
         }
-        nvg.drawOutlineRoundedRect(columnX, columnY,
-                columnWidth, columnHeight, 1.0F, 0.8F,
-                new Color(44, 31, 21, 105));
+        nvg.drawRect(columnX - 2.0F, hangingFromTop ? capY + 8.0F : capY,
+                columnWidth + 4.0F, 1.0F, new Color(45, 77, 28, 210));
+        nvg.drawOutlineRoundedRect(columnX - 0.5F, columnY - 0.5F,
+                columnWidth + 1.0F, columnHeight + 1.0F, 2.0F, 0.9F,
+                new Color(32, 22, 16, 155));
     }
 
     private void drawLava(NanoVGManager nvg) {
         float lavaY = y + height - LAVA_HEIGHT;
-        nvg.drawRect(x, lavaY, width, LAVA_HEIGHT,
-                new Color(135, 32, 10));
-        nvg.drawRect(x, lavaY, width, 2.0F,
-                new Color(255, 220, 76));
-        float phase = (cloudTime * 20.0F) % 16.0F;
-        for(float px = -16.0F; px < width + 16.0F; px += 16.0F) {
+        nvg.drawVerticalGradientRect(x, lavaY, width, LAVA_HEIGHT,
+                new Color(250, 88, 17), new Color(112, 22, 9));
+        nvg.drawRect(x, lavaY, width, 2.5F, new Color(255, 231, 92));
+        float phase = (cloudTime * 23.0F) % 16.0F;
+        for(float px = -16.0F; px < width + 18.0F; px += 16.0F) {
             float waveX = x + px - phase;
-            nvg.drawRect(waveX, lavaY + 3.0F, 13.0F, 6.0F,
-                    new Color(255, 101, 25));
-            nvg.drawRect(waveX + 2.0F, lavaY + 4.0F, 6.0F, 2.0F,
-                    new Color(255, 226, 79));
-            nvg.drawRect(waveX + 6.0F, lavaY + 10.0F, 8.0F, 6.0F,
-                    new Color(193, 45, 13));
-            nvg.drawRect(waveX + 9.0F, lavaY + 12.0F, 4.0F, 2.0F,
-                    new Color(242, 72, 18));
+            nvg.drawRect(waveX, lavaY + 3.0F, 12.0F, 5.0F,
+                    new Color(255, 149, 28));
+            nvg.drawRect(waveX + 2.0F, lavaY + 4.0F, 5.0F, 2.0F,
+                    new Color(255, 238, 112));
+            nvg.drawRect(waveX + 8.0F, lavaY + 9.0F, 7.0F, 6.0F,
+                    new Color(188, 42, 13));
+            nvg.drawRect(waveX + 4.0F, lavaY + 17.0F, 10.0F, 5.0F,
+                    new Color(101, 20, 10));
+            nvg.drawRect(waveX + 1.0F, lavaY + 13.0F, 4.0F, 3.0F,
+                    new Color(239, 70, 15));
         }
     }
 
     private void drawSteveHead(NanoVGManager nvg, float localY) {
         float bob = !started && !dead
-                ? (float)Math.sin(idleTime * 3.2F) * 4.0F : 0.0F;
+                ? (float)Math.sin(idleTime * 3.2F) * 3.0F : 0.0F;
         float headX = x + playerX - HEAD_SIZE / 2.0F;
         float headY = y + localY - HEAD_SIZE / 2.0F + bob;
         float unit = HEAD_SIZE / 8.0F;
-        Color skin = new Color(198, 145, 104);
-        Color skinLight = new Color(229, 181, 139);
-        Color skinDark = new Color(151, 101, 72);
-        Color hair = new Color(67, 43, 30);
-        Color hairLight = new Color(91, 58, 39);
 
-        nvg.drawRoundedRect(headX - 2.0F, headY - 2.0F,
-                HEAD_SIZE + 4.0F, HEAD_SIZE + 4.0F,
-                3.0F, new Color(0, 0, 0, 85));
-        nvg.drawRect(headX, headY, HEAD_SIZE, HEAD_SIZE, skin);
-        nvg.drawRect(headX + unit, headY + unit * 2.0F,
-                unit * 6.0F, unit * 5.0F, skinLight);
-        nvg.drawRect(headX, headY, HEAD_SIZE, unit * 2.0F, hair);
-        nvg.drawRect(headX, headY + unit * 2.0F,
-                unit, unit * 3.0F, hairLight);
-        nvg.drawRect(headX + unit * 7.0F, headY + unit * 2.0F,
-                unit, unit * 3.0F, hair);
-        nvg.drawRect(headX + unit, headY + unit,
-                unit * 2.0F, unit, hairLight);
-        nvg.drawRect(headX + unit * 5.0F, headY + unit,
-                unit * 2.0F, unit, hairLight);
-        nvg.drawRect(headX + unit * 2.0F, headY + unit * 3.0F,
-                unit, unit, new Color(238, 238, 232));
-        nvg.drawRect(headX + unit * 5.0F, headY + unit * 3.0F,
-                unit, unit, new Color(238, 238, 232));
-        nvg.drawRect(headX + unit * 2.45F, headY + unit * 3.1F,
-                unit * 0.45F, unit * 0.75F, new Color(55, 96, 151));
-        nvg.drawRect(headX + unit * 5.45F, headY + unit * 3.1F,
-                unit * 0.45F, unit * 0.75F, new Color(55, 96, 151));
-        nvg.drawRect(headX + unit * 3.0F, headY + unit * 4.0F,
-                unit * 2.0F, unit * 2.0F, skin);
-        nvg.drawRect(headX + unit * 2.0F, headY + unit * 6.0F,
-                unit, unit, hairLight);
-        nvg.drawRect(headX + unit * 5.0F, headY + unit * 6.0F,
-                unit, unit, hairLight);
-        nvg.drawRect(headX + unit * 3.0F, headY + unit * 6.0F,
-                unit * 2.0F, unit, skinDark);
-        nvg.drawOutlineRoundedRect(headX, headY, HEAD_SIZE, HEAD_SIZE,
-                1.0F, 0.8F, new Color(35, 24, 18, 130));
+        nvg.drawRoundedRect(headX - 3.0F, headY - 3.0F,
+                HEAD_SIZE + 6.0F, HEAD_SIZE + 6.0F,
+                4.0F, new Color(0, 0, 0, 112));
+        for(int row = 0; row < 8; row++) {
+            for(int column = 0; column < 8; column++) {
+                int rgb = STEVE_FACE[row][column];
+                nvg.drawRect(headX + column * unit, headY + row * unit,
+                        unit + 0.15F, unit + 0.15F, new Color(rgb));
+            }
+        }
+        nvg.drawOutlineRoundedRect(headX - 0.5F, headY - 0.5F,
+                HEAD_SIZE + 1.0F, HEAD_SIZE + 1.0F,
+                2.0F, 1.0F, new Color(20, 13, 9, 185));
+        if(Math.abs(velocityY) > 45.0F) {
+            int alpha = Math.min(85, (int)(Math.abs(velocityY) * 0.32F));
+            nvg.drawRect(headX - 6.0F, headY + HEAD_SIZE * 0.28F,
+                    4.0F, HEAD_SIZE * 0.16F, new Color(255, 255, 255, alpha));
+            nvg.drawRect(headX - 10.0F, headY + HEAD_SIZE * 0.58F,
+                    6.0F, HEAD_SIZE * 0.11F, new Color(255, 255, 255, alpha / 2));
+        }
     }
 
     private void drawHud(NanoVGManager nvg, ColorPalette palette) {
@@ -463,7 +490,7 @@ public class BirdScene extends GameScene {
         nvg.drawOutlineRoundedRect(cardX + 0.5F, cardY + 0.5F,
                 cardWidth - 1.0F, cardHeight - 1.0F,
                 13.0F, 0.8F, new Color(255, 255, 255, 55));
-        String title = dead ? "YOU DIED" : "FLAPPY GLIDE";
+        String title = dead ? "YOU DIED" : "FLAPPY STEVE";
         nvg.drawCenteredText(title, x + width / 2.0F, cardY + 19.0F,
                 dead ? new Color(255, 91, 78) : Color.WHITE,
                 16.0F, Fonts.SEMIBOLD);
@@ -475,6 +502,68 @@ public class BirdScene extends GameScene {
                 : "Press SPACE or click to fly";
         nvg.drawCenteredText(action, x + width / 2.0F, cardY + 79.0F,
                 Color.WHITE, 8.0F, Fonts.SEMIBOLD);
+    }
+
+    private void spawnJumpParticles() {
+        float originX = playerX - HEAD_SIZE * 0.58F;
+        float originY = playerY + HEAD_SIZE * 0.18F;
+        for(int i = 0; i < 6; i++) {
+            flightParticles.add(new FlightParticle(originX, originY,
+                    -26.0F - random.nextFloat() * 34.0F,
+                    (random.nextFloat() - 0.5F) * 42.0F,
+                    0.28F + random.nextFloat() * 0.22F,
+                    1.2F + random.nextFloat() * 1.8F));
+        }
+    }
+
+    private void updateFlightParticles(float dt) {
+        for(int i = flightParticles.size() - 1; i >= 0; i--) {
+            FlightParticle particle = flightParticles.get(i);
+            particle.life -= dt;
+            if(particle.life <= 0.0F) {
+                flightParticles.remove(i);
+                continue;
+            }
+            particle.x += particle.vx * dt;
+            particle.y += particle.vy * dt;
+            particle.vy += 38.0F * dt;
+        }
+    }
+
+    private void drawFlightParticles(NanoVGManager nvg) {
+        for(FlightParticle particle : flightParticles) {
+            float life = Math.max(0.0F, particle.life / particle.maxLife);
+            float size = particle.size * (0.55F + life * 0.45F);
+            nvg.drawRect(x + particle.x - size / 2.0F,
+                    y + particle.y - size / 2.0F,
+                    size, size, new Color(225, 239, 249, (int)(life * 125.0F)));
+        }
+    }
+
+    private float approach(float current, float target, float speed, float dt) {
+        float factor = 1.0F - (float)Math.exp(-speed * dt);
+        return current + (target - current) * factor;
+    }
+
+    private static final class FlightParticle {
+        private float x;
+        private float y;
+        private final float vx;
+        private float vy;
+        private float life;
+        private final float maxLife;
+        private final float size;
+
+        private FlightParticle(float x, float y, float vx, float vy,
+                float life, float size) {
+            this.x = x;
+            this.y = y;
+            this.vx = vx;
+            this.vy = vy;
+            this.life = life;
+            this.maxLife = life;
+            this.size = size;
+        }
     }
 
     private static final class Pipe {

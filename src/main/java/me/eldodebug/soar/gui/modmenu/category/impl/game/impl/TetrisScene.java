@@ -70,6 +70,7 @@ public class TetrisScene extends GameScene {
     private final Random random = new Random();
     private final ArrayDeque<Integer> next = new ArrayDeque<Integer>();
     private final List<Integer> bag = new ArrayList<Integer>();
+    private final List<EffectParticle> effectParticles = new ArrayList<EffectParticle>();
 
     private int currentType;
     private int rotation;
@@ -90,6 +91,21 @@ public class TetrisScene extends GameScene {
     private float horizontalHeld;
     private float horizontalRepeat;
     private int horizontalDirection;
+    private float screenFlash;
+    private float shockwave;
+    private float clearBanner;
+    private float boardShake;
+    private float backgroundPulse;
+    private float piecePulse;
+    private float dropTrail;
+    private float elapsed;
+    private int lastClearCount;
+    private int combo;
+    private int dropTrailType;
+    private int dropTrailRotation;
+    private int dropTrailX;
+    private int dropTrailFromY;
+    private int dropTrailToY;
 
     private boolean rotateWasDown;
     private boolean rotateBackWasDown;
@@ -123,12 +139,14 @@ public class TetrisScene extends GameScene {
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         syncLayout();
         float dt = frameDelta();
+        elapsed += dt;
         pollInput(dt);
         if(started && !paused && !gameOver) {
             updateGame(dt);
         }
         visualX = anim(visualX, pieceX, 24.0F, dt);
         visualY = anim(visualY, pieceY, 22.0F, dt);
+        updateEffects(dt);
 
         Glide glide = Glide.getInstance();
         NanoVGManager nvg = glide.getNanoVGManager();
@@ -138,8 +156,15 @@ public class TetrisScene extends GameScene {
         nvg.save();
         nvg.scissor(x, y, width, height);
         drawBackground(nvg, palette, accent);
+        nvg.save();
+        float shakeX = boardShake > 0.02F ? (random.nextFloat() - 0.5F) * boardShake : 0.0F;
+        float shakeY = boardShake > 0.02F ? (random.nextFloat() - 0.5F) * boardShake : 0.0F;
+        nvg.translate(shakeX, shakeY);
         drawBoard(nvg, palette, accent);
+        drawEffectParticles(nvg);
+        nvg.restore();
         drawSidebar(nvg, palette, accent);
+        drawCelebrationOverlay(nvg, accent);
         drawOverlay(nvg, palette, accent);
         nvg.restore();
         nvg.drawOutlineRoundedRect(x, y, width, height, 10.0F, 1.0F,
@@ -196,6 +221,8 @@ public class TetrisScene extends GameScene {
         score = 0;
         lines = 0;
         level = 1;
+        effectParticles.clear();
+        resetEffectState();
         lastFrameNanos = 0L;
         resetInputEdges();
     }
@@ -212,6 +239,8 @@ public class TetrisScene extends GameScene {
         started = true;
         paused = false;
         gameOver = false;
+        effectParticles.clear();
+        resetEffectState();
         fillNext();
         spawnPiece();
         resetInputEdges();
@@ -391,6 +420,7 @@ public class TetrisScene extends GameScene {
                 rotation = target;
                 pieceX += kick;
                 lockTimer = 0.0F;
+                piecePulse = Math.max(piecePulse, 0.72F);
                 return;
             }
         }
@@ -398,9 +428,19 @@ public class TetrisScene extends GameScene {
 
     private void hardDrop() {
         int target = ghostY();
-        score += Math.max(0, target - pieceY) * 2;
+        int distance = Math.max(0, target - pieceY);
+        dropTrailType = currentType;
+        dropTrailRotation = rotation;
+        dropTrailX = pieceX;
+        dropTrailFromY = pieceY;
+        dropTrailToY = target;
+        dropTrail = distance > 0 ? 1.0F : 0.0F;
+        score += distance * 2;
         pieceY = target;
         visualY = target;
+        boardShake = Math.max(boardShake, 2.2F + Math.min(4.0F, distance * 0.18F));
+        screenFlash = Math.max(screenFlash, 0.22F);
+        spawnImpactParticles(target);
         lockPiece();
     }
 
@@ -414,6 +454,7 @@ public class TetrisScene extends GameScene {
             }
             board[by][bx] = currentType + 1;
         }
+        spawnLockParticles();
         clearLines();
         spawnPiece();
     }
@@ -431,6 +472,8 @@ public class TetrisScene extends GameScene {
             if(!full) {
                 continue;
             }
+
+            spawnLineParticles(row);
             cleared++;
             for(int pull = row; pull > 0; pull--) {
                 for(int col = 0; col < COLS; col++) {
@@ -442,11 +485,21 @@ public class TetrisScene extends GameScene {
             }
             row++;
         }
+
         if(cleared > 0) {
             int[] rewards = {0, 100, 300, 500, 800};
-            score += rewards[cleared] * level;
+            combo++;
+            score += rewards[cleared] * level + Math.max(0, combo - 1) * 75 * level;
             lines += cleared;
             level = lines / 10 + 1;
+            lastClearCount = cleared;
+            clearBanner = 1.0F;
+            screenFlash = Math.max(screenFlash, cleared == 4 ? 1.0F : 0.55F + cleared * 0.08F);
+            shockwave = 1.0F;
+            backgroundPulse = 1.0F;
+            boardShake = Math.max(boardShake, 3.0F + cleared * 2.2F);
+        } else {
+            combo = 0;
         }
     }
 
@@ -474,9 +527,17 @@ public class TetrisScene extends GameScene {
 
     private void drawBackground(NanoVGManager nvg, ColorPalette palette, AccentColor accent) {
         Color base = palette.getBackgroundColor(ColorType.DARK);
+        float pulse = Math.max(0.0F, backgroundPulse);
         nvg.drawVerticalGradientRect(x, y, width, height,
-                mix(base, accent.getColor1(), 0.14F, 245),
-                mix(base, accent.getColor2(), 0.05F, 245));
+                mix(base, accent.getColor1(), 0.14F + pulse * 0.13F, 245),
+                mix(base, accent.getColor2(), 0.05F + pulse * 0.09F, 245));
+        for(int i = 0; i < 28; i++) {
+            float px = x + ((i * 79.0F + elapsed * (8.0F + i % 5)) % (width + 24.0F)) - 12.0F;
+            float py = y + (i * 47 % Math.max(20, height));
+            int alpha = 11 + (i % 5) * 5 + (int)(pulse * 24.0F);
+            nvg.drawCircle(px, py, 0.7F + (i % 3) * 0.35F,
+                    new Color(255, 255, 255, Math.min(70, alpha)));
+        }
     }
 
     private void drawBoard(NanoVGManager nvg, ColorPalette palette, AccentColor accent) {
@@ -496,6 +557,18 @@ public class TetrisScene extends GameScene {
                         new Color(255, 255, 255, 8));
                 if(board[row][col] != 0) {
                     drawBlock(nvg, bx, by, COLORS[board[row][col] - 1], 255);
+                }
+            }
+        }
+        if(dropTrail > 0.01F) {
+            for(int trailY = dropTrailFromY; trailY <= dropTrailToY; trailY++) {
+                for(int[] block : SHAPES[dropTrailType][dropTrailRotation]) {
+                    int gy = trailY + block[1];
+                    if(gy < 0 || gy >= ROWS) continue;
+                    float bx = boardX + (dropTrailX + block[0]) * cell;
+                    float by = boardY + gy * cell;
+                    nvg.drawRoundedRect(bx + 3.0F, by + 3.0F, cell - 6.0F, cell - 6.0F,
+                            2.0F, alpha(COLORS[dropTrailType], (int)(dropTrail * 34.0F)));
                 }
             }
         }
@@ -519,6 +592,10 @@ public class TetrisScene extends GameScene {
                 float bx = boardX + (visualX + block[0]) * cell;
                 float by = boardY + gy * cell;
                 drawBlock(nvg, bx, by, COLORS[currentType], 255);
+                if(piecePulse > 0.02F) {
+                    nvg.drawOutlineRoundedRect(bx - 1.5F, by - 1.5F, cell + 3.0F, cell + 3.0F,
+                            3.0F, 1.2F, alpha(Color.WHITE, (int)(piecePulse * 120.0F)));
+                }
             }
         }
     }
@@ -596,6 +673,166 @@ public class TetrisScene extends GameScene {
                     startY + block[1] * size, size - 0.7F, size - 0.7F,
                     mix(color, Color.WHITE, 0.18F, 255),
                     mix(color, Color.BLACK, 0.20F, 255));
+        }
+    }
+
+
+    private void resetEffectState() {
+        screenFlash = 0.0F;
+        shockwave = 0.0F;
+        clearBanner = 0.0F;
+        boardShake = 0.0F;
+        backgroundPulse = 0.0F;
+        piecePulse = 0.0F;
+        dropTrail = 0.0F;
+        elapsed = 0.0F;
+        lastClearCount = 0;
+        combo = 0;
+    }
+
+    private void updateEffects(float dt) {
+        screenFlash = decay(screenFlash, 7.8F, dt);
+        shockwave = decay(shockwave, 3.6F, dt);
+        clearBanner = decay(clearBanner, 2.2F, dt);
+        boardShake = decay(boardShake, 11.0F, dt);
+        backgroundPulse = decay(backgroundPulse, 3.1F, dt);
+        piecePulse = decay(piecePulse, 7.0F, dt);
+        dropTrail = decay(dropTrail, 8.5F, dt);
+
+        for(int i = effectParticles.size() - 1; i >= 0; i--) {
+            EffectParticle particle = effectParticles.get(i);
+            particle.life -= dt;
+            if(particle.life <= 0.0F) {
+                effectParticles.remove(i);
+                continue;
+            }
+            particle.x += particle.vx * dt;
+            particle.y += particle.vy * dt;
+            particle.vy += 190.0F * dt;
+            particle.vx *= (float)Math.pow(0.20F, dt);
+        }
+    }
+
+    private float decay(float value, float speed, float dt) {
+        return value * (float)Math.exp(-speed * dt);
+    }
+
+    private void spawnLineParticles(int row) {
+        for(int col = 0; col < COLS; col++) {
+            int value = board[row][col];
+            Color color = value == 0 ? Color.WHITE : COLORS[value - 1];
+            float centerX = boardX + (col + 0.5F) * cell;
+            float centerY = boardY + (row + 0.5F) * cell;
+            for(int i = 0; i < 4; i++) {
+                effectParticles.add(new EffectParticle(centerX, centerY,
+                        (random.nextFloat() - 0.5F) * 220.0F,
+                        -65.0F - random.nextFloat() * 170.0F,
+                        0.52F + random.nextFloat() * 0.48F,
+                        1.4F + random.nextFloat() * 3.7F,
+                        color));
+            }
+        }
+    }
+
+    private void spawnLockParticles() {
+        for(int[] block : SHAPES[currentType][rotation]) {
+            int gy = pieceY + block[1];
+            if(gy < 0) continue;
+            float centerX = boardX + (pieceX + block[0] + 0.5F) * cell;
+            float centerY = boardY + (gy + 0.5F) * cell;
+            for(int i = 0; i < 2; i++) {
+                effectParticles.add(new EffectParticle(centerX, centerY,
+                        (random.nextFloat() - 0.5F) * 72.0F,
+                        -20.0F - random.nextFloat() * 45.0F,
+                        0.24F + random.nextFloat() * 0.20F,
+                        1.0F + random.nextFloat() * 2.0F,
+                        COLORS[currentType]));
+            }
+        }
+    }
+
+    private void spawnImpactParticles(int targetY) {
+        for(int[] block : SHAPES[currentType][rotation]) {
+            int gy = targetY + block[1];
+            if(gy < 0) continue;
+            float centerX = boardX + (pieceX + block[0] + 0.5F) * cell;
+            float centerY = boardY + (gy + 1.0F) * cell;
+            for(int i = 0; i < 3; i++) {
+                effectParticles.add(new EffectParticle(centerX, centerY,
+                        (random.nextFloat() - 0.5F) * 135.0F,
+                        -12.0F - random.nextFloat() * 80.0F,
+                        0.30F + random.nextFloat() * 0.26F,
+                        1.2F + random.nextFloat() * 2.7F,
+                        COLORS[currentType]));
+            }
+        }
+    }
+
+    private void drawEffectParticles(NanoVGManager nvg) {
+        for(EffectParticle particle : effectParticles) {
+            float life = Math.max(0.0F, particle.life / particle.maxLife);
+            float size = particle.size * (0.55F + life * 0.55F);
+            nvg.drawRoundedRect(particle.x - size / 2.0F, particle.y - size / 2.0F,
+                    size, size, 1.2F, alpha(particle.color, (int)(life * 235.0F)));
+        }
+    }
+
+    private void drawCelebrationOverlay(NanoVGManager nvg, AccentColor accent) {
+        if(shockwave > 0.01F) {
+            float progress = 1.0F - shockwave;
+            float expansion = 8.0F + progress * 34.0F;
+            int alpha = (int)(shockwave * 150.0F);
+            nvg.drawOutlineRoundedRect(boardX - expansion, boardY - expansion,
+                    boardWidth + expansion * 2.0F, boardHeight + expansion * 2.0F,
+                    13.0F + expansion * 0.18F, 1.5F,
+                    alpha(accent.getColor1(), alpha));
+            nvg.drawOutlineRoundedRect(boardX - expansion * 0.55F, boardY - expansion * 0.55F,
+                    boardWidth + expansion * 1.10F, boardHeight + expansion * 1.10F,
+                    12.0F, 1.0F, alpha(Color.WHITE, alpha / 2));
+        }
+        if(clearBanner > 0.01F) {
+            String text = lastClearCount >= 4 ? "TETRIS!"
+                    : lastClearCount == 3 ? "TRIPLE CLEAR"
+                    : lastClearCount == 2 ? "DOUBLE CLEAR" : "LINE CLEAR";
+            if(combo > 1) text += "  x" + combo;
+            float bannerY = y + 18.0F - (1.0F - clearBanner) * 7.0F;
+            int alpha = Math.min(255, (int)(clearBanner * 310.0F));
+            nvg.drawRoundedRect(x + width / 2.0F - 88.0F, bannerY - 7.0F,
+                    176.0F, 31.0F, 9.0F, new Color(3, 6, 14, Math.min(205, alpha)));
+            nvg.drawCenteredText(text, x + width / 2.0F, bannerY,
+                    lastClearCount >= 4 ? new Color(255, 226, 84, alpha)
+                            : new Color(255, 255, 255, alpha),
+                    lastClearCount >= 4 ? 14.5F : 11.5F, Fonts.SEMIBOLD);
+        }
+        if(screenFlash > 0.01F) {
+            int alpha = Math.min(125, (int)(screenFlash * 120.0F));
+            Color flash = lastClearCount >= 4
+                    ? new Color(255, 225, 95, alpha)
+                    : new Color(255, 255, 255, alpha);
+            nvg.drawRoundedRect(x, y, width, height, 10.0F, flash);
+        }
+    }
+
+    private static final class EffectParticle {
+        private float x;
+        private float y;
+        private float vx;
+        private float vy;
+        private float life;
+        private final float maxLife;
+        private final float size;
+        private final Color color;
+
+        private EffectParticle(float x, float y, float vx, float vy,
+                float life, float size, Color color) {
+            this.x = x;
+            this.y = y;
+            this.vx = vx;
+            this.vy = vy;
+            this.life = life;
+            this.maxLife = life;
+            this.size = size;
+            this.color = color;
         }
     }
 
