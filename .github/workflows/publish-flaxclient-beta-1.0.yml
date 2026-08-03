@@ -92,20 +92,40 @@ jobs:
           fi
           gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}" >/dev/null 2>&1 || true
 
-          release_id="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+          release_json="$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
             -f tag_name="$RELEASE_TAG" \
             -f target_commitish="$RELEASE_TARGET" \
             -f name="$RELEASE_NAME" \
             -F draft=true \
             -F prerelease=true \
-            --raw-field body="$(cat release-notes.md)" \
-            --jq '.id')"
+            --raw-field body="$(cat release-notes.md)")"
+          release_id="$(jq -r '.id' <<<"$release_json")"
+          upload_url="$(jq -r '.upload_url' <<<"$release_json" | sed 's/{?name,label}$//')"
 
-          gh release upload "$RELEASE_TAG" \
-            FlaxClient-Beta-1.0.exe \
-            FlaxClient-Beta-1.0.sha256 \
-            --clobber \
-            --repo "$GITHUB_REPOSITORY"
+          upload_asset() {
+            local file="$1"
+            local mime="$2"
+            local name
+            name="$(basename "$file")"
+            curl --fail-with-body --silent --show-error --location \
+              --request POST \
+              --header "Accept: application/vnd.github+json" \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "X-GitHub-Api-Version: 2022-11-28" \
+              --header "Content-Type: ${mime}" \
+              --data-binary "@${file}" \
+              "${upload_url}?name=${name}" \
+              | jq -e --arg expected "$name" '.name == $expected' >/dev/null
+          }
+
+          upload_asset FlaxClient-Beta-1.0.exe application/octet-stream
+          upload_asset FlaxClient-Beta-1.0.sha256 text/plain
+
+          asset_count="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --jq '.assets | length')"
+          if [ "$asset_count" -ne 2 ]; then
+            echo "Expected 2 release assets before publishing, found ${asset_count}." >&2
+            exit 1
+          fi
 
           gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
             -f name="$RELEASE_NAME" \
@@ -117,5 +137,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
-            --jq '{name, tag_name, prerelease, draft, html_url, assets: [.assets[].name]}'
+          release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+          jq '{name, tag_name, prerelease, draft, html_url, assets: [.assets[].name]}' <<<"$release"
+          jq -e '
+            .name == "FlaxClient Beta 1.0" and
+            .draft == false and
+            .prerelease == true and
+            ([.assets[].name] | sort) == (["FlaxClient-Beta-1.0.exe", "FlaxClient-Beta-1.0.sha256"] | sort)
+          ' <<<"$release" >/dev/null
