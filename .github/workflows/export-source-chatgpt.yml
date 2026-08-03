@@ -1,0 +1,37 @@
+name: Export source snapshot
+
+on:
+  push:
+    branches:
+      - chatgpt/unify-youtube-music-20260803
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create focused source archive
+        run: |
+          tar -czf source-snapshot.tar.gz \
+            src \
+            attach \
+            FlaxClientLauncher \
+            build.gradle \
+            settings.gradle \
+            gradle.properties \
+            gradlew \
+            gradlew.bat \
+            gradle \
+            libs \
+            .github
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-snapshot
+          path: source-snapshot.tar.gz
+          if-no-files-found: error
+          retention-days: 1
