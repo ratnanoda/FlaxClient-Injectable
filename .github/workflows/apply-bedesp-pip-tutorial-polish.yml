@@ -1,4 +1,4 @@
-name: Apply BedESP PiP and tutorial polish
+name: Apply Ghost guide cleanup
 
 on:
   push:
@@ -26,8 +26,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/main/java/me/eldodebug/soar/management/mods/impl/BedESPMod.java \
-                  src/main/java/me/eldodebug/soar/management/youtube/YouTubeManager.java \
-                  src/main/java/me/eldodebug/soar/gui/modmenu/category/impl/ModuleCategory.java
-          git commit -m "Redesign BedESP icons and cap PiP at 60 FPS"
+          git add src/main/java/me/eldodebug/soar/gui/modmenu/category/impl/ModuleCategory.java \
+                  src/main/java/me/eldodebug/soar/gui/modmenu/BeginnerGuideOverlay.java
+          git commit -m "Move Ghost resize help into the beginner guide"
           git push origin HEAD:chatgpt/beginner-guide-single-exe-20260803
