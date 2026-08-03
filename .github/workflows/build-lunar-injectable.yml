@@ -25,6 +25,11 @@ jobs:
       ARTIFACT_RUN_ID: '30828655071'
       ARTIFACT_NAME: FlaxClient-Lunar-Single-EXE-Windows-x64
     steps:
+      - name: Check out repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Download verified release build
         shell: bash
         run: |
@@ -58,9 +63,10 @@ jobs:
           This build is published as a standard GitHub Release.
           EOF
 
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-            -f ref="refs/tags/${RELEASE_TAG}" \
-            -f sha="$RELEASE_TARGET" >/dev/null 2>&1 || true
+          if ! git rev-parse "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            git tag "$RELEASE_TAG" "$RELEASE_TARGET"
+            git push origin "refs/tags/${RELEASE_TAG}"
+          fi
 
           gh release create "$RELEASE_TAG" \
             FlaxClient-Beta-1.0.exe \
