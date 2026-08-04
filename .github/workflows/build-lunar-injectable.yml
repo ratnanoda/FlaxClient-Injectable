@@ -3,7 +3,7 @@ name: Build Lunar Single-EXE Package
 on:
   push:
     branches:
-      - chatgpt/beginner-guide-single-exe-20260803
+      - main
   pull_request:
     branches:
       - chatgpt/unify-youtube-music-20260803
