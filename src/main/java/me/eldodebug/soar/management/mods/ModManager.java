@@ -19,7 +19,6 @@ public class ModManager {
         // It is never exposed as a user module.
         mods.add(new InternalSettingsMod());
         mods.add(new SettingsMod());
-        mods.add(new ClutchMod());
         mods.add(new AimAssistMod());
         mods.add(new AutoClickerMod());
         mods.add(new BedESPMod());
