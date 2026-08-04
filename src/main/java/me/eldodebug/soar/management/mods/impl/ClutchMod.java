@@ -23,20 +23,23 @@ import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.MathHelper;
+import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.util.Vec3;
 
 /**
  * Emergency clutch builder. When the vertical column from directly below the
- * player's feet through four blocks down is empty, it silently aims at the
- * nearest reachable support and builds a connected path back to the feet.
+ * player's feet through three blocks down is empty, it silently aims at a
+ * visible placement face and builds a connected path back to the feet.
  */
 public class ClutchMod extends Mod {
 
-    private static final int TRIGGER_DEPTH = 4;
+    private static final int TRIGGER_DEPTH = 3;
     private static final int MAX_SEARCH_DEPTH = 10;
     private static final int MAX_HORIZONTAL_SEARCH = 5;
     private static final int MAX_VERTICAL_SEARCH = 7;
     private static final int MAX_PLACEMENTS_PER_TICK = 4;
+    private static final double FACE_SAMPLE_OFFSET = 0.22D;
+    private static final double RAY_TRACE_INSET = 0.025D;
 
     private static final EnumFacing[] SEARCH_DIRECTIONS = {
             EnumFacing.DOWN,
@@ -249,6 +252,7 @@ public class ClutchMod extends Mod {
     private PlacementData findPlacementData(BlockPos placePos) {
         PlacementData closest = null;
         double closestDistance = Double.MAX_VALUE;
+        Vec3 eyes = getEyePosition();
 
         for(EnumFacing face : PLACE_FACES) {
             BlockPos supportPos = placePos.offset(face.getOpposite());
@@ -256,12 +260,12 @@ public class ClutchMod extends Mod {
                 continue;
             }
 
-            Vec3 hitVec = new Vec3(
-                    supportPos.getX() + 0.5D + face.getFrontOffsetX() * 0.5D,
-                    supportPos.getY() + 0.5D + face.getFrontOffsetY() * 0.5D,
-                    supportPos.getZ() + 0.5D + face.getFrontOffsetZ() * 0.5D);
+            Vec3 hitVec = findVisiblePointOnFace(eyes, supportPos, face);
+            if(hitVec == null) {
+                continue;
+            }
 
-            double distance = getEyePosition().squareDistanceTo(hitVec);
+            double distance = eyes.squareDistanceTo(hitVec);
             double reach = mc.playerController.getBlockReachDistance() + 0.15D;
             if(distance <= reach * reach && distance < closestDistance) {
                 closestDistance = distance;
@@ -270,6 +274,57 @@ public class ClutchMod extends Mod {
         }
 
         return closest;
+    }
+
+    /**
+     * Finds a point that is actually ray-visible on the requested block face.
+     * The exact face centre is preferred; small inset samples are used only
+     * when the centre is hidden by neighbouring geometry.
+     */
+    private Vec3 findVisiblePointOnFace(Vec3 eyes, BlockPos supportPos, EnumFacing face) {
+        double[] offsets = { 0.0D, FACE_SAMPLE_OFFSET, -FACE_SAMPLE_OFFSET };
+
+        for(double first : offsets) {
+            for(double second : offsets) {
+                Vec3 hitVec = getFacePoint(supportPos, face, first, second);
+                if(isVisibleFaceHit(eyes, supportPos, face, hitVec)) {
+                    return hitVec;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private Vec3 getFacePoint(BlockPos supportPos, EnumFacing face, double first, double second) {
+        double x = supportPos.getX() + 0.5D + face.getFrontOffsetX() * 0.5D;
+        double y = supportPos.getY() + 0.5D + face.getFrontOffsetY() * 0.5D;
+        double z = supportPos.getZ() + 0.5D + face.getFrontOffsetZ() * 0.5D;
+
+        if(face == EnumFacing.UP || face == EnumFacing.DOWN) {
+            x += first;
+            z += second;
+        } else if(face == EnumFacing.NORTH || face == EnumFacing.SOUTH) {
+            x += first;
+            y += second;
+        } else {
+            z += first;
+            y += second;
+        }
+
+        return new Vec3(x, y, z);
+    }
+
+    private boolean isVisibleFaceHit(Vec3 eyes, BlockPos supportPos, EnumFacing face, Vec3 hitVec) {
+        Vec3 traceEnd = hitVec.addVector(
+                -face.getFrontOffsetX() * RAY_TRACE_INSET,
+                -face.getFrontOffsetY() * RAY_TRACE_INSET,
+                -face.getFrontOffsetZ() * RAY_TRACE_INSET);
+        MovingObjectPosition ray = mc.theWorld.rayTraceBlocks(eyes, traceEnd, false, true, false);
+        return ray != null
+                && ray.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK
+                && supportPos.equals(ray.getBlockPos())
+                && ray.sideHit == face;
     }
 
     private boolean placeBlock(PlacementData placement) {
