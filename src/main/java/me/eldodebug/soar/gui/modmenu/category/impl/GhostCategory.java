@@ -46,6 +46,7 @@ public class GhostCategory extends ModuleCategory {
     private final AuxiliaryPanel otherPanel;
     private AuxiliaryPanel settingsPanel;
     private SettingsMod openSettingsMod;
+    private Mod bindingMod;
 
     public GhostCategory(GuiModMenu parent) {
         super(parent, TranslateText.MODULE, LegacyIcon.ARCHIVE, Fonts.LEGACYICON, ModCategory.GHOST, false);
@@ -68,7 +69,10 @@ public class GhostCategory extends ModuleCategory {
     private void resetAuxiliaryPanels() {
         blatantPanel.reset();
         otherPanel.reset();
-        closeInlineSettings();
+        settingsPanel = null;
+        openSettingsMod = null;
+        bindingMod = null;
+        setCanClose(true);
     }
 
     @Override
@@ -76,6 +80,9 @@ public class GhostCategory extends ModuleCategory {
         super.drawScreen(mouseX, mouseY, partialTicks);
         drawPanel(blatantPanel, mouseX, mouseY);
         drawPanel(otherPanel, mouseX, mouseY);
+        if(bindingMod != null) {
+            drawBindingPrompt();
+        }
     }
 
     private void drawPanel(AuxiliaryPanel panel, int mouseX, int mouseY) {
@@ -193,17 +200,38 @@ public class GhostCategory extends ModuleCategory {
 
         nvg.drawRect(panelX + 7.0F, rowY + ROW_HEIGHT - 0.6F, panel.width - 14.0F, 0.6F,
                 new Color(127, 135, 155, 22));
-        nvg.drawGradientRoundedRect(panelX + 4.0F, rowY + 5.0F, 3.0F, 15.0F, 1.5F,
-                accent.getColor1(), accent.getColor2());
-        nvg.drawText(mod.getName(), panelX + 12.0F, rowY + 8.0F,
-                palette.getFontColor(ColorType.DARK), 9.0F, Fonts.MEDIUM);
 
-        Color inactive = translucent(palette.getBackgroundColor(ColorType.NORMAL), 140);
-        nvg.drawCircle(panelX + panel.width - 11.0F, rowY + 12.5F, 3.2F, inactive);
-        if(mod.isToggled()) {
-            nvg.drawGradientCircle(panelX + panel.width - 11.0F, rowY + 12.5F, 3.2F,
-                    accent.getColor1(), accent.getColor2());
+        mod.getAnimation().setAnimation(mod.isToggled() ? 1.0F : 0.0F, 18);
+        float active = mod.getAnimation().getValue();
+        nvg.drawGradientRoundedRect(panelX + 4.0F, rowY + 5.0F, 3.0F, 15.0F, 1.5F,
+                ColorUtils.applyAlpha(accent.getColor1(), (int) (active * 255.0F)),
+                ColorUtils.applyAlpha(accent.getColor2(), (int) (active * 255.0F)));
+
+        String bindName = mod.getKeyCode() == Keyboard.KEY_NONE ? "" : Keyboard.getKeyName(mod.getKeyCode());
+        if(bindName == null) {
+            bindName = "";
         }
+        float bindWidth = bindName.isEmpty() ? 0.0F : nvg.getTextWidth(bindName, 7.5F, Fonts.MEDIUM);
+        float reserved = bindName.isEmpty() ? 28.0F : 37.0F + bindWidth;
+        String name = nvg.getLimitText(mod.getName(), 9.0F, Fonts.MEDIUM,
+                Math.max(28.0F, panel.width - reserved));
+        Color nameColor = mod.isToggled()
+                ? palette.getFontColor(ColorType.DARK)
+                : palette.getFontColor(ColorType.NORMAL);
+        nvg.drawText(name, panelX + 12.0F, rowY + 8.0F, nameColor, 9.0F, Fonts.MEDIUM);
+
+        float bindX = panelX + panel.width - 7.0F - bindWidth;
+        if(!bindName.isEmpty()) {
+            nvg.drawText(bindName, bindX, rowY + 8.8F,
+                    palette.getFontColor(ColorType.NORMAL, 180), 7.5F, Fonts.MEDIUM);
+        }
+
+        float stateX = bindName.isEmpty() ? panelX + panel.width - 11.0F : bindX - 9.0F;
+        nvg.drawCircle(stateX, rowY + 12.5F, 3.2F,
+                translucent(palette.getBackgroundColor(ColorType.NORMAL), 140));
+        nvg.drawGradientCircle(stateX, rowY + 12.5F, 3.2F,
+                ColorUtils.applyAlpha(accent.getColor1(), (int) (active * 255.0F)),
+                ColorUtils.applyAlpha(accent.getColor2(), (int) (active * 255.0F)));
     }
 
     private void drawMoveFixOption(NanoVGManager nvg, ColorPalette palette, AccentColor accent,
@@ -229,12 +257,32 @@ public class GhostCategory extends ModuleCategory {
         nvg.drawCircle(enabled ? toggleX + 19.0F : toggleX + 7.0F, toggleY + 7.0F, 4.5F, Color.WHITE);
     }
 
+    private void drawBindingPrompt() {
+        Glide instance = Glide.getInstance();
+        NanoVGManager nvg = instance.getNanoVGManager();
+        ColorPalette palette = instance.getColorManager().getPalette();
+        AccentColor accent = instance.getColorManager().getCurrentColor();
+        float promptWidth = 250.0F;
+        float promptHeight = 30.0F;
+        float promptX = getX() + getWidth() / 2.0F - promptWidth / 2.0F;
+        float promptY = getY() + getHeight() - 39.0F;
+        String text = "Press a key for " + bindingMod.getName() + "  -  right click to clear";
+
+        nvg.drawShadow(promptX, promptY, promptWidth, promptHeight, 8);
+        nvg.drawRoundedRect(promptX, promptY, promptWidth, promptHeight, 8,
+                translucent(palette.getBackgroundColor(ColorType.DARK), 145));
+        nvg.drawGradientOutlineRoundedRect(promptX, promptY, promptWidth, promptHeight, 8, 0.8F,
+                accent.getColor1(), accent.getColor2());
+        nvg.drawCenteredText(text, promptX + promptWidth / 2.0F, promptY + 10.5F,
+                palette.getFontColor(ColorType.DARK), 9.0F, Fonts.MEDIUM);
+    }
+
     private List<Mod> getVisibleModules(ModCategory category) {
         ArrayList<Mod> result = new ArrayList<Mod>();
         String search = getSearchBox().getText();
 
         for(Mod mod : Glide.getInstance().getModManager().getMods()) {
-            if(mod.isHide() || mod.getCategory() != category) {
+            if(mod.isHide() || !mod.getAllowed() || mod.getCategory() != category) {
                 continue;
             }
             if(!search.isEmpty()
@@ -381,6 +429,20 @@ public class GhostCategory extends ModuleCategory {
 
     @Override
     public void mouseClicked(int mouseX, int mouseY, int mouseButton) {
+        if(bindingMod != null) {
+            if(mouseButton == 1) {
+                bindingMod.setKeyCode(Keyboard.KEY_NONE);
+                bindingMod = null;
+                updateCanClose();
+                return;
+            }
+            if(mouseButton == 2) {
+                bindingMod = null;
+                updateCanClose();
+                return;
+            }
+        }
+
         if(handlePanelClick(otherPanel, mouseX, mouseY, mouseButton)
                 || handlePanelClick(blatantPanel, mouseX, mouseY, mouseButton)) {
             return;
@@ -435,10 +497,15 @@ public class GhostCategory extends ModuleCategory {
                     if(settingsPanel == panel && openSettingsMod == mod) {
                         closeInlineSettings();
                     } else {
+                        bindingMod = null;
                         settingsPanel = panel;
                         openSettingsMod = (SettingsMod) mod;
-                        setCanClose(false);
+                        updateCanClose();
                     }
+                } else if(mouseButton == 2) {
+                    closeInlineSettings();
+                    bindingMod = mod;
+                    updateCanClose();
                 }
                 return true;
             }
@@ -494,6 +561,26 @@ public class GhostCategory extends ModuleCategory {
 
     @Override
     public void keyTyped(char typedChar, int keyCode) {
+        if(bindingMod != null) {
+            if(keyCode == Keyboard.KEY_ESCAPE) {
+                bindingMod = null;
+                updateCanClose();
+                return;
+            }
+            if(keyCode == Keyboard.KEY_DELETE || keyCode == Keyboard.KEY_BACK) {
+                bindingMod.setKeyCode(Keyboard.KEY_NONE);
+                bindingMod = null;
+                updateCanClose();
+                return;
+            }
+            if(keyCode != Keyboard.KEY_NONE) {
+                bindingMod.setKeyCode(keyCode);
+                bindingMod = null;
+                updateCanClose();
+            }
+            return;
+        }
+
         if(openSettingsMod != null && keyCode == Keyboard.KEY_ESCAPE) {
             closeInlineSettings();
             return;
@@ -504,7 +591,11 @@ public class GhostCategory extends ModuleCategory {
     private void closeInlineSettings() {
         settingsPanel = null;
         openSettingsMod = null;
-        setCanClose(true);
+        updateCanClose();
+    }
+
+    private void updateCanClose() {
+        setCanClose(bindingMod == null && openSettingsMod == null);
     }
 
     private Color translucent(Color color, int alpha) {
