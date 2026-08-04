@@ -57,6 +57,7 @@ public class GhostCategory extends ModuleCategory {
 	private void resetOtherPanel() {
 		otherOpen = true;
 		settingsOpen = false;
+		setCanClose(true);
 	}
 
 	@Override
@@ -76,8 +77,9 @@ public class GhostCategory extends ModuleCategory {
 		ColorPalette palette = instance.getColorManager().getPalette();
 		AccentColor accent = instance.getColorManager().getCurrentColor();
 		boolean visible = isSettingsVisible(settingsMod);
-		if(!visible) {
+		if(!visible && settingsOpen) {
 			settingsOpen = false;
+			setCanClose(true);
 		}
 
 		float panelX = getOtherPanelX();
@@ -183,6 +185,10 @@ public class GhostCategory extends ModuleCategory {
 
 		if(MouseUtils.isInside(mouseX, mouseY, panelX, panelY, PANEL_WIDTH, HEADER_HEIGHT) && mouseButton == 0) {
 			otherOpen = !otherOpen;
+			if(!otherOpen && settingsOpen) {
+				settingsOpen = false;
+				setCanClose(true);
+			}
 			return;
 		}
 
