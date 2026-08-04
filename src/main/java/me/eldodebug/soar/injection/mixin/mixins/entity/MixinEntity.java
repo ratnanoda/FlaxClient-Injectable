@@ -8,6 +8,8 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import me.eldodebug.soar.management.mods.impl.DamageTiltMod;
+import me.eldodebug.soar.management.mods.impl.SettingsMod;
+import me.eldodebug.soar.utils.player.MoveFixUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
@@ -30,6 +32,26 @@ public class MixinEntity {
     @Redirect(method = "getBrightnessForRender", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;isBlockLoaded(Lnet/minecraft/util/BlockPos;)Z"))
     public boolean alwaysReturnTrue(World world, BlockPos pos) {
         return true;
+    }
+
+    /**
+     * Vanilla keyboard input already arrives as one of eight directions, so it
+     * stays on Minecraft's original path. Module-generated analogue vectors
+     * are intercepted here, immediately before horizontal motion is applied,
+     * and snapped to the nearest direction obtainable with WASD.
+     */
+    @Inject(method = "moveFlying", at = @At("HEAD"), cancellable = true)
+    private void applyMoveFix(float strafe, float forward, float friction, CallbackInfo ci) {
+        Entity entity = (Entity) (Object) this;
+        Minecraft minecraft = Minecraft.getMinecraft();
+
+        if(entity != minecraft.thePlayer || !SettingsMod.isMoveFixEnabled()
+                || MoveFixUtils.isEightDirectionInput(forward, strafe)) {
+            return;
+        }
+
+        MoveFixUtils.applySnappedMoveFlying(entity, strafe, forward, friction);
+        ci.cancel();
     }
     
 	@Inject(method = "setVelocity", at = @At("HEAD"))
