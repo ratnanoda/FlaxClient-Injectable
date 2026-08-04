@@ -5,18 +5,13 @@ import me.eldodebug.soar.management.event.impl.EventUpdate;
 import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.mods.Mod;
 import me.eldodebug.soar.management.mods.ModCategory;
-import me.eldodebug.soar.management.mods.settings.impl.BooleanSetting;
 import net.minecraft.client.settings.KeyBinding;
-import net.minecraft.item.ItemBlock;
-import net.minecraft.item.ItemStack;
 import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.BlockPos;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 
 public class SafeWalkMod extends Mod {
-
-	private final BooleanSetting blocksOnlySetting = new BooleanSetting(TranslateText.BLOCK, this, true);
 
 	// Only cross the player's real bounding-box edge by a floating-point
 	// epsilon. SafeWalk must not engage while the player is merely approaching
@@ -26,6 +21,9 @@ public class SafeWalkMod extends Mod {
 	private static final double SIDE_SAMPLE_OFFSET = 0.22D;
 
 	private boolean forcedSneak;
+	private boolean hasEdgeDirection;
+	private double lastEdgeDirectionX;
+	private double lastEdgeDirectionZ;
 	private BlockPos edgeGapPos;
 
 	public SafeWalkMod() {
@@ -36,30 +34,31 @@ public class SafeWalkMod extends Mod {
 	public void onEnable() {
 		super.onEnable();
 		forcedSneak = false;
-		edgeGapPos = null;
+		clearEdgeState();
 	}
 
 	@EventTarget
 	public void onUpdate(EventUpdate event) {
-		if(!canRun() || !settingsMet()) {
+		if(!canRun()) {
 			releaseForcedSneak();
-			edgeGapPos = null;
+			clearEdgeState();
 			return;
 		}
 
 		if(wasGapJustFilled()) {
 			releaseForcedSneak();
-			edgeGapPos = null;
+			clearEdgeState();
 			return;
 		}
 
 		if(isEdgeOfBlock()) {
+			// Reassert the injected key state every tick. A physical key-release
+			// event can clear KeyBinding.pressed even while SafeWalk still owns
+			// sneak, so setting it only on the first edge tick is not sufficient.
 			forceSneak();
 		} else {
-			// Do not retain sneak for a debounce/delay tick. This is deliberately
-			// immediate so SafeWalk cannot remain active away from an edge.
 			releaseForcedSneak();
-			edgeGapPos = null;
+			clearEdgeState();
 		}
 	}
 
@@ -67,7 +66,7 @@ public class SafeWalkMod extends Mod {
 	public void onDisable() {
 		super.onDisable();
 		releaseForcedSneak();
-		edgeGapPos = null;
+		clearEdgeState();
 	}
 
 	private boolean canRun() {
@@ -82,37 +81,47 @@ public class SafeWalkMod extends Mod {
 		return !mc.thePlayer.isInWater() && !mc.thePlayer.isInLava() && !mc.thePlayer.isOnLadder();
 	}
 
-	private boolean settingsMet() {
-		if(!blocksOnlySetting.isToggled()) {
-			return true;
-		}
-
-		ItemStack heldItem = mc.thePlayer.getHeldItem();
-		return heldItem != null && heldItem.getItem() instanceof ItemBlock;
-	}
-
 	private boolean isEdgeOfBlock() {
 		AxisAlignedBB bb = mc.thePlayer.getEntityBoundingBox();
-		float forward = mc.thePlayer.movementInput.moveForward;
-		float strafe = mc.thePlayer.movementInput.moveStrafe;
+		double[] direction = getInputDirection();
 
-		if(Math.abs(forward) < INPUT_EPSILON && Math.abs(strafe) < INPUT_EPSILON) {
-			return false;
+		// When movement input is released at the lip, continue checking the last
+		// direction that actually reached an edge. Releasing W/A/S/D must not
+		// drop forced sneak while the player's feet are still over that lip.
+		if(direction == null) {
+			if(!hasEdgeDirection) {
+				return false;
+			}
+			direction = new double[] { lastEdgeDirectionX, lastEdgeDirectionZ };
 		}
 
-		// Convert the actual keyboard movement input into a horizontal world
-		// direction. motionX/motionZ can retain inertia after input stops and was
-		// one source of SafeWalk appearing to stick.
+		if(isEdgeInDirection(bb, direction[0], direction[1])) {
+			lastEdgeDirectionX = direction[0];
+			lastEdgeDirectionZ = direction[1];
+			hasEdgeDirection = true;
+			return true;
+		}
+		return false;
+	}
+
+	private double[] getInputDirection() {
+		float forward = mc.thePlayer.movementInput.moveForward;
+		float strafe = mc.thePlayer.movementInput.moveStrafe;
+		if(Math.abs(forward) < INPUT_EPSILON && Math.abs(strafe) < INPUT_EPSILON) {
+			return null;
+		}
+
 		double yaw = Math.toRadians(mc.thePlayer.rotationYaw);
 		double directionX = strafe * Math.cos(yaw) - forward * Math.sin(yaw);
 		double directionZ = forward * Math.cos(yaw) + strafe * Math.sin(yaw);
 		double length = Math.sqrt(directionX * directionX + directionZ * directionZ);
 		if(length < INPUT_EPSILON) {
-			return false;
+			return null;
 		}
-		directionX /= length;
-		directionZ /= length;
+		return new double[] { directionX / length, directionZ / length };
+	}
 
+	private boolean isEdgeInDirection(AxisAlignedBB bb, double directionX, double directionZ) {
 		double centerX = (bb.minX + bb.maxX) * 0.5D;
 		double centerZ = (bb.minZ + bb.maxZ) * 0.5D;
 		double halfWidthX = (bb.maxX - bb.minX) * 0.5D;
@@ -130,9 +139,8 @@ public class SafeWalkMod extends Mod {
 		double sideZ = directionX;
 		double y = bb.minY - 0.01D;
 
-		// A single unsupported corner is not a real edge: it happens frequently
-		// while walking diagonally or near neighbouring blocks. Require the
-		// centre and both sides of the leading edge to be unsupported.
+		// A single unsupported corner is not a real edge. Require the centre and
+		// both side samples of the leading edge to be unsupported.
 		boolean centerGap = isGap(leadingX, y, leadingZ);
 		boolean leftGap = isGap(leadingX + sideX * SIDE_SAMPLE_OFFSET, y,
 				leadingZ + sideZ * SIDE_SAMPLE_OFFSET);
@@ -156,13 +164,12 @@ public class SafeWalkMod extends Mod {
 
 	private void forceSneak() {
 		if(isPhysicalSneakPressed()) {
+			forcedSneak = false;
 			return;
 		}
 
-		if(!forcedSneak) {
-			setSneak(true);
-			forcedSneak = true;
-		}
+		setSneak(true);
+		forcedSneak = true;
 	}
 
 	private boolean isPhysicalSneakPressed() {
@@ -178,12 +185,16 @@ public class SafeWalkMod extends Mod {
 	}
 
 	private void releaseForcedSneak() {
-		// Synchronise the key state even when our ownership flag was lost during
-		// a physical sneak press. This prevents an injected true state from
-		// surviving after SafeWalk has left the edge.
 		if(!isPhysicalSneakPressed()) {
 			setSneak(false);
 		}
 		forcedSneak = false;
+	}
+
+	private void clearEdgeState() {
+		hasEdgeDirection = false;
+		lastEdgeDirectionX = 0.0D;
+		lastEdgeDirectionZ = 0.0D;
+		edgeGapPos = null;
 	}
 }
