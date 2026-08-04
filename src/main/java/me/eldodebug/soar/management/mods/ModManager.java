@@ -18,6 +18,7 @@ public class ModManager {
 		// Hidden runtime settings required by the menu, sounds and RSHIFT binding.
 		// It is never exposed as a user module.
 		mods.add(new InternalSettingsMod());
+		mods.add(new SettingsMod());
 		mods.add(new AimAssistMod());
 		mods.add(new AutoClickerMod());
 		mods.add(new BedESPMod());
@@ -56,7 +57,6 @@ public class ModManager {
 			if(m instanceof HUDMod && ((HUDMod) m).isDraggable()) {
 				result.add((HUDMod) m);
 			}
-		}
 		
 		return result;
 	}
@@ -116,6 +116,7 @@ public class ModManager {
 			m.setToggled(false);
 		}
 		InternalSettingsMod.getInstance().setToggled(true);
+		SettingsMod.getInstance().setToggled(true);
 	}
 
 	public void playToggleSound(boolean toggled){
