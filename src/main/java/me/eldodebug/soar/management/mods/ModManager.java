@@ -57,6 +57,7 @@ public class ModManager {
 			if(m instanceof HUDMod && ((HUDMod) m).isDraggable()) {
 				result.add((HUDMod) m);
 			}
+		}
 		
 		return result;
 	}
