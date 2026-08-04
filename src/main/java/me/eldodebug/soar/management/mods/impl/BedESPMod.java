@@ -65,8 +65,9 @@ public class BedESPMod extends Mod {
 	private final ColorSetting colorSetting = new ColorSetting(TranslateText.COLOR, this, new Color(255, 64, 64), false);
 	private final NumberSetting alphaSetting = new NumberSetting(TranslateText.ALPHA, this, 0.85, 0.05, 1.0, false);
 	private final NumberSetting lineWidthSetting = new NumberSetting(TranslateText.LINE_WIDTH, this, 2, 1, 5, true);
-	private final ComboSetting modeSetting = new ComboSetting(TranslateText.MODE, this, TranslateText.BOX, new ArrayList<Option>(Arrays.asList(
-			new Option(TranslateText.OUTLINE), new Option(TranslateText.BOX), new Option(TranslateText.GLOW))));
+	private final ComboSetting modeSetting = new ComboSetting(TranslateText.MODE, this, TranslateText.BOX,
+			new ArrayList<Option>(Arrays.asList(new Option(TranslateText.OUTLINE),
+					new Option(TranslateText.BOX), new Option(TranslateText.GLOW))));
 	private final BooleanSetting showBedColorSetting = new BooleanSetting(TranslateText.SHOW_BED_COLOR, this, false);
 	private final BooleanSetting checkDefBlockSetting = new BooleanSetting(TranslateText.CHECK_DEF_BLOCK, this, false);
 
@@ -160,7 +161,8 @@ public class BedESPMod extends Mod {
 								BlockPos headPos = head ? here : here.offset(facing);
 								if(found.containsKey(footPos)) continue;
 
-								found.put(footPos, new Bed(footPos, headPos, computeDefenseBlocks(footPos, headPos)));
+								found.put(footPos,
+										new Bed(footPos, headPos, computeDefenseBlocks(footPos, headPos)));
 							}
 						}
 					}
@@ -218,7 +220,8 @@ public class BedESPMod extends Mod {
 		Collections.sort(sorted, (first, second) -> {
 			int distanceCompare = Integer.compare(first.distance, second.distance);
 			if(distanceCompare != 0) return distanceCompare;
-			int itemCompare = Integer.compare(Item.getIdFromItem(first.stack.getItem()), Item.getIdFromItem(second.stack.getItem()));
+			int itemCompare = Integer.compare(Item.getIdFromItem(first.stack.getItem()),
+					Item.getIdFromItem(second.stack.getItem()));
 			if(itemCompare != 0) return itemCompare;
 			return Integer.compare(first.stack.getMetadata(), second.stack.getMetadata());
 		});
@@ -244,16 +247,14 @@ public class BedESPMod extends Mod {
 	}
 
 	private int shellDistance(BlockPos first, BlockPos second) {
-		return Math.max(Math.max(Math.abs(first.getX() - second.getX()), Math.abs(first.getY() - second.getY())),
-				Math.abs(first.getZ() - second.getZ()));
+		return Math.max(Math.max(Math.abs(first.getX() - second.getX()),
+				Math.abs(first.getY() - second.getY())), Math.abs(first.getZ() - second.getZ()));
 	}
 
 	@EventTarget
 	public void onRender3D(EventRender3D event) {
 		if(mc.theWorld == null || mc.thePlayer == null || beds.isEmpty()) return;
 
-		// Capture the active camera matrices once. Item labels are rendered later
-		// as flat screen-space panels, avoiding billboard pitch and third-person flips.
 		WorldToScreen.capture();
 
 		RenderManager rm = mc.getRenderManager();
@@ -302,7 +303,6 @@ public class BedESPMod extends Mod {
 		GlStateManager.enableTexture2D();
 		ColorUtils.resetColor();
 		GlStateManager.popMatrix();
-
 	}
 
 	@EventTarget
@@ -333,12 +333,9 @@ public class BedESPMod extends Mod {
 			int rows = (icons.size() + MAX_ICONS_PER_ROW - 1) / MAX_ICONS_PER_ROW;
 			int panelWidth = columns * ICON_SIZE + Math.max(0, columns - 1) * ICON_GAP + PANEL_PADDING * 2;
 			int panelHeight = rows * ICON_SIZE + Math.max(0, rows - 1) * ICON_GAP + PANEL_PADDING * 2;
-			float scale = (float)Math.max(0.82D, Math.min(1.0D, 1.05D - distance / 560.0D));
+			float scale = (float) Math.max(0.82D, Math.min(1.0D, 1.05D - distance / 560.0D));
 			float scaledWidth = panelWidth * scale;
-			float scaledHeight = panelHeight * scale;
 
-			// Do not pin labels to screen edges. Edge-clamping made panels jump and
-			// slide along the border when the camera crossed behind a bed.
 			float margin = Math.max(28.0F, scaledWidth * 0.65F);
 			if(screen[0] < -margin || screen[0] > resolution.getScaledWidth() + margin
 					|| screen[1] < -margin || screen[1] > resolution.getScaledHeight() + margin) {
@@ -354,14 +351,13 @@ public class BedESPMod extends Mod {
 			} else {
 				motion.update(targetX, targetBottomY, scale, dt);
 			}
-			panels.add(new ProjectedPanel(motion.x, motion.y, motion.scale,
-					distance, icons));
+			panels.add(new ProjectedPanel(motion.x, motion.y, motion.scale, distance, icons));
 		}
 
 		panelMotions.keySet().retainAll(activeKeys);
 		Collections.sort(panels, (first, second) -> Double.compare(second.distance, first.distance));
 		for(ProjectedPanel panel : panels) {
-			renderProjectedIcons(panel, resolution);
+			renderProjectedIcons(panel);
 		}
 	}
 
@@ -383,7 +379,7 @@ public class BedESPMod extends Mod {
 		return icons;
 	}
 
-	private void renderProjectedIcons(ProjectedPanel panel, ScaledResolution resolution) {
+	private void renderProjectedIcons(ProjectedPanel panel) {
 		List<ItemStack> icons = panel.icons;
 		int columns = Math.min(MAX_ICONS_PER_ROW, icons.size());
 		int rows = (icons.size() + MAX_ICONS_PER_ROW - 1) / MAX_ICONS_PER_ROW;
@@ -392,12 +388,9 @@ public class BedESPMod extends Mod {
 		int panelHeight = rows * ICON_SIZE + Math.max(0, rows - 1) * ICON_GAP + PANEL_PADDING * 2;
 
 		float scale = panel.scale;
-		float scaledWidth = panelWidth * scale;
 		float scaledHeight = panelHeight * scale;
-		float centerX = Math.max(scaledWidth / 2.0F + 3.0F,
-				Math.min(resolution.getScaledWidth() - scaledWidth / 2.0F - 3.0F, panel.screenX));
-		float bottomY = Math.max(scaledHeight + 3.0F,
-				Math.min(resolution.getScaledHeight() - 3.0F, panel.screenY));
+		float centerX = panel.screenX;
+		float bottomY = panel.screenY;
 
 		GlStateManager.pushMatrix();
 		try {
@@ -412,7 +405,6 @@ public class BedESPMod extends Mod {
 			GlStateManager.enableTexture2D();
 			GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 
-			// Opaque rounded black panel matching the ClickGUI glass-card shape.
 			RenderUtils.drawRoundedRect(-panelWidth / 2.0F - 2.5F, -2.5F,
 					panelWidth + 5.0F, panelHeight + 5.0F, 7.0F, new Color(0, 0, 0, 255));
 			RenderUtils.drawRoundedRect(-panelWidth / 2.0F, 0.0F,
@@ -434,8 +426,7 @@ public class BedESPMod extends Mod {
 					int slotX = -rowWidth / 2 + column * (ICON_SIZE + ICON_GAP);
 					int slotY = PANEL_PADDING + row * (ICON_SIZE + ICON_GAP);
 					RenderUtils.drawRoundedRect(slotX - 1.0F, slotY - 1.0F,
-							ICON_SIZE + 2.0F, ICON_SIZE + 2.0F, 4.0F,
-							new Color(0, 0, 0, 230));
+							ICON_SIZE + 2.0F, ICON_SIZE + 2.0F, 4.0F, new Color(0, 0, 0, 230));
 					RenderUtils.drawRoundedOutline(slotX - 1.0F, slotY - 1.0F,
 							ICON_SIZE + 2.0F, ICON_SIZE + 2.0F, 4.0F, 0.6F,
 							new Color(42, 42, 46, 235));
@@ -484,11 +475,15 @@ public class BedESPMod extends Mod {
 		}
 
 		private void update(float targetX, float targetY, float targetScale, float dt) {
-			float positionFactor = 1.0F - (float)Math.exp(-18.0F * dt);
-			float scaleFactor = 1.0F - (float)Math.exp(-12.0F * dt);
+			float positionFactor = 1.0F - (float) Math.exp(-24.0F * dt);
+			float scaleFactor = 1.0F - (float) Math.exp(-16.0F * dt);
 			x += (targetX - x) * positionFactor;
 			y += (targetY - y) * positionFactor;
 			scale += (targetScale - scale) * scaleFactor;
+
+			if(Math.abs(targetX - x) < 0.01F) x = targetX;
+			if(Math.abs(targetY - y) < 0.01F) y = targetY;
+			if(Math.abs(targetScale - scale) < 0.0005F) scale = targetScale;
 		}
 	}
 
@@ -515,7 +510,8 @@ public class BedESPMod extends Mod {
 			int maxZ = Math.max(footPos.getZ(), headPos.getZ());
 
 			this.footPos = footPos;
-			this.box = new AxisAlignedBB(minX, footPos.getY(), minZ, maxX + 1, footPos.getY() + 0.5625D, maxZ + 1);
+			this.box = new AxisAlignedBB(minX, footPos.getY(), minZ,
+					maxX + 1, footPos.getY() + 0.5625D, maxZ + 1);
 			this.bedStack = new ItemStack(Items.bed);
 			this.defenseStacks = defenseStacks;
 		}

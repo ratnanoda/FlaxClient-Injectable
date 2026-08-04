@@ -5,11 +5,7 @@ import me.eldodebug.soar.management.event.impl.EventUpdate;
 import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.mods.Mod;
 import me.eldodebug.soar.management.mods.ModCategory;
-import me.eldodebug.soar.management.mods.settings.impl.BooleanSetting;
-import me.eldodebug.soar.management.mods.settings.impl.NumberSetting;
 import net.minecraft.client.settings.KeyBinding;
-import net.minecraft.item.ItemBlock;
-import net.minecraft.item.ItemStack;
 import net.minecraft.util.AxisAlignedBB;
 import net.minecraft.util.BlockPos;
 import org.lwjgl.input.Keyboard;
@@ -17,18 +13,17 @@ import org.lwjgl.input.Mouse;
 
 public class SafeWalkMod extends Mod {
 
-	private final BooleanSetting blocksOnlySetting = new BooleanSetting(TranslateText.BLOCK, this, true);
-	private final NumberSetting sneakDelaySetting = new NumberSetting(TranslateText.DELAY, this, 1, 0, 10, true);
-	private final NumberSetting edgeMotionSetting = new NumberSetting(TranslateText.MOVEMENT, this, 1.0D, 0.5D, 1.0D, false);
-
-	// How far past the player's leading edge we probe for missing support.
-	// Kept small so the forced sneak engages as late as possible - right at
-	// the lip of the block. Vanilla's own sneak edge-clamp prevents the fall,
-	// so a tight look-ahead is safe and lets the player walk further out.
-	private static final double EDGE_LOOKAHEAD = 0.05D;
+	// Only cross the player's real bounding-box edge by a floating-point
+	// epsilon. SafeWalk must not engage while the player is merely approaching
+	// the edge.
+	private static final double EDGE_PROBE_EPSILON = 0.001D;
+	private static final double INPUT_EPSILON = 0.001D;
+	private static final double SIDE_SAMPLE_OFFSET = 0.22D;
 
 	private boolean forcedSneak;
-	private int unsneakDelayTicks;
+	private boolean hasEdgeDirection;
+	private double lastEdgeDirectionX;
+	private double lastEdgeDirectionZ;
 	private BlockPos edgeGapPos;
 
 	public SafeWalkMod() {
@@ -39,40 +34,31 @@ public class SafeWalkMod extends Mod {
 	public void onEnable() {
 		super.onEnable();
 		forcedSneak = false;
-		unsneakDelayTicks = 0;
-		edgeGapPos = null;
+		clearEdgeState();
 	}
 
 	@EventTarget
 	public void onUpdate(EventUpdate event) {
-		if(!canRun() || !settingsMet()) {
+		if(!canRun()) {
 			releaseForcedSneak();
-			unsneakDelayTicks = 0;
-			edgeGapPos = null;
+			clearEdgeState();
 			return;
 		}
 
-		// If the gap we were sneaking over just got filled (e.g. a block was
-		// placed while bridging), drop the forced sneak immediately for this
-		// tick - don't wait out the unsneak delay. SafeWalk re-engages on the
-		// next tick once the player reaches a new edge.
 		if(wasGapJustFilled()) {
 			releaseForcedSneak();
-			unsneakDelayTicks = 0;
-			edgeGapPos = null;
+			clearEdgeState();
 			return;
 		}
 
-		boolean edge = isEdgeOfBlock();
-		if(edge) {
+		if(isEdgeOfBlock()) {
+			// Reassert the injected key state every tick. A physical key-release
+			// event can clear KeyBinding.pressed even while SafeWalk still owns
+			// sneak, so setting it only on the first edge tick is not sufficient.
 			forceSneak();
-			unsneakDelayTicks = sneakDelaySetting.getValueInt();
-			applyEdgeMotionLimit();
-		} else if(unsneakDelayTicks > 0) {
-			unsneakDelayTicks--;
 		} else {
 			releaseForcedSneak();
-			edgeGapPos = null;
+			clearEdgeState();
 		}
 	}
 
@@ -80,8 +66,7 @@ public class SafeWalkMod extends Mod {
 	public void onDisable() {
 		super.onDisable();
 		releaseForcedSneak();
-		unsneakDelayTicks = 0;
-		edgeGapPos = null;
+		clearEdgeState();
 	}
 
 	private boolean canRun() {
@@ -96,76 +81,85 @@ public class SafeWalkMod extends Mod {
 		return !mc.thePlayer.isInWater() && !mc.thePlayer.isInLava() && !mc.thePlayer.isOnLadder();
 	}
 
-	private boolean settingsMet() {
-		if(!blocksOnlySetting.isToggled()) {
-			return true;
-		}
-
-		ItemStack heldItem = mc.thePlayer.getHeldItem();
-		return heldItem != null && heldItem.getItem() instanceof ItemBlock;
-	}
-
 	private boolean isEdgeOfBlock() {
 		AxisAlignedBB bb = mc.thePlayer.getEntityBoundingBox();
-		double y = bb.minY - 0.5D;
+		double[] direction = getInputDirection();
 
-		double moveX = mc.thePlayer.motionX;
-		double moveZ = mc.thePlayer.motionZ;
-
-		if(Math.abs(moveX) < 0.001D && Math.abs(moveZ) < 0.001D) {
-			return false;
+		// When movement input is released at the lip, continue checking the last
+		// direction that actually reached an edge. Releasing W/A/S/D must not
+		// drop forced sneak while the player's feet are still over that lip.
+		if(direction == null) {
+			if(!hasEdgeDirection) {
+				return false;
+			}
+			direction = new double[] { lastEdgeDirectionX, lastEdgeDirectionZ };
 		}
 
-		double threshold = EDGE_LOOKAHEAD;
-
-		if(moveX > 0.001D) {
-			if(checkGap(bb.maxX + threshold, y, bb.minZ + 0.01D) || checkGap(bb.maxX + threshold, y, bb.maxZ - 0.01D)) {
-				return true;
-			}
-		} else if(moveX < -0.001D) {
-			if(checkGap(bb.minX - threshold, y, bb.minZ + 0.01D) || checkGap(bb.minX - threshold, y, bb.maxZ - 0.01D)) {
-				return true;
-			}
-		}
-
-		if(moveZ > 0.001D) {
-			if(checkGap(bb.minX + 0.01D, y, bb.maxZ + threshold) || checkGap(bb.maxX - 0.01D, y, bb.maxZ + threshold)) {
-				return true;
-			}
-		} else if(moveZ < -0.001D) {
-			if(checkGap(bb.minX + 0.01D, y, bb.minZ - threshold) || checkGap(bb.maxX - 0.01D, y, bb.minZ - threshold)) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	// Returns true when the probed point has no block under it, and remembers
-	// the empty block position so we can later tell when it gets filled in.
-	private boolean checkGap(double x, double y, double z) {
-		BlockPos pos = new BlockPos(x, y, z);
-		if(mc.theWorld.isAirBlock(pos)) {
-			edgeGapPos = pos;
+		if(isEdgeInDirection(bb, direction[0], direction[1])) {
+			lastEdgeDirectionX = direction[0];
+			lastEdgeDirectionZ = direction[1];
+			hasEdgeDirection = true;
 			return true;
 		}
 		return false;
 	}
 
-	// True if the gap we last forced sneak over is now solid - i.e. a block
-	// was just placed there.
-	private boolean wasGapJustFilled() {
-		return forcedSneak && edgeGapPos != null && !mc.theWorld.isAirBlock(edgeGapPos);
-	}
-
-	private void applyEdgeMotionLimit() {
-		double edgeMotion = edgeMotionSetting.getValue();
-		if(edgeMotion >= 0.999D) {
-			return;
+	private double[] getInputDirection() {
+		float forward = mc.thePlayer.movementInput.moveForward;
+		float strafe = mc.thePlayer.movementInput.moveStrafe;
+		if(Math.abs(forward) < INPUT_EPSILON && Math.abs(strafe) < INPUT_EPSILON) {
+			return null;
 		}
 
-		mc.thePlayer.motionX *= edgeMotion;
-		mc.thePlayer.motionZ *= edgeMotion;
+		double yaw = Math.toRadians(mc.thePlayer.rotationYaw);
+		double directionX = strafe * Math.cos(yaw) - forward * Math.sin(yaw);
+		double directionZ = forward * Math.cos(yaw) + strafe * Math.sin(yaw);
+		double length = Math.sqrt(directionX * directionX + directionZ * directionZ);
+		if(length < INPUT_EPSILON) {
+			return null;
+		}
+		return new double[] { directionX / length, directionZ / length };
+	}
+
+	private boolean isEdgeInDirection(AxisAlignedBB bb, double directionX, double directionZ) {
+		double centerX = (bb.minX + bb.maxX) * 0.5D;
+		double centerZ = (bb.minZ + bb.maxZ) * 0.5D;
+		double halfWidthX = (bb.maxX - bb.minX) * 0.5D;
+		double halfWidthZ = (bb.maxZ - bb.minZ) * 0.5D;
+
+		double edgeDistanceX = Math.abs(directionX) < INPUT_EPSILON
+				? Double.POSITIVE_INFINITY : halfWidthX / Math.abs(directionX);
+		double edgeDistanceZ = Math.abs(directionZ) < INPUT_EPSILON
+				? Double.POSITIVE_INFINITY : halfWidthZ / Math.abs(directionZ);
+		double edgeDistance = Math.min(edgeDistanceX, edgeDistanceZ) + EDGE_PROBE_EPSILON;
+
+		double leadingX = centerX + directionX * edgeDistance;
+		double leadingZ = centerZ + directionZ * edgeDistance;
+		double sideX = -directionZ;
+		double sideZ = directionX;
+		double y = bb.minY - 0.01D;
+
+		// A single unsupported corner is not a real edge. Require the centre and
+		// both side samples of the leading edge to be unsupported.
+		boolean centerGap = isGap(leadingX, y, leadingZ);
+		boolean leftGap = isGap(leadingX + sideX * SIDE_SAMPLE_OFFSET, y,
+				leadingZ + sideZ * SIDE_SAMPLE_OFFSET);
+		boolean rightGap = isGap(leadingX - sideX * SIDE_SAMPLE_OFFSET, y,
+				leadingZ - sideZ * SIDE_SAMPLE_OFFSET);
+
+		if(centerGap && leftGap && rightGap) {
+			edgeGapPos = new BlockPos(leadingX, y, leadingZ);
+			return true;
+		}
+		return false;
+	}
+
+	private boolean isGap(double x, double y, double z) {
+		return mc.theWorld.isAirBlock(new BlockPos(x, y, z));
+	}
+
+	private boolean wasGapJustFilled() {
+		return forcedSneak && edgeGapPos != null && !mc.theWorld.isAirBlock(edgeGapPos);
 	}
 
 	private void forceSneak() {
@@ -174,10 +168,8 @@ public class SafeWalkMod extends Mod {
 			return;
 		}
 
-		if(!forcedSneak) {
-			setSneak(true);
-			forcedSneak = true;
-		}
+		setSneak(true);
+		forcedSneak = true;
 	}
 
 	private boolean isPhysicalSneakPressed() {
@@ -193,13 +185,16 @@ public class SafeWalkMod extends Mod {
 	}
 
 	private void releaseForcedSneak() {
-		if(!forcedSneak) {
-			return;
-		}
-
 		if(!isPhysicalSneakPressed()) {
 			setSneak(false);
 		}
 		forcedSneak = false;
+	}
+
+	private void clearEdgeState() {
+		hasEdgeDirection = false;
+		lastEdgeDirectionX = 0.0D;
+		lastEdgeDirectionZ = 0.0D;
+		edgeGapPos = null;
 	}
 }
