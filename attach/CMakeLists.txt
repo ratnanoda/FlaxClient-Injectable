@@ -102,7 +102,7 @@ if(MSVC)
     )
     target_link_options(FlaxInjector PRIVATE
         /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf /CETCOMPAT
-        /INCREMENTAL:NO /OPT:REF /OPT:ICF
+        /INCREMENTAL:NO /OPT:REF /OPT:ICF /MANIFEST:NO
     )
 endif()
 
