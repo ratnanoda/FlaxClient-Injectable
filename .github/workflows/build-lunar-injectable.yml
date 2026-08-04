@@ -72,19 +72,64 @@ jobs:
         shell: powershell
         run: cmake --build attach/build-lunar --config Release --target FlaxInjector
 
-      - name: Verify embedded runtime
+      - name: Verify embedded runtime and metadata
         shell: powershell
         run: |
           $exe = "attach\build-lunar\bin\Release\FlaxClient.exe"
           $dll = "attach\build-lunar\bin\Release\FlaxClient.dll"
           if (!(Test-Path $exe)) { throw "FlaxClient.exe was not generated" }
           if (!(Test-Path $dll)) { throw "Intermediate FlaxClient.dll was not generated" }
+
           $verification = Start-Process -FilePath $exe -ArgumentList "--verify-embedded" -Wait -PassThru
-          if ($verification.ExitCode -ne 0) { throw "The EXE could not verify or extract its embedded DLL" }
+          if ($verification.ExitCode -ne 0) {
+            throw "The EXE could not verify or extract its embedded DLL"
+          }
           if ((Get-Item $exe).Length -le (Get-Item $dll).Length) {
             throw "The final EXE does not appear to contain the DLL resource"
           }
+
+          $runtime = @(Get-ChildItem "$env:LOCALAPPDATA\FlaxClient\runtime\FlaxClient-*.dll" -File -ErrorAction SilentlyContinue)
+          if ($runtime.Count -lt 1) {
+            throw "The embedded DLL was not materialized under LocalAppData"
+          }
+
+          $version = (Get-Item $exe).VersionInfo
+          if ($version.FileDescription -ne "FlaxClient Lunar Client 1.8.9 Attach Tool") {
+            throw "Expected Windows version metadata is missing"
+          }
+          Write-Host "File description: $($version.FileDescription)"
+          Write-Host "Product version: $($version.ProductVersion)"
+
+          $signature = Get-AuthenticodeSignature $exe
+          Write-Host "Authenticode status: $($signature.Status)"
+          if ($signature.Status -eq "NotSigned") {
+            Write-Warning "This community build is unsigned. Production releases should be Authenticode-signed."
+          }
+
           Get-FileHash $exe -Algorithm SHA256
+
+      - name: Scan final EXE with Microsoft Defender
+        shell: powershell
+        run: |
+          $exe = (Resolve-Path "attach\build-lunar\bin\Release\FlaxClient.exe").Path
+          $defender = Join-Path $env:ProgramFiles "Windows Defender\MpCmdRun.exe"
+          if (!(Test-Path $defender)) {
+            Write-Warning "Microsoft Defender command-line scanner is unavailable on this runner."
+            exit 0
+          }
+
+          & $defender -SignatureUpdate
+          $scan = Start-Process -FilePath $defender `
+              -ArgumentList @("-Scan", "-ScanType", "3", "-File", $exe, "-DisableRemediation") `
+              -Wait -PassThru -NoNewWindow
+          if ($scan.ExitCode -eq 2) {
+            throw "Microsoft Defender detected the generated EXE"
+          }
+          if ($scan.ExitCode -ne 0) {
+            Write-Warning "Microsoft Defender scan could not complete (exit code $($scan.ExitCode))."
+          } else {
+            Write-Host "Microsoft Defender scan completed without a detection."
+          }
 
       - name: Stage one-file distribution
         shell: powershell
