@@ -19,13 +19,11 @@ public class SafeWalkMod extends Mod {
 
 	private final BooleanSetting blocksOnlySetting = new BooleanSetting(TranslateText.BLOCK, this, true);
 	private final NumberSetting sneakDelaySetting = new NumberSetting(TranslateText.DELAY, this, 1, 0, 10, true);
-	private final NumberSetting edgeMotionSetting = new NumberSetting(TranslateText.MOVEMENT, this, 1.0D, 0.5D, 1.0D, false);
 
-	// How far past the player's leading edge we probe for missing support.
-	// Kept small so the forced sneak engages as late as possible - right at
-	// the lip of the block. Vanilla's own sneak edge-clamp prevents the fall,
-	// so a tight look-ahead is safe and lets the player walk further out.
-	private static final double EDGE_LOOKAHEAD = 0.05D;
+	// Probe only a tiny amount beyond the player's leading edge. This avoids
+	// engaging SafeWalk while the player is still approaching the lip and
+	// activates it only when the bounding box has effectively reached it.
+	private static final double EDGE_PROBE_EPSILON = 0.001D;
 
 	private boolean forcedSneak;
 	private int unsneakDelayTicks;
@@ -67,7 +65,6 @@ public class SafeWalkMod extends Mod {
 		if(edge) {
 			forceSneak();
 			unsneakDelayTicks = sneakDelaySetting.getValueInt();
-			applyEdgeMotionLimit();
 		} else if(unsneakDelayTicks > 0) {
 			unsneakDelayTicks--;
 		} else {
@@ -116,7 +113,7 @@ public class SafeWalkMod extends Mod {
 			return false;
 		}
 
-		double threshold = EDGE_LOOKAHEAD;
+		double threshold = EDGE_PROBE_EPSILON;
 
 		if(moveX > 0.001D) {
 			if(checkGap(bb.maxX + threshold, y, bb.minZ + 0.01D) || checkGap(bb.maxX + threshold, y, bb.maxZ - 0.01D)) {
@@ -156,16 +153,6 @@ public class SafeWalkMod extends Mod {
 	// was just placed there.
 	private boolean wasGapJustFilled() {
 		return forcedSneak && edgeGapPos != null && !mc.theWorld.isAirBlock(edgeGapPos);
-	}
-
-	private void applyEdgeMotionLimit() {
-		double edgeMotion = edgeMotionSetting.getValue();
-		if(edgeMotion >= 0.999D) {
-			return;
-		}
-
-		mc.thePlayer.motionX *= edgeMotion;
-		mc.thePlayer.motionZ *= edgeMotion;
 	}
 
 	private void forceSneak() {
