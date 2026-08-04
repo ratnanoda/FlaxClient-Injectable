@@ -1,4 +1,3 @@
-\
 package me.eldodebug.soar.management.mods.impl;
 
 import java.awt.Color;
