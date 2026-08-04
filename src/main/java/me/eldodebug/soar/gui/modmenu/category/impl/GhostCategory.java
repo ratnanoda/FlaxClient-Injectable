@@ -27,7 +27,7 @@ import me.eldodebug.soar.utils.mouse.MouseUtils;
 
 /**
  * Main module workspace. Ghost uses the native ModuleCategory panel while
- * Other and Blatant are independent draggable and resizable module lists.
+ * Other is an independent draggable and resizable module list.
  */
 public class GhostCategory extends ModuleCategory {
 
@@ -42,7 +42,6 @@ public class GhostCategory extends ModuleCategory {
     private static final float MIN_RESIZABLE_BODY_HEIGHT = ROW_HEIGHT + OPTION_HEIGHT;
     private static final float RESIZE_EDGE = 5.0F;
 
-    private final AuxiliaryPanel blatantPanel;
     private final AuxiliaryPanel otherPanel;
     private AuxiliaryPanel settingsPanel;
     private SettingsMod openSettingsMod;
@@ -50,24 +49,22 @@ public class GhostCategory extends ModuleCategory {
 
     public GhostCategory(GuiModMenu parent) {
         super(parent, TranslateText.MODULE, LegacyIcon.ARCHIVE, Fonts.LEGACYICON, ModCategory.GHOST, false);
-        blatantPanel = new AuxiliaryPanel("Blatant", ModCategory.BLATANT, -1);
-        otherPanel = new AuxiliaryPanel("Other", ModCategory.OTHER, 1);
+        otherPanel = new AuxiliaryPanel("Other", ModCategory.OTHER);
     }
 
     @Override
     public void initGui() {
         super.initGui();
-        resetAuxiliaryPanels();
+        resetOtherPanel();
     }
 
     @Override
     public void initCategory() {
         super.initCategory();
-        resetAuxiliaryPanels();
+        resetOtherPanel();
     }
 
-    private void resetAuxiliaryPanels() {
-        blatantPanel.reset();
+    private void resetOtherPanel() {
         otherPanel.reset();
         settingsPanel = null;
         openSettingsMod = null;
@@ -78,7 +75,6 @@ public class GhostCategory extends ModuleCategory {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         super.drawScreen(mouseX, mouseY, partialTicks);
-        drawPanel(blatantPanel, mouseX, mouseY);
         drawPanel(otherPanel, mouseX, mouseY);
         if(bindingMod != null) {
             drawBindingPrompt();
@@ -307,11 +303,7 @@ public class GhostCategory extends ModuleCategory {
         }
 
         float ghostPanelX = getX() + (getWidth() - DEFAULT_PANEL_WIDTH) / 2.0F;
-        if(panel.defaultSide < 0) {
-            panel.offsetX = ghostPanelX - DEFAULT_PANEL_WIDTH - PANEL_GAP - getX();
-        } else {
-            panel.offsetX = ghostPanelX + DEFAULT_PANEL_WIDTH + PANEL_GAP - getX();
-        }
+        panel.offsetX = ghostPanelX + DEFAULT_PANEL_WIDTH + PANEL_GAP - getX();
         panel.offsetY = Math.max(DEFAULT_SECTION_OFFSET_Y, SCREEN_EDGE_MARGIN - getY());
         panel.width = DEFAULT_PANEL_WIDTH;
         panel.bodyHeightOverride = -1.0F;
@@ -443,8 +435,7 @@ public class GhostCategory extends ModuleCategory {
             }
         }
 
-        if(handlePanelClick(otherPanel, mouseX, mouseY, mouseButton)
-                || handlePanelClick(blatantPanel, mouseX, mouseY, mouseButton)) {
+        if(handlePanelClick(otherPanel, mouseX, mouseY, mouseButton)) {
             return;
         }
         super.mouseClicked(mouseX, mouseY, mouseButton);
@@ -530,7 +521,7 @@ public class GhostCategory extends ModuleCategory {
 
     @Override
     public void mouseReleased(int mouseX, int mouseY, int mouseButton) {
-        boolean handled = releasePanel(otherPanel, mouseButton) | releasePanel(blatantPanel, mouseButton);
+        boolean handled = releasePanel(otherPanel, mouseButton);
         if(!handled) {
             super.mouseReleased(mouseX, mouseY, mouseButton);
         }
@@ -605,7 +596,6 @@ public class GhostCategory extends ModuleCategory {
     private static final class AuxiliaryPanel {
         private final String title;
         private final ModCategory category;
-        private final int defaultSide;
 
         private boolean open = true;
         private boolean initialized;
@@ -630,10 +620,9 @@ public class GhostCategory extends ModuleCategory {
         private float resizeStartWidth;
         private float resizeStartBodyHeight;
 
-        private AuxiliaryPanel(String title, ModCategory category, int defaultSide) {
+        private AuxiliaryPanel(String title, ModCategory category) {
             this.title = title;
             this.category = category;
-            this.defaultSide = defaultSide;
         }
 
         private void reset() {
