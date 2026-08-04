@@ -9,7 +9,6 @@ public enum ModCategory {
     PLAYER(TranslateText.PLAYER),
     RENDER(TranslateText.RENDER),
     GHOST(TranslateText.GHOST),
-    BLATANT(TranslateText.MODULE),
     HUD(TranslateText.HUD),
     WORLD(TranslateText.WORLD),
     OTHER(TranslateText.OTHER);
