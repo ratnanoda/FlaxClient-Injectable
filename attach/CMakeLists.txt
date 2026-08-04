@@ -45,6 +45,10 @@ file(TO_CMAKE_PATH
     "${CMAKE_BINARY_DIR}/bin/Release/FlaxClient.dll"
     FLAX_CLIENT_DLL_RC
 )
+file(TO_CMAKE_PATH
+    "${CMAKE_CURRENT_SOURCE_DIR}/resources/FlaxInjector.manifest"
+    FLAX_INJECTOR_MANIFEST_RC
+)
 configure_file(
     resources/FlaxInjector.rc.in
     "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjector.rc"
@@ -75,8 +79,31 @@ target_compile_definitions(FlaxInjector PRIVATE
 )
 
 if(MSVC)
-    target_compile_options(FlaxClient PRIVATE /W4 /permissive- /EHsc)
-    target_compile_options(FlaxInjector PRIVATE /W4 /permissive- /EHsc)
+    # A static MSVC runtime keeps the final distribution genuinely self-contained.
+    set_property(TARGET FlaxClient PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    set_property(TARGET FlaxInjector PROPERTY
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+    # Use a stable LocalAppData runtime directory instead of random-looking
+    # temporary files, and enable standard Windows exploit mitigations.
+    set(FLAX_SECURITY_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/src/FlaxSecurityCompat.h")
+    target_compile_options(FlaxClient PRIVATE
+        /W4 /permissive- /EHsc /sdl /guard:cf /Brepro
+        "/FI${FLAX_SECURITY_HEADER}"
+    )
+    target_compile_options(FlaxInjector PRIVATE
+        /W4 /permissive- /EHsc /sdl /guard:cf /Brepro
+        "/FI${FLAX_SECURITY_HEADER}"
+    )
+    target_link_options(FlaxClient PRIVATE
+        /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf /CETCOMPAT
+        /INCREMENTAL:NO /OPT:REF /OPT:ICF
+    )
+    target_link_options(FlaxInjector PRIVATE
+        /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf /CETCOMPAT
+        /INCREMENTAL:NO /OPT:REF /OPT:ICF
+    )
 endif()
 
 set_target_properties(FlaxClient PROPERTIES
