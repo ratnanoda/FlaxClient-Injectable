@@ -10,7 +10,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import me.eldodebug.soar.management.mods.impl.DamageTiltMod;
 import me.eldodebug.soar.management.mods.impl.SettingsMod;
 import me.eldodebug.soar.utils.player.MoveFixUtils;
-import me.eldodebug.soar.utils.player.SilentRotationManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.EntityPlayer;
@@ -36,40 +35,22 @@ public class MixinEntity {
     }
 
     /**
-     * During silent rotation, movement is calculated against the server-facing
-     * yaw, but the nearest vanilla eight-direction input is selected so the
-     * resulting world direction remains as close as possible to the camera's
-     * requested direction.
+     * Vanilla keyboard input already arrives as one of eight directions, so it
+     * stays on Minecraft's original path. Module-generated analogue vectors
+     * are snapped to the nearest direction obtainable with WASD.
      */
     @Inject(method = "moveFlying", at = @At("HEAD"), cancellable = true)
     private void applyMoveFix(float strafe, float forward, float friction, CallbackInfo ci) {
         Entity entity = (Entity) (Object) this;
         Minecraft minecraft = Minecraft.getMinecraft();
 
-        if(entity != minecraft.thePlayer || !SettingsMod.isMoveFixEnabled()) {
+        if(entity != minecraft.thePlayer || !SettingsMod.isMoveFixEnabled()
+                || MoveFixUtils.isEightDirectionInput(forward, strafe)) {
             return;
         }
 
-        if(SilentRotationManager.isActive()) {
-            float[] remapped = MoveFixUtils.remapForYaw(
-                    forward,
-                    strafe,
-                    SilentRotationManager.getCameraYaw(),
-                    SilentRotationManager.getYaw());
-            MoveFixUtils.applyMoveFlying(
-                    entity,
-                    remapped[1],
-                    remapped[0],
-                    friction,
-                    SilentRotationManager.getYaw());
-            ci.cancel();
-            return;
-        }
-
-        if(!MoveFixUtils.isEightDirectionInput(forward, strafe)) {
-            MoveFixUtils.applySnappedMoveFlying(entity, strafe, forward, friction);
-            ci.cancel();
-        }
+        MoveFixUtils.applySnappedMoveFlying(entity, strafe, forward, friction);
+        ci.cancel();
     }
     
     @Inject(method = "setVelocity", at = @At("HEAD"))
