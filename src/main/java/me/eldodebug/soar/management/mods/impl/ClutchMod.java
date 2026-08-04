@@ -26,9 +26,9 @@ import net.minecraft.util.MathHelper;
 import net.minecraft.util.Vec3;
 
 /**
- * Emergency clutch builder. When no support exists within four blocks below
- * the player, it silently aims at the nearest reachable support and builds a
- * connected path back to the block directly below the player's feet.
+ * Emergency clutch builder. When the vertical column from directly below the
+ * player's feet through four blocks down is empty, it silently aims at the
+ * nearest reachable support and builds a connected path back to the feet.
  */
 public class ClutchMod extends Mod {
 
@@ -154,7 +154,7 @@ public class ClutchMod extends Mod {
     private boolean shouldStartClutch() {
         return !mc.thePlayer.onGround
                 && findBlockSlot() >= 0
-                && !hasSupportWithinDepth(TRIGGER_DEPTH);
+                && !hasBlockInVerticalColumn(TRIGGER_DEPTH);
     }
 
     private void startClutch() {
@@ -368,12 +368,16 @@ public class ClutchMod extends Mod {
         return new BlockPos(mc.thePlayer.posX, y, mc.thePlayer.posZ);
     }
 
-    private boolean hasSupportWithinDepth(int depth) {
-        AxisAlignedBB bb = mc.thePlayer.getEntityBoundingBox();
-        int topY = MathHelper.floor_double(bb.minY - 0.01D);
+    /**
+     * Checks only the single vertical X/Z column directly under the player's
+     * feet. Nearby blocks to the side or on a diagonal do not suppress Clutch.
+     */
+    private boolean hasBlockInVerticalColumn(int depth) {
+        BlockPos top = getTargetUnderFeet();
 
         for(int offset = 0; offset < depth; offset++) {
-            if(hasSupportAtY(bb, topY - offset)) {
+            BlockPos pos = new BlockPos(top.getX(), top.getY() - offset, top.getZ());
+            if(isSolid(pos)) {
                 return true;
             }
         }
