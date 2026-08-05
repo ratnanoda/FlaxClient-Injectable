@@ -102,7 +102,6 @@ public class ScaffoldMod extends Mod {
 
         if(placed) {
             mc.thePlayer.swingItem();
-            mc.rightClickDelayTimer = 1;
             placeCooldown = 1;
         }
     }
