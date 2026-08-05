@@ -1,0 +1,37 @@
+#include <windows.h>
+#include "resource.h"
+
+IDR_FLAX_JAR RCDATA "payload/FlaxClient-Lunar-1.21.11.jar"
+1 RT_MANIFEST "app.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "FlaxClient\0"
+            VALUE "FileDescription", "FlaxClient Lunar 1.21.11 Fabric Installer\0"
+            VALUE "FileVersion", "1.0.0\0"
+            VALUE "InternalName", "FlaxClient-Lunar-1.21.11-Installer\0"
+            VALUE "OriginalFilename", "FlaxClient-Lunar-1.21.11-Installer.exe\0"
+            VALUE "ProductName", "FlaxClient Lunar 1.21.11\0"
+            VALUE "ProductVersion", "1.0.0\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END
