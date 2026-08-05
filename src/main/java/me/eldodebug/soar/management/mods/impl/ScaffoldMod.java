@@ -1,6 +1,5 @@
 package me.eldodebug.soar.management.mods.impl;
 
-import me.eldodebug.soar.gui.modmenu.category.impl.BlatantCategory;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventUpdate;
 import me.eldodebug.soar.management.language.TranslateText;
@@ -37,11 +36,6 @@ public class ScaffoldMod extends Mod {
 
     public ScaffoldMod() {
         super(TranslateText.SCAFFOLD, TranslateText.SCAFFOLD_DESCRIPTION, ModCategory.BLATANT);
-    }
-
-    @Override
-    public void setup() {
-        BlatantCategory.install();
     }
 
     @Override
