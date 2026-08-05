@@ -12,6 +12,7 @@ import me.eldodebug.soar.injection.interfaces.IMixinEntityLivingBase;
 import me.eldodebug.soar.management.event.impl.EventLivingUpdate;
 import me.eldodebug.soar.management.mods.impl.ScaffoldMod;
 import me.eldodebug.soar.management.mods.impl.SlowSwingMod;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityPlayerSP;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
@@ -21,40 +22,35 @@ import net.minecraft.world.World;
 @Mixin(EntityLivingBase.class)
 public abstract class MixinEntityLivingBase extends Entity implements IMixinEntityLivingBase {
 
-	@Shadow
-	public abstract int getArmSwingAnimationEnd();
-	
-	public MixinEntityLivingBase(World worldIn) {
-		super(worldIn);
-	}
+    @Shadow
+    public abstract int getArmSwingAnimationEnd();
+
+    public MixinEntityLivingBase(World worldIn) {
+        super(worldIn);
+    }
 
     @Inject(method = "onEntityUpdate", at = @At("TAIL"))
     public void onEntityUpdate(CallbackInfo ci) {
-    	new EventLivingUpdate((EntityLivingBase) (Object) this).call();
+        new EventLivingUpdate((EntityLivingBase) (Object) this).call();
     }
-    
-	@Inject(method = "getArmSwingAnimationEnd", at = @At("HEAD"), cancellable = true)
-	public void changeSwingSpeed(CallbackInfoReturnable<Integer> cir) {
-		
-		SlowSwingMod mod = SlowSwingMod.getInstance();
-		
-		if(mod.isToggled()) {
-			cir.setReturnValue(mod.getDelaySetting().getValueInt());
-		}
-	}
-	
+
+    @Inject(method = "getArmSwingAnimationEnd", at = @At("HEAD"), cancellable = true)
+    public void changeSwingSpeed(CallbackInfoReturnable<Integer> cir) {
+        SlowSwingMod mod = SlowSwingMod.getInstance();
+
+        if(mod.isToggled()) {
+            cir.setReturnValue(mod.getDelaySetting().getValueInt());
+        }
+    }
+
     @Redirect(method = "onLivingUpdate", at = @At(value = "INVOKE",
             target = "Lnet/minecraft/entity/EntityLivingBase;moveEntityWithHeading(FF)V"))
     private void glide$applyScaffoldMoveFix(EntityLivingBase entity, float strafe, float forward) {
         if(entity instanceof EntityPlayerSP && ScaffoldMod.shouldApplyMoveFix()) {
             float[] fixedInput = ScaffoldMod.getMoveFixedInput(strafe, forward);
-            float cameraRotationYaw = entity.rotationYaw;
-            entity.rotationYaw = ScaffoldMod.getSilentYaw();
-            try {
-                entity.moveEntityWithHeading(fixedInput[0], fixedInput[1]);
-            } finally {
-                entity.rotationYaw = cameraRotationYaw;
-            }
+            ScaffoldMod.applySilentRotationToPlayer();
+            entity.moveEntityWithHeading(fixedInput[0], fixedInput[1]);
+            ScaffoldMod.applySilentRotationToPlayer();
             return;
         }
 
@@ -63,13 +59,19 @@ public abstract class MixinEntityLivingBase extends Entity implements IMixinEnti
 
     @Inject(method = "getLook", at = @At("HEAD"), cancellable = true)
     private void mouseDelayFix(float partialTicks, CallbackInfoReturnable<Vec3> cir) {
-        if ((EntityLivingBase) (Object) this instanceof EntityPlayerSP) {
-            cir.setReturnValue(super.getLook(partialTicks));
+        EntityLivingBase entity = (EntityLivingBase) (Object) this;
+        if(entity instanceof EntityPlayerSP) {
+            if(entity == Minecraft.getMinecraft().thePlayer
+                    && ScaffoldMod.isSilentRotationActive()) {
+                cir.setReturnValue(ScaffoldMod.getCameraLook(partialTicks));
+            } else {
+                cir.setReturnValue(super.getLook(partialTicks));
+            }
         }
     }
-    
-	@Override
-	public int getArmSwingAnimation() {
-		return getArmSwingAnimationEnd();
-	}
+
+    @Override
+    public int getArmSwingAnimation() {
+        return getArmSwingAnimationEnd();
+    }
 }
