@@ -4,11 +4,13 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import me.eldodebug.soar.injection.interfaces.IMixinEntityLivingBase;
 import me.eldodebug.soar.management.event.impl.EventLivingUpdate;
+import me.eldodebug.soar.management.mods.impl.ScaffoldMod;
 import me.eldodebug.soar.management.mods.impl.SlowSwingMod;
 import net.minecraft.client.entity.EntityPlayerSP;
 import net.minecraft.entity.Entity;
@@ -41,6 +43,24 @@ public abstract class MixinEntityLivingBase extends Entity implements IMixinEnti
 		}
 	}
 	
+    @Redirect(method = "onLivingUpdate", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/entity/EntityLivingBase;moveEntityWithHeading(FF)V"))
+    private void glide$applyScaffoldMoveFix(EntityLivingBase entity, float strafe, float forward) {
+        if(entity instanceof EntityPlayerSP && ScaffoldMod.shouldApplyMoveFix()) {
+            float[] fixedInput = ScaffoldMod.getMoveFixedInput(strafe, forward);
+            float cameraRotationYaw = entity.rotationYaw;
+            entity.rotationYaw = ScaffoldMod.getSilentYaw();
+            try {
+                entity.moveEntityWithHeading(fixedInput[0], fixedInput[1]);
+            } finally {
+                entity.rotationYaw = cameraRotationYaw;
+            }
+            return;
+        }
+
+        entity.moveEntityWithHeading(strafe, forward);
+    }
+
     @Inject(method = "getLook", at = @At("HEAD"), cancellable = true)
     private void mouseDelayFix(float partialTicks, CallbackInfoReturnable<Vec3> cir) {
         if ((EntityLivingBase) (Object) this instanceof EntityPlayerSP) {
