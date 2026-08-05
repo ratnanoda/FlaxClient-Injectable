@@ -11,7 +11,7 @@ import org.lwjgl.input.Keyboard;
 
 public class Mod {
 
-    public static Minecraft mc = Minecraft.getMinecraft();
+    public static final Minecraft mc = Minecraft.getMinecraft();
     public FontRenderer fr = mc.fontRendererObj;
 
     private TranslateText nameTranslate, descriptionTranslate;
