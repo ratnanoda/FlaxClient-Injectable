@@ -1,9 +1,9 @@
 package me.eldodebug.soar.management.mods.impl;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Set;
 
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventCameraRotation;
@@ -13,38 +13,38 @@ import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.mods.Mod;
 import me.eldodebug.soar.management.mods.ModCategory;
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockBush;
 import net.minecraft.block.material.Material;
 import net.minecraft.init.Blocks;
 import net.minecraft.item.ItemBlock;
 import net.minecraft.item.ItemStack;
 import net.minecraft.network.play.client.C03PacketPlayer;
-import net.minecraft.util.AxisAlignedBB;
+import net.minecraft.network.play.client.C09PacketHeldItemChange;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.MathHelper;
+import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.util.Vec3;
 
 /**
- * Places solid hotbar blocks below and ahead of the player. The real player
- * rotation is kept on the server-facing placement angle while only the camera
- * and camera-relative movement are detached from it.
+ * LiquidBounce legacy Normal Scaffold placement/search behavior, adapted to
+ * FlaxClient's Java event system. LiquidBounce is GPL-3.0 licensed:
+ * https://github.com/CCBlueX/LiquidBounce
+ *
+ * Extend is intentionally fixed to zero. Only the camera and camera-relative
+ * movement are detached; the real player/server rotation faces the placement.
  */
 public class ScaffoldMod extends Mod {
 
-    private static final EnumFacing[] SUPPORT_DIRECTIONS = {
-            EnumFacing.DOWN,
-            EnumFacing.NORTH,
-            EnumFacing.SOUTH,
-            EnumFacing.WEST,
-            EnumFacing.EAST
-    };
+    /** User-requested fixed Extend value. No forward expansion is performed. */
+    private static final int EXTEND = 0;
 
-    private static final float INPUT_EPSILON = 0.0001F;
-    private static final int MAX_PLACEMENTS_PER_TICK = 2;
-    private static final int MAX_PLACEMENT_ATTEMPTS = 8;
+    private static final int HORIZONTAL_CLUTCH_BLOCKS = 3;
+    private static final int VERTICAL_CLUTCH_BLOCKS = 2;
     private static final int ROTATION_HOLD_TICKS = 2;
-    private static final double MIN_LOOK_AHEAD = 0.62D;
-    private static final double MAX_LOOK_AHEAD = 1.45D;
+    private static final float INPUT_EPSILON = 0.0001F;
+    private static final double MAX_AREA_SAMPLE = 0.9D;
+    private static final double AREA_SAMPLE_STEP = 0.1D;
 
     private static boolean silentRotationActive;
     private static float cameraYaw;
@@ -84,56 +84,51 @@ public class ScaffoldMod extends Mod {
             return;
         }
 
-        int slot = findBlockSlot();
-        if(slot < 0) {
+        int blockSlot = findBlockSlot();
+        if(blockSlot < 0) {
             deactivateSilentRotation();
             return;
         }
 
-        List<BlockPos> targets = getTargetPositions();
-        Placement firstPlacement = findFirstPlacement(targets);
-        if(firstPlacement == null) {
+        Placement placement = findBlock();
+        if(placement == null) {
             holdOrReleaseRotation();
             return;
         }
 
-        selectSlot(slot);
+        lockSilentRotation(placement.yaw, placement.pitch);
+        rotationHoldTicks = ROTATION_HOLD_TICKS;
 
-        int successfulPlacements = 0;
-        int attempts = 0;
-        while(successfulPlacements < MAX_PLACEMENTS_PER_TICK
-                && attempts < MAX_PLACEMENT_ATTEMPTS) {
-            Placement placement = findFirstPlacement(targets);
-            if(placement == null) {
-                break;
-            }
+        ItemStack stack = mc.thePlayer.inventory.getStackInSlot(blockSlot);
+        if(!isUsableBlock(stack)) {
+            holdOrReleaseRotation();
+            return;
+        }
 
-            targets.remove(placement.target);
-            attempts++;
+        // LiquidBounce's default AutoBlock mode is Spoof. Keep the visible
+        // hotbar slot unchanged while making the server use the block slot.
+        int visibleSlot = mc.thePlayer.inventory.currentItem;
+        boolean spoofed = blockSlot != visibleSlot;
+        if(spoofed) {
+            mc.thePlayer.sendQueue.addToSendQueue(
+                    new C09PacketHeldItemChange(blockSlot));
+        }
 
-            lockSilentRotation(placement.hitVec);
-            rotationHoldTicks = ROTATION_HOLD_TICKS;
-
-            ItemStack stack = mc.thePlayer.inventory.getStackInSlot(slot);
-            if(!isUsableBlock(stack)) {
-                deactivateSilentRotation();
-                break;
-            }
-
+        try {
             if(placeBlock(stack, placement)) {
                 mc.thePlayer.swingItem();
-                successfulPlacements++;
+            }
+        } finally {
+            if(spoofed) {
+                mc.thePlayer.sendQueue.addToSendQueue(
+                        new C09PacketHeldItemChange(visibleSlot));
             }
         }
 
         applySilentRotationToPlayer();
     }
 
-    /**
-     * Minecraft's renderer exposes raw mouse deltas through this event before
-     * it calls EntityPlayerSP#setAngles. While Scaffold rotates the real
-     * player, consume those deltas into a detached camera instead.
-     */
+    /** Consume mouse deltas into the detached camera while placement rotates the player. */
     @EventTarget
     public void onPlayerHeadRotation(EventPlayerHeadRotation event) {
         if(!silentRotationActive) {
@@ -144,7 +139,7 @@ public class ScaffoldMod extends Mod {
         event.setCancelled(true);
     }
 
-    /** Keeps the rendered first/third-person camera on the detached angle. */
+    /** Render first/third-person camera from the detached camera rotation. */
     @EventTarget
     public void onCameraRotation(EventCameraRotation event) {
         if(!silentRotationActive) {
@@ -171,158 +166,174 @@ public class ScaffoldMod extends Mod {
     }
 
     /**
-     * Produces an ordered set of blocks underneath the current footprint and
-     * ahead of the requested camera-relative movement. For diagonal movement,
-     * an attachable axis block is tried before the diagonal corner so the
-     * bridge never relies on an impossible corner-only connection.
+     * LiquidBounce Normal Scaffold's findBlock flow with Expand disabled.
+     * The current block is searched first, then a 3x2 clutch area ordered by
+     * distance from the player's eyes.
      */
-    private List<BlockPos> getTargetPositions() {
-        Set<BlockPos> targets = new LinkedHashSet<BlockPos>();
-        AxisAlignedBB bounds = mc.thePlayer.getEntityBoundingBox();
-        int targetY = MathHelper.floor_double(bounds.minY - 1.0D);
-        BlockPos center = new BlockPos(
-                MathHelper.floor_double(mc.thePlayer.posX),
-                targetY,
-                MathHelper.floor_double(mc.thePlayer.posZ));
+    private Placement findBlock() {
+        BlockPos blockPosition = getBlockPositionBelowPlayer();
 
-        targets.add(center);
+        if(!isReplaceable(blockPosition)) {
+            return null;
+        }
 
-        double[] direction = getRequestedMovementDirection();
-        if(Math.abs(direction[0]) > INPUT_EPSILON
-                || Math.abs(direction[1]) > INPUT_EPSILON) {
-            int stepX = direction[0] > INPUT_EPSILON ? 1
-                    : direction[0] < -INPUT_EPSILON ? -1 : 0;
-            int stepZ = direction[1] > INPUT_EPSILON ? 1
-                    : direction[1] < -INPUT_EPSILON ? -1 : 0;
+        Placement direct = search(blockPosition, true, true);
+        if(direct != null) {
+            return direct;
+        }
 
-            BlockPos axisX = center.add(stepX, 0, 0);
-            BlockPos axisZ = center.add(0, 0, stepZ);
-            BlockPos diagonal = center.add(stepX, 0, stepZ);
+        // EXTEND is deliberately zero, therefore no direction offset is added.
+        if(EXTEND != 0) {
+            return null;
+        }
 
-            if(stepX != 0 && stepZ != 0) {
-                if(preferXFirst(direction[0], direction[1])) {
-                    targets.add(axisX);
-                    targets.add(diagonal);
-                    targets.add(axisZ);
-                } else {
-                    targets.add(axisZ);
-                    targets.add(diagonal);
-                    targets.add(axisX);
+        List<BlockPos> positions = new ArrayList<BlockPos>();
+        for(int x = -HORIZONTAL_CLUTCH_BLOCKS; x <= HORIZONTAL_CLUTCH_BLOCKS; x++) {
+            for(int y = 0; y >= -VERTICAL_CLUTCH_BLOCKS; y--) {
+                for(int z = -HORIZONTAL_CLUTCH_BLOCKS; z <= HORIZONTAL_CLUTCH_BLOCKS; z++) {
+                    positions.add(blockPosition.add(x, y, z));
                 }
-            } else if(stepX != 0) {
-                targets.add(axisX);
-            } else if(stepZ != 0) {
-                targets.add(axisZ);
             }
-
-            double speed = Math.sqrt(mc.thePlayer.motionX * mc.thePlayer.motionX
-                    + mc.thePlayer.motionZ * mc.thePlayer.motionZ);
-            double lookAhead = Math.max(MIN_LOOK_AHEAD,
-                    Math.min(MAX_LOOK_AHEAD, 0.62D + speed * 4.0D));
-            BlockPos lead = new BlockPos(
-                    mc.thePlayer.posX + direction[0] * lookAhead,
-                    targetY,
-                    mc.thePlayer.posZ + direction[1] * lookAhead);
-
-            if(lead.getX() != center.getX()) {
-                targets.add(new BlockPos(lead.getX(), targetY, center.getZ()));
-            }
-            if(lead.getZ() != center.getZ()) {
-                targets.add(new BlockPos(center.getX(), targetY, lead.getZ()));
-            }
-            targets.add(lead);
-
-            double edgeDistance = mc.thePlayer.width * 0.5D + 0.28D;
-            targets.add(new BlockPos(
-                    mc.thePlayer.posX + direction[0] * edgeDistance,
-                    targetY,
-                    mc.thePlayer.posZ + direction[1] * edgeDistance));
         }
 
-        // Footprint corners are fallbacks for edge cases caused by bounding-box
-        // overlap, knockback, or very small position changes between ticks.
-        targets.add(new BlockPos(bounds.minX + 0.01D, targetY, bounds.minZ + 0.01D));
-        targets.add(new BlockPos(bounds.minX + 0.01D, targetY, bounds.maxZ - 0.01D));
-        targets.add(new BlockPos(bounds.maxX - 0.01D, targetY, bounds.minZ + 0.01D));
-        targets.add(new BlockPos(bounds.maxX - 0.01D, targetY, bounds.maxZ - 0.01D));
+        final Vec3 eyes = getEyes();
+        Collections.sort(positions, new Comparator<BlockPos>() {
+            @Override
+            public int compare(BlockPos first, BlockPos second) {
+                return Double.compare(distanceSqToCenter(eyes, first),
+                        distanceSqToCenter(eyes, second));
+            }
+        });
 
-        return new ArrayList<BlockPos>(targets);
-    }
-
-    private boolean preferXFirst(double directionX, double directionZ) {
-        double absoluteX = Math.abs(directionX);
-        double absoluteZ = Math.abs(directionZ);
-        if(Math.abs(absoluteX - absoluteZ) > 0.0001D) {
-            return absoluteX > absoluteZ;
-        }
-
-        double frontX = mc.thePlayer.posX
-                + Math.signum(directionX) * mc.thePlayer.width * 0.5D;
-        double frontZ = mc.thePlayer.posZ
-                + Math.signum(directionZ) * mc.thePlayer.width * 0.5D;
-        double fractionX = frontX - Math.floor(frontX);
-        double fractionZ = frontZ - Math.floor(frontZ);
-        double distanceX = directionX > 0.0D ? 1.0D - fractionX : fractionX;
-        double distanceZ = directionZ > 0.0D ? 1.0D - fractionZ : fractionZ;
-        return distanceX / Math.max(absoluteX, 0.0001D)
-                <= distanceZ / Math.max(absoluteZ, 0.0001D);
-    }
-
-    private double[] getRequestedMovementDirection() {
-        float viewYaw = silentRotationActive ? cameraYaw : mc.thePlayer.rotationYaw;
-        float strafe = mc.thePlayer.movementInput == null
-                ? 0.0F : mc.thePlayer.movementInput.moveStrafe;
-        float forward = mc.thePlayer.movementInput == null
-                ? 0.0F : mc.thePlayer.movementInput.moveForward;
-
-        if(Math.abs(strafe) > INPUT_EPSILON || Math.abs(forward) > INPUT_EPSILON) {
-            return movementVector(viewYaw, sign(strafe), sign(forward));
-        }
-
-        double speed = Math.sqrt(mc.thePlayer.motionX * mc.thePlayer.motionX
-                + mc.thePlayer.motionZ * mc.thePlayer.motionZ);
-        if(speed > 0.01D) {
-            return new double[] {
-                    mc.thePlayer.motionX / speed,
-                    mc.thePlayer.motionZ / speed
-            };
-        }
-
-        return new double[] { 0.0D, 0.0D };
-    }
-
-    private Placement findFirstPlacement(List<BlockPos> targets) {
-        for(BlockPos target : targets) {
-            if(!isReplaceable(target)) {
-                continue;
+        for(BlockPos candidate : positions) {
+            // Mirrors LiquidBounce's `canBeClicked() || search(...)` early exit.
+            if(isValidSupport(candidate)) {
+                return null;
             }
 
-            Placement placement = findPlacement(target);
+            Placement placement = search(candidate, true, true);
             if(placement != null) {
                 return placement;
             }
         }
+
         return null;
     }
 
-    private Placement findPlacement(BlockPos target) {
-        for(EnumFacing direction : SUPPORT_DIRECTIONS) {
-            BlockPos support = target.offset(direction);
-            if(!isValidSupport(support)) {
+    private BlockPos getBlockPositionBelowPlayer() {
+        double roundedY = Math.rint(mc.thePlayer.posY);
+        if(mc.thePlayer.posY == roundedY + 0.5D) {
+            return new BlockPos(mc.thePlayer.posX, mc.thePlayer.posY,
+                    mc.thePlayer.posZ);
+        }
+        return new BlockPos(mc.thePlayer.posX, mc.thePlayer.posY,
+                mc.thePlayer.posZ).down();
+    }
+
+    /**
+     * Port of LiquidBounce's Area search. Every face point from 0.1 through
+     * 0.9 is tested and only a raytrace-valid candidate is accepted. The
+     * candidate with the smallest rotation difference is selected.
+     */
+    private Placement search(BlockPos blockPosition, boolean raycast, boolean area) {
+        if(!isReplaceable(blockPosition)) {
+            return null;
+        }
+
+        Vec3 eyes = getEyes();
+        float maxReach = mc.playerController.getBlockReachDistance();
+        Placement best = null;
+
+        for(EnumFacing side : EnumFacing.values()) {
+            BlockPos neighbor = blockPosition.offset(side);
+            if(!isValidSupport(neighbor)) {
                 continue;
             }
 
-            EnumFacing face = direction.getOpposite();
-            Vec3 hitVec = new Vec3(
-                    support.getX() + 0.5D + face.getFrontOffsetX() * 0.5D,
-                    support.getY() + 0.5D + face.getFrontOffsetY() * 0.5D,
-                    support.getZ() + 0.5D + face.getFrontOffsetZ() * 0.5D);
-            return new Placement(target, support, face, hitVec);
+            if(!area) {
+                Placement candidate = findTargetPlace(blockPosition, neighbor,
+                        0.5D, 0.5D, 0.5D, side, eyes, maxReach, raycast);
+                best = compareDifferences(candidate, best);
+                continue;
+            }
+
+            for(int xi = 1; xi <= 9; xi++) {
+                double x = Math.min(MAX_AREA_SAMPLE, xi * AREA_SAMPLE_STEP);
+                for(int yi = 1; yi <= 9; yi++) {
+                    double y = Math.min(MAX_AREA_SAMPLE, yi * AREA_SAMPLE_STEP);
+                    for(int zi = 1; zi <= 9; zi++) {
+                        double z = Math.min(MAX_AREA_SAMPLE, zi * AREA_SAMPLE_STEP);
+                        Placement candidate = findTargetPlace(blockPosition,
+                                neighbor, x, y, z, side, eyes, maxReach, raycast);
+                        best = compareDifferences(candidate, best);
+                    }
+                }
+            }
         }
-        return null;
+
+        return best;
+    }
+
+    private Placement findTargetPlace(BlockPos target, BlockPos support,
+            double x, double y, double z, EnumFacing side, Vec3 eyes,
+            float maxReach, boolean raycast) {
+        Vec3 hitCandidate = new Vec3(
+                target.getX() + x + side.getFrontOffsetX() * x,
+                target.getY() + y + side.getFrontOffsetY() * y,
+                target.getZ() + z + side.getFrontOffsetZ() * z);
+
+        if(eyes.distanceTo(hitCandidate) > maxReach) {
+            return null;
+        }
+
+        if(raycast && mc.theWorld.rayTraceBlocks(
+                eyes, hitCandidate, false, true, false) != null) {
+            return null;
+        }
+
+        float[] rotation = fixedSensitivity(rotationsTo(hitCandidate));
+        MovingObjectPosition trace = performBlockRaytrace(
+                rotation[0], rotation[1], maxReach);
+        if(trace == null || trace.typeOfHit != MovingObjectPosition.MovingObjectType.BLOCK
+                || !support.equals(trace.getBlockPos())) {
+            return null;
+        }
+
+        EnumFacing expectedFace = side.getOpposite();
+        if(raycast && trace.sideHit != expectedFace) {
+            return null;
+        }
+
+        return new Placement(target, support, expectedFace, trace.hitVec,
+                rotation[0], rotation[1], rotationDifference(rotation[0], rotation[1]));
+    }
+
+    private Placement compareDifferences(Placement candidate, Placement current) {
+        if(candidate == null) {
+            return current;
+        }
+        if(current == null || candidate.rotationDifference < current.rotationDifference) {
+            return candidate;
+        }
+        return current;
+    }
+
+    private MovingObjectPosition performBlockRaytrace(float yaw, float pitch,
+            float maxReach) {
+        Vec3 eyes = getEyes();
+        Vec3 look = getVectorForRotation(yaw, pitch);
+        Vec3 reach = eyes.addVector(look.xCoord * maxReach,
+                look.yCoord * maxReach, look.zCoord * maxReach);
+        return mc.theWorld.rayTraceBlocks(eyes, reach, false, false, true);
     }
 
     private boolean placeBlock(ItemStack stack, Placement placement) {
+        ItemBlock itemBlock = (ItemBlock) stack.getItem();
+        if(!itemBlock.canPlaceBlockOnSide(mc.theWorld, placement.support,
+                placement.face, mc.thePlayer, stack)) {
+            return false;
+        }
+
         applySilentRotationToPlayer();
         mc.thePlayer.sendQueue.addToSendQueue(
                 new C03PacketPlayer.C05PacketPlayerLook(
@@ -335,6 +346,20 @@ public class ScaffoldMod extends Mod {
                 placement.support,
                 placement.face,
                 placement.hitVec);
+    }
+
+    private Vec3 getEyes() {
+        return new Vec3(mc.thePlayer.posX,
+                mc.thePlayer.getEntityBoundingBox().minY
+                        + mc.thePlayer.getEyeHeight(),
+                mc.thePlayer.posZ);
+    }
+
+    private double distanceSqToCenter(Vec3 eyes, BlockPos pos) {
+        double dx = eyes.xCoord - (pos.getX() + 0.5D);
+        double dy = eyes.yCoord - (pos.getY() + 0.5D);
+        double dz = eyes.zCoord - (pos.getZ() + 0.5D);
+        return dx * dx + dy * dy + dz * dz;
     }
 
     private boolean isValidSupport(BlockPos pos) {
@@ -370,25 +395,18 @@ public class ScaffoldMod extends Mod {
     }
 
     private boolean isUsableBlock(ItemStack stack) {
-        if(stack == null || stack.stackSize <= 0 || !(stack.getItem() instanceof ItemBlock)) {
+        if(stack == null || stack.stackSize <= 0
+                || !(stack.getItem() instanceof ItemBlock)) {
             return false;
         }
 
         Block block = ((ItemBlock) stack.getItem()).getBlock();
-        if(block == null || block == Blocks.air) {
+        if(block == null || block == Blocks.air || block instanceof BlockBush) {
             return false;
         }
 
         Material material = block.getMaterial();
         return material != null && material.isSolid() && block.isFullCube();
-    }
-
-    private void selectSlot(int slot) {
-        if(mc.thePlayer.inventory.currentItem == slot) {
-            return;
-        }
-        mc.thePlayer.inventory.currentItem = slot;
-        mc.playerController.updateController();
     }
 
     private void restoreOriginalSlot() {
@@ -397,11 +415,14 @@ public class ScaffoldMod extends Mod {
             originalSlot = -1;
             return;
         }
-        selectSlot(originalSlot);
+        if(mc.thePlayer.inventory.currentItem != originalSlot) {
+            mc.thePlayer.inventory.currentItem = originalSlot;
+            mc.playerController.updateController();
+        }
         originalSlot = -1;
     }
 
-    private void lockSilentRotation(Vec3 hitVec) {
+    private void lockSilentRotation(float yaw, float pitch) {
         if(!silentRotationActive) {
             cameraYaw = mc.thePlayer.rotationYaw;
             cameraPitch = mc.thePlayer.rotationPitch;
@@ -409,11 +430,10 @@ public class ScaffoldMod extends Mod {
             previousCameraPitch = mc.thePlayer.prevRotationPitch;
         }
 
-        float[] rotations = rotationsTo(hitVec);
         float referenceYaw = silentRotationActive ? silentYaw : cameraYaw;
         silentYaw = referenceYaw
-                + MathHelper.wrapAngleTo180_float(rotations[0] - referenceYaw);
-        silentPitch = rotations[1];
+                + MathHelper.wrapAngleTo180_float(yaw - referenceYaw);
+        silentPitch = Math.max(-90.0F, Math.min(90.0F, pitch));
         silentRotationActive = true;
         applySilentRotationToPlayer();
     }
@@ -427,8 +447,38 @@ public class ScaffoldMod extends Mod {
 
         float yaw = (float) (Math.toDegrees(Math.atan2(deltaZ, deltaX)) - 90.0D);
         float pitch = (float) -Math.toDegrees(Math.atan2(deltaY, horizontal));
-        pitch = Math.max(-90.0F, Math.min(90.0F, pitch));
-        return new float[] { yaw, pitch };
+        return new float[] { yaw, Math.max(-90.0F, Math.min(90.0F, pitch)) };
+    }
+
+    private float[] fixedSensitivity(float[] rotation) {
+        float referenceYaw = silentRotationActive ? silentYaw : mc.thePlayer.rotationYaw;
+        float referencePitch = silentRotationActive ? silentPitch : mc.thePlayer.rotationPitch;
+        float sensitivity = mc.gameSettings.mouseSensitivity * 0.6F + 0.2F;
+        float gcd = sensitivity * sensitivity * sensitivity * 1.2F;
+
+        float yawDelta = MathHelper.wrapAngleTo180_float(rotation[0] - referenceYaw);
+        float pitchDelta = rotation[1] - referencePitch;
+        float fixedYaw = referenceYaw + Math.round(yawDelta / gcd) * gcd;
+        float fixedPitch = referencePitch + Math.round(pitchDelta / gcd) * gcd;
+        fixedPitch = Math.max(-90.0F, Math.min(90.0F, fixedPitch));
+        return new float[] { fixedYaw, fixedPitch };
+    }
+
+    private double rotationDifference(float yaw, float pitch) {
+        float referenceYaw = silentRotationActive ? silentYaw : mc.thePlayer.rotationYaw;
+        float referencePitch = silentRotationActive ? silentPitch : mc.thePlayer.rotationPitch;
+        double yawDifference = MathHelper.wrapAngleTo180_float(yaw - referenceYaw);
+        double pitchDifference = pitch - referencePitch;
+        return Math.sqrt(yawDifference * yawDifference
+                + pitchDifference * pitchDifference);
+    }
+
+    private static Vec3 getVectorForRotation(float yaw, float pitch) {
+        float yawCos = MathHelper.cos(-yaw * 0.017453292F - (float) Math.PI);
+        float yawSin = MathHelper.sin(-yaw * 0.017453292F - (float) Math.PI);
+        float pitchCos = -MathHelper.cos(-pitch * 0.017453292F);
+        float pitchSin = MathHelper.sin(-pitch * 0.017453292F);
+        return new Vec3(yawSin * pitchCos, pitchSin, yawCos * pitchCos);
     }
 
     private static void updateDetachedCamera(float yawDelta, float pitchDelta) {
@@ -500,20 +550,16 @@ public class ScaffoldMod extends Mod {
     }
 
     public static Vec3 getCameraLook(float partialTicks) {
-        float yaw = previousCameraYaw + (cameraYaw - previousCameraYaw) * partialTicks;
+        float yaw = previousCameraYaw
+                + (cameraYaw - previousCameraYaw) * partialTicks;
         float pitch = previousCameraPitch
                 + (cameraPitch - previousCameraPitch) * partialTicks;
-        float yawCos = MathHelper.cos(-yaw * 0.017453292F - (float) Math.PI);
-        float yawSin = MathHelper.sin(-yaw * 0.017453292F - (float) Math.PI);
-        float pitchCos = -MathHelper.cos(-pitch * 0.017453292F);
-        float pitchSin = MathHelper.sin(-pitch * 0.017453292F);
-        return new Vec3(yawSin * pitchCos, pitchSin, yawCos * pitchCos);
+        return getVectorForRotation(yaw, pitch);
     }
 
     /**
-     * Converts camera-relative intent to exactly one of vanilla's eight
-     * digital forward/strafe combinations under the real silent player yaw.
-     * The returned array is {strafe, forward}.
+     * Preserve camera-relative intent while movement physics use the real
+     * placement yaw. The result is restricted to vanilla's eight directions.
      */
     public static float[] getMoveFixedInput(float strafe, float forward) {
         float magnitude = Math.max(Math.abs(strafe), Math.abs(forward));
@@ -553,25 +599,23 @@ public class ScaffoldMod extends Mod {
         };
     }
 
-    private static float sign(float value) {
-        if(value > INPUT_EPSILON) {
-            return 1.0F;
-        }
-        if(value < -INPUT_EPSILON) {
-            return -1.0F;
-        }
-        return 0.0F;
-    }
-
     private static double[] movementVector(float yaw, float strafe, float forward) {
         double radians = Math.toRadians(yaw);
-        double x = strafe * Math.cos(radians) - forward * Math.sin(radians);
-        double z = forward * Math.cos(radians) + strafe * Math.sin(radians);
+        double sin = Math.sin(radians);
+        double cos = Math.cos(radians);
+        double x = strafe * cos - forward * sin;
+        double z = forward * cos + strafe * sin;
         double length = Math.sqrt(x * x + z * z);
-        if(length < INPUT_EPSILON) {
-            return new double[] { 0.0D, 0.0D };
+        if(length > 0.0D) {
+            x /= length;
+            z /= length;
         }
-        return new double[] { x / length, z / length };
+        return new double[] { x, z };
+    }
+
+    private static float sign(float value) {
+        return value > INPUT_EPSILON ? 1.0F
+                : value < -INPUT_EPSILON ? -1.0F : 0.0F;
     }
 
     private static final class Placement {
@@ -579,13 +623,19 @@ public class ScaffoldMod extends Mod {
         private final BlockPos support;
         private final EnumFacing face;
         private final Vec3 hitVec;
+        private final float yaw;
+        private final float pitch;
+        private final double rotationDifference;
 
-        private Placement(BlockPos target, BlockPos support,
-                EnumFacing face, Vec3 hitVec) {
+        private Placement(BlockPos target, BlockPos support, EnumFacing face,
+                Vec3 hitVec, float yaw, float pitch, double rotationDifference) {
             this.target = target;
             this.support = support;
             this.face = face;
             this.hitVec = hitVec;
+            this.yaw = yaw;
+            this.pitch = pitch;
+            this.rotationDifference = rotationDifference;
         }
     }
 }
