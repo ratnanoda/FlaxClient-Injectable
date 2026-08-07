@@ -155,7 +155,6 @@ public enum TranslateText {
 		GHOST_NAMETAGS("text.ghostnametags.name"), GHOST_NAMETAGS_DESCRIPTION("text.ghostnametags.description"),
 		ESP("text.esp.name"), ESP_DESCRIPTION("text.esp.description"), REAL("text.real"), PVP_HITBOX_RANGE("text.hitbox.pvprange"),
 			SAFE_WALK("text.safewalk.name"), SAFE_WALK_DESCRIPTION("text.safewalk.description"),
-		SCAFFOLD("text.scaffold.name"), SCAFFOLD_DESCRIPTION("text.scaffold.description"),
 		JUMP_RESET("text.jumpreset.name"), JUMP_RESET_DESCRIPTION("text.jumpreset.description"),
 		AIM_ASSIST("text.aimassist.name"), AIM_ASSIST_DESCRIPTION("text.aimassist.description"), ACCURACY("text.accuracy"), STRENGTH("text.strength"),
 		SUCCESS_CHANCE("text.successchance"),

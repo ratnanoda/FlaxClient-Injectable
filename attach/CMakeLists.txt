@@ -49,17 +49,29 @@ file(TO_CMAKE_PATH
     "${CMAKE_CURRENT_SOURCE_DIR}/resources/FlaxInjector.manifest"
     FLAX_INJECTOR_MANIFEST_RC
 )
+# Change the generated resource on every package configuration. MSBuild's RC
+# dependency scanner does not observe changes to a large RCDATA input file.
+string(TIMESTAMP FLAX_INJECTOR_RESOURCE_STAMP "%Y%m%d%H%M%S" UTC)
 configure_file(
     resources/FlaxInjector.rc.in
     "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjector.rc"
     @ONLY
 )
-
 add_executable(FlaxInjector WIN32
     src/FlaxInjector.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjector.rc"
 )
 add_dependencies(FlaxInjector FlaxClient)
+
+# Keep the historical executable name as an exact alias. Older packages left
+# a stale FlaxClient.exe beside FlaxInjector.exe, which made it easy to launch
+# an injector containing an outdated embedded DLL.
+add_custom_command(TARGET FlaxInjector POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:FlaxInjector>"
+        "$<TARGET_FILE_DIR:FlaxInjector>/FlaxClient.exe"
+    VERBATIM
+)
 
 target_compile_features(FlaxClient PRIVATE cxx_std_17)
 target_compile_features(FlaxInjector PRIVATE cxx_std_17)
@@ -112,6 +124,6 @@ set_target_properties(FlaxClient PROPERTIES
 )
 
 set_target_properties(FlaxInjector PROPERTIES
-    OUTPUT_NAME "FlaxClient"
+    OUTPUT_NAME "FlaxInjector"
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )

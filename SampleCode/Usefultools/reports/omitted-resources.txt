@@ -1,0 +1,2 @@
+Bundled font directory was not included in the delivered archive.
+Omitted entry count: 13

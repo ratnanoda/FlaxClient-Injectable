@@ -165,15 +165,20 @@ dependencies {
         exclude module: 'commons-io'
         exclude group: 'org.ow2.asm'
     }
-    // ASM 9 is required to transform Lunar's Java 17 (classfile v61) classes.
+    // ASM 9.9 is required to transform Lunar 26.1.2's Java 25
+    // (classfile v69) classes while retaining Java 8 compatibility.
     // These jars are merged after ForgeGradle's legacy ASM reobfuscation pass.
-    asmRuntime('org.ow2.asm:asm:9.7.1')
-    asmRuntime('org.ow2.asm:asm-tree:9.7.1')
-    asmRuntime('org.ow2.asm:asm-analysis:9.7.1')
-    asmRuntime('org.ow2.asm:asm-commons:9.7.1')
-    asmRuntime('org.ow2.asm:asm-util:9.7.1')
+    asmRuntime('org.ow2.asm:asm:9.9')
+    asmRuntime('org.ow2.asm:asm-tree:9.9')
+    asmRuntime('org.ow2.asm:asm-analysis:9.9')
+    asmRuntime('org.ow2.asm:asm-commons:9.9')
+    asmRuntime('org.ow2.asm:asm-util:9.9')
     embed(files('libs/lwjgl-soar.jar'))
     embed(files('libs/lwjgl-soar-natives.jar'))
+    // Dear ImGui renderer used by the Java 25 Lunar 26.1.2 adapter.
+    embed('io.github.spair:imgui-java-binding:1.87.5') { transitive = false }
+    embed('io.github.spair:imgui-java-lwjgl3:1.87.5') { transitive = false }
+    embed('io.github.spair:imgui-java-natives-windows:1.87.5') { transitive = false }
 }
 
 mixin {
@@ -319,10 +324,16 @@ task configureAttachDll(type: Exec) {
     dependsOn lunarJar
     onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
     doFirst {
+        def javaHome = file(System.getenv('JAVA_HOME') ?: System.getProperty('java.home'))
         commandLine findCmakeExecutable().absolutePath,
                 "-S", file("attach").absolutePath,
                 "-B", file("attach/build").absolutePath,
                 "-A", "x64",
+                "-DJAVA_INCLUDE_PATH=${new File(javaHome, 'include').absolutePath}",
+                "-DJAVA_INCLUDE_PATH2=${new File(javaHome, 'include/win32').absolutePath}",
+                "-DJAVA_AWT_INCLUDE_PATH=${new File(javaHome, 'include').absolutePath}",
+                "-DJAVA_AWT_LIBRARY=${new File(javaHome, 'lib/jawt.lib').absolutePath}",
+                "-DJAVA_JVM_LIBRARY=${new File(javaHome, 'lib/jvm.lib').absolutePath}",
                 "-DFLAX_CLIENT_JAR=${tasks.lunarJar.archivePath.absolutePath}"
     }
 }
@@ -342,5 +353,6 @@ task attachPackage(type: Sync) {
     onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
     from "attach/build/bin/Release/FlaxClient.dll"
     from "attach/build/bin/Release/FlaxInjector.exe"
+    from "attach/build/bin/Release/FlaxClient.exe"
     into "$buildDir/attach"
 }
