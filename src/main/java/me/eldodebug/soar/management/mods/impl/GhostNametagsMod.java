@@ -9,7 +9,6 @@ import org.lwjgl.opengl.GL11;
 
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.management.event.EventTarget;
-import me.eldodebug.soar.management.event.impl.EventRender2D;
 import me.eldodebug.soar.management.event.impl.EventRender3D;
 import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.mods.Mod;
@@ -22,213 +21,306 @@ import me.eldodebug.soar.management.mods.settings.impl.combo.Option;
 import me.eldodebug.soar.utils.ColorUtils;
 import me.eldodebug.soar.utils.MathUtils;
 import me.eldodebug.soar.utils.render.RenderUtils;
-import me.eldodebug.soar.utils.render.WorldToScreen;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.MathHelper;
 
+/**
+ * Smooth world-space nametags.
+ *
+ * This version intentionally does NOT use WorldToScreen or screen-space
+ * smoothing. The tag is rendered in EventRender3D as a camera-facing billboard
+ * using the same interpolated camera origin as the world renderer.
+ */
 public class GhostNametagsMod extends Mod {
 
-	private static GhostNametagsMod instance;
+    private static GhostNametagsMod instance;
 
-	private final ComboSetting styleSetting = new ComboSetting(TranslateText.STYLE, this, TranslateText.MODERN, new ArrayList<Option>(Arrays.asList(
-			new Option(TranslateText.CLASSIC), new Option(TranslateText.MODERN), new Option(TranslateText.MINIMAL), new Option(TranslateText.OUTLINED))));
-	private final ColorSetting backgroundColorSetting = new ColorSetting(TranslateText.BACKGROUND, this, new Color(16, 17, 22), false);
-	private final NumberSetting backgroundOpacitySetting = new NumberSetting(TranslateText.BACKGROUND_OPACITY, this, 75, 0, 100, true);
-	private final BooleanSetting textShadowSetting = new BooleanSetting(TranslateText.TEXT_SHADOW, this, true);
-	private final BooleanSetting showHealth = new BooleanSetting(TranslateText.HEALTH, this, true);
-	private final BooleanSetting showDistance = new BooleanSetting(TranslateText.DISTANCE, this, true);
-	private final NumberSetting scaleSetting = new NumberSetting(TranslateText.SCALE, this, 1.0, 0.5, 2.0, false);
-	private final BooleanSetting customNameColorSetting = new BooleanSetting(TranslateText.CUSTOM_NAME_COLOR, this, false);
-	private final ColorSetting nameColorSetting = new ColorSetting(TranslateText.NAME_COLOR, this, new Color(255, 255, 255), false);
+    private final ComboSetting styleSetting = new ComboSetting(
+            TranslateText.STYLE,
+            this,
+            TranslateText.MODERN,
+            new ArrayList<Option>(Arrays.asList(
+                    new Option(TranslateText.CLASSIC),
+                    new Option(TranslateText.MODERN),
+                    new Option(TranslateText.MINIMAL),
+                    new Option(TranslateText.OUTLINED))));
 
-	public GhostNametagsMod() {
-		super(TranslateText.GHOST_NAMETAGS, TranslateText.GHOST_NAMETAGS_DESCRIPTION, ModCategory.GHOST);
-		instance = this;
-	}
+    private final ColorSetting backgroundColorSetting = new ColorSetting(
+            TranslateText.BACKGROUND, this, new Color(16, 17, 22), false);
+    private final NumberSetting backgroundOpacitySetting = new NumberSetting(
+            TranslateText.BACKGROUND_OPACITY, this, 78, 0, 100, true);
+    private final BooleanSetting textShadowSetting = new BooleanSetting(
+            TranslateText.TEXT_SHADOW, this, true);
+    private final BooleanSetting showHealth = new BooleanSetting(
+            TranslateText.HEALTH, this, true);
+    private final BooleanSetting showDistance = new BooleanSetting(
+            TranslateText.DISTANCE, this, true);
+    private final NumberSetting scaleSetting = new NumberSetting(
+            TranslateText.SCALE, this, 1.0, 0.5, 2.0, false);
+    private final BooleanSetting customNameColorSetting = new BooleanSetting(
+            TranslateText.CUSTOM_NAME_COLOR, this, false);
+    private final ColorSetting nameColorSetting = new ColorSetting(
+            TranslateText.NAME_COLOR, this, new Color(255, 255, 255), false);
 
-	public static GhostNametagsMod getInstance() {
-		return instance;
-	}
+    public GhostNametagsMod() {
+        super(TranslateText.GHOST_NAMETAGS, TranslateText.GHOST_NAMETAGS_DESCRIPTION, ModCategory.GHOST);
+        instance = this;
+    }
 
-	@EventTarget
-	public void onRender3D(EventRender3D event) {
-		// Capture the camera matrices during the world pass; the nametags are
-		// drawn as a flat 2D overlay so they always face the camera.
-		if(mc.theWorld == null || mc.thePlayer == null) {
-			return;
-		}
-		WorldToScreen.capture();
-	}
+    public static GhostNametagsMod getInstance() {
+        return instance;
+    }
 
-	@EventTarget
-	public void onRender2D(EventRender2D event) {
-		if(mc.theWorld == null || mc.thePlayer == null) {
-			return;
-		}
+    @EventTarget
+    public void onRender3D(EventRender3D event) {
+        if (mc.theWorld == null || mc.thePlayer == null || mc.getRenderManager() == null) {
+            return;
+        }
 
-		List<EntityPlayer> targets = new ArrayList<EntityPlayer>();
-		for(EntityPlayer player : mc.theWorld.playerEntities) {
-			if(player == null || player == mc.thePlayer || player.isDead) {
-				continue;
-			}
-			targets.add(player);
-		}
+        final float partialTicks = event.getPartialTicks();
+        final List<EntityPlayer> targets = new ArrayList<EntityPlayer>();
 
-		// Draw the farthest players first so nearer nametags overlap on top.
-		targets.sort((a, b) -> Double.compare(
-				mc.thePlayer.getDistanceSqToEntity(b),
-				mc.thePlayer.getDistanceSqToEntity(a)));
+        for (EntityPlayer player : mc.theWorld.playerEntities) {
+            if (player == null || player == mc.thePlayer || player.isDead) {
+                continue;
+            }
+            targets.add(player);
+        }
 
-		for(EntityPlayer player : targets) {
-			renderNameTag(player, event.getPartialTicks());
-		}
-	}
+        // Tags ignore depth, so render farthest -> nearest for stable overlap.
+        targets.sort((a, b) -> Double.compare(
+                getInterpolatedDistanceSq(b, partialTicks),
+                getInterpolatedDistanceSq(a, partialTicks)));
 
-	private void renderNameTag(EntityPlayer player, float partialTicks) {
+        for (EntityPlayer player : targets) {
+            renderNametag(player, partialTicks);
+        }
+    }
 
-		double worldX = interpolate(player.lastTickPosX, player.posX, partialTicks);
-		double worldY = interpolate(player.lastTickPosY, player.posY, partialTicks) + player.height + 0.62D;
-		double worldZ = interpolate(player.lastTickPosZ, player.posZ, partialTicks);
+    private void renderNametag(EntityPlayer player, float partialTicks) {
+        final RenderManager renderManager = mc.getRenderManager();
 
-		float[] screen = WorldToScreen.project(worldX, worldY, worldZ);
-		if(screen == null) {
-			return;
-		}
+        // Smooth entity position for the exact current render frame.
+        final double entityX = interpolate(player.lastTickPosX, player.posX, partialTicks);
+        final double entityY = interpolate(player.lastTickPosY, player.posY, partialTicks);
+        final double entityZ = interpolate(player.lastTickPosZ, player.posZ, partialTicks);
 
-		float distance = mc.thePlayer.getDistanceToEntity(player);
-		float distanceScale = MathHelper.clamp_float(0.55F - distance * 0.0015F, 0.32F, 0.55F);
-		float scale = distanceScale * scaleSetting.getValueFloat();
+        // Render relative to the current interpolated camera origin.
+        final double renderX = entityX - renderManager.viewerPosX;
+        final double renderY = entityY - renderManager.viewerPosY + player.height + 0.48D;
+        final double renderZ = entityZ - renderManager.viewerPosZ;
 
-		drawNameTag(player, screen[0], screen[1], scale);
-	}
+        final float distance = getInterpolatedDistance(player, partialTicks);
+        final float worldScale = getWorldScale(distance);
 
-	private void drawNameTag(EntityPlayer player, float screenX, float screenY, float scale) {
+        GlStateManager.pushMatrix();
+        try {
+            GlStateManager.translate(renderX, renderY, renderZ);
+            GL11.glNormal3f(0.0F, 1.0F, 0.0F);
 
-		String name = ColorUtils.removeColorCode(player.getDisplayName().getFormattedText());
-		if(name == null || name.trim().isEmpty()) {
-			name = player.getName();
-		}
+            // Billboard: rotate with the rendered camera every frame.
+            GlStateManager.rotate(-renderManager.playerViewY, 0.0F, 1.0F, 0.0F);
+            final float pitchMultiplier = mc.gameSettings.thirdPersonView == 2 ? -1.0F : 1.0F;
+            GlStateManager.rotate(renderManager.playerViewX * pitchMultiplier, 1.0F, 0.0F, 0.0F);
+            GlStateManager.scale(-worldScale, -worldScale, worldScale);
 
-		String healthText = showHealth.isToggled() ? (Math.max(0, Math.round(player.getHealth())) + " HP") : "";
-		String distText = showDistance.isToggled() ? (Math.max(1, Math.round(mc.thePlayer.getDistanceToEntity(player))) + "m") : "";
-		String separator = (!healthText.isEmpty() && !distText.isEmpty()) ? "  " : "";
-		String secondary = healthText + separator + distText;
-		boolean hasSecondary = !secondary.isEmpty();
+            setupTagRenderState();
+            drawNametagContents(player, distance);
+        } finally {
+            restoreTagRenderState();
+            GlStateManager.popMatrix();
+        }
+    }
 
-		int nameWidth = fr.getStringWidth(name);
-		int subWidth = hasSecondary ? fr.getStringWidth(secondary) : 0;
-		int contentWidth = Math.max(nameWidth, subWidth);
+    private void drawNametagContents(EntityPlayer player, float distance) {
+        String name = ColorUtils.removeColorCode(player.getDisplayName().getFormattedText());
+        if (name == null || name.trim().isEmpty()) {
+            name = player.getName();
+        }
 
-		float padX = 4.0F;
-		float padY = 2.5F;
-		float lineHeight = fr.FONT_HEIGHT;
-		int lines = hasSecondary ? 2 : 1;
-		float textHeight = lineHeight * lines + (lines - 1);
+        final String healthText = showHealth.isToggled()
+                ? Math.max(0, Math.round(player.getHealth())) + " HP"
+                : "";
+        final String distanceText = showDistance.isToggled()
+                ? Math.max(1, Math.round(distance)) + "m"
+                : "";
 
-		float panelW = contentWidth + padX * 2.0F;
-		float panelH = textHeight + padY * 2.0F;
-		float panelX = -panelW / 2.0F;
+        final boolean hasHealth = !healthText.isEmpty();
+        final boolean hasDistance = !distanceText.isEmpty();
+        final boolean hasSecondary = hasHealth || hasDistance;
+        final String separator = hasHealth && hasDistance ? "  " : "";
+        final String secondary = healthText + separator + distanceText;
 
-		String preset = styleSetting.getOption().getTranslate().getKey();
+        final int nameWidth = fr.getStringWidth(name);
+        final int secondaryWidth = hasSecondary ? fr.getStringWidth(secondary) : 0;
+        final float contentWidth = Math.max(nameWidth, secondaryWidth);
 
-		GlStateManager.pushMatrix();
-		GlStateManager.translate(screenX, screenY, 0.0F);
-		GlStateManager.scale(scale, scale, 1.0F);
-		GlStateManager.translate(0.0F, -panelH - 2.0F, 0.0F);
+        final float paddingX = 5.0F;
+        final float paddingTop = 3.0F;
+        final float paddingBottom = 3.0F;
+        final float lineGap = hasSecondary ? 1.0F : 0.0F;
+        final float textHeight = fr.FONT_HEIGHT + (hasSecondary ? fr.FONT_HEIGHT + lineGap : 0.0F);
 
-		GlStateManager.disableLighting();
-		GlStateManager.disableDepth();
-		GlStateManager.depthMask(false);
-		GlStateManager.enableBlend();
-		GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        final float panelWidth = contentWidth + paddingX * 2.0F;
+        final float panelHeight = textHeight + paddingTop + paddingBottom;
+        final float panelX = -panelWidth / 2.0F;
+        final float panelY = -panelHeight - 4.0F;
 
-		drawBackground(preset, panelX, 0.0F, panelW, panelH);
+        drawBackground(panelX, panelY, panelWidth, panelHeight);
 
-		GlStateManager.enableBlend();
+        // Rounded-rect helpers may change GL texture/blend state internally.
+        GlStateManager.enableTexture2D();
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
 
-		Color nameColor = customNameColorSetting.isToggled() ? nameColorSetting.getColor() : Color.WHITE;
-		drawText(name, -nameWidth / 2.0F, padY, nameColor);
+        final Color nameColor = customNameColorSetting.isToggled()
+                ? nameColorSetting.getColor()
+                : Color.WHITE;
 
-		if(hasSecondary) {
-			float segY = padY + lineHeight + 1.0F;
-			float segX = -subWidth / 2.0F;
-			Color subColor = new Color(205, 210, 220);
-			if(!healthText.isEmpty()) {
-				drawText(healthText, segX, segY, getHealthColor(player));
-				segX += fr.getStringWidth(healthText);
-			}
-			if(!separator.isEmpty()) {
-				drawText(separator, segX, segY, subColor);
-				segX += fr.getStringWidth(separator);
-			}
-			if(!distText.isEmpty()) {
-				drawText(distText, segX, segY, subColor);
-			}
-		}
+        final float nameX = -nameWidth / 2.0F;
+        final float nameY = panelY + paddingTop;
+        drawText(name, nameX, nameY, nameColor);
 
-		GlStateManager.disableBlend();
-		GlStateManager.depthMask(true);
-		GlStateManager.enableDepth();
-		GlStateManager.enableLighting();
-		GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
-		GlStateManager.popMatrix();
-	}
+        if (hasSecondary) {
+            float segmentX = -secondaryWidth / 2.0F;
+            final float secondaryY = nameY + fr.FONT_HEIGHT + lineGap;
+            final Color muted = new Color(200, 206, 218);
 
-	private void drawBackground(String preset, float x, float y, float width, float height) {
+            if (hasHealth) {
+                drawText(healthText, segmentX, secondaryY, getHealthColor(player));
+                segmentX += fr.getStringWidth(healthText);
+            }
 
-		if(preset.equals(TranslateText.MINIMAL.getKey())) {
-			// Text only - no background.
-			return;
-		}
+            if (!separator.isEmpty()) {
+                drawText(separator, segmentX, secondaryY, muted);
+                segmentX += fr.getStringWidth(separator);
+            }
 
-		int opacityAlpha = (int) (MathUtils.clamp(backgroundOpacitySetting.getValueFloat() / 100.0F) * 255.0F);
-		Color base = backgroundColorSetting.getColor();
-		Color background = new Color(base.getRed(), base.getGreen(), base.getBlue(), opacityAlpha);
-		Color accent = Glide.getInstance().getColorManager().getCurrentColor().getInterpolateColor();
+            if (hasDistance) {
+                drawText(distanceText, segmentX, secondaryY, muted);
+            }
+        }
+    }
 
-		if(preset.equals(TranslateText.CLASSIC.getKey())) {
-			RenderUtils.drawRect(x, y, width, height, background);
-			return;
-		}
+    private void drawBackground(float x, float y, float width, float height) {
+        final String preset = styleSetting.getOption().getTranslate().getKey();
 
-		float radius = Math.min(height / 2.0F, 4.0F);
+        if (preset.equals(TranslateText.MINIMAL.getKey())) {
+            return;
+        }
 
-		if(preset.equals(TranslateText.OUTLINED.getKey())) {
-			RenderUtils.drawRoundedRect(x, y, width, height, radius, background);
-			RenderUtils.drawRoundedOutline(x, y, width, height, radius, 1.2F,
-					new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 235));
-			return;
-		}
+        final int alpha = (int) (
+                MathUtils.clamp(backgroundOpacitySetting.getValueFloat() / 100.0F) * 255.0F);
+        final Color base = backgroundColorSetting.getColor();
+        final Color background = new Color(base.getRed(), base.getGreen(), base.getBlue(), alpha);
+        final Color accent = Glide.getInstance().getColorManager().getCurrentColor().getInterpolateColor();
 
-		// Modern: a tooltip-like panel - soft outer shadow, dark rounded body, a
-		// lighter inner-edge highlight for depth, a faint top gloss and a thin
-		// accent line along the top.
-		RenderUtils.drawRoundedRect(x - 1.0F, y - 1.0F, width + 2.0F, height + 2.0F, radius + 1.0F,
-				new Color(0, 0, 0, (int) (opacityAlpha * 0.55F)));
-		RenderUtils.drawRoundedRect(x, y, width, height, radius, background);
-		RenderUtils.drawRoundedRect(x, y, width, height / 2.0F, radius,
-				new Color(255, 255, 255, (int) (opacityAlpha * 0.06F)));
-		RenderUtils.drawRoundedOutline(x, y, width, height, radius, 0.8F, new Color(255, 255, 255, 28));
-		RenderUtils.drawRoundedRect(x + radius * 0.6F, y, width - radius * 1.2F, 1.0F, 0.5F,
-				new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 230));
-	}
+        // Every background style is rounded now.
+        final float radius = Math.min(5.0F, height * 0.28F);
 
-	private void drawText(String text, float x, float y, Color color) {
-		fr.drawString(text, x, y, color.getRGB(), textShadowSetting.isToggled());
-	}
+        if (preset.equals(TranslateText.CLASSIC.getKey())) {
+            RenderUtils.drawRoundedRect(x, y, width, height, radius, background);
+            return;
+        }
 
-	// Green at full health, fading through yellow to red as it drops.
-	private Color getHealthColor(EntityPlayer player) {
-		float ratio = MathUtils.clamp(player.getHealth() / Math.max(1.0F, player.getMaxHealth()));
-		return Color.getHSBColor(ratio / 3.0F, 0.85F, 1.0F);
-	}
+        if (preset.equals(TranslateText.OUTLINED.getKey())) {
+            RenderUtils.drawRoundedRect(x, y, width, height, radius, background);
+            RenderUtils.drawRoundedOutline(
+                    x, y, width, height, radius, 1.0F,
+                    new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 225));
+            return;
+        }
 
-	private double interpolate(double start, double end, float partialTicks) {
-		return start + (end - start) * partialTicks;
-	}
+        // Modern: soft rounded shadow, body, subtle inner border and accent pill.
+        RenderUtils.drawRoundedRect(
+                x - 1.25F,
+                y - 1.25F,
+                width + 2.5F,
+                height + 2.5F,
+                radius + 1.0F,
+                new Color(0, 0, 0, Math.min(180, (int) (alpha * 0.62F))));
 
-	public ComboSetting getThemeSetting() {
-		return styleSetting;
-	}
+        RenderUtils.drawRoundedRect(x, y, width, height, radius, background);
+
+        RenderUtils.drawRoundedOutline(
+                x, y, width, height, radius, 0.75F,
+                new Color(255, 255, 255, Math.min(42, Math.max(20, alpha / 7))));
+
+        final float accentWidth = Math.max(8.0F, Math.min(width * 0.38F, 28.0F));
+        RenderUtils.drawRoundedRect(
+                -accentWidth / 2.0F,
+                y + 0.75F,
+                accentWidth,
+                1.25F,
+                0.65F,
+                new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 220));
+    }
+
+    private void setupTagRenderState() {
+        GlStateManager.disableLighting();
+        GlStateManager.disableCull();
+        GlStateManager.depthMask(false);
+        GlStateManager.disableDepth();
+        GlStateManager.enableBlend();
+        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+        GlStateManager.enableTexture2D();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+    }
+
+    private void restoreTagRenderState() {
+        GlStateManager.enableTexture2D();
+        GlStateManager.disableBlend();
+        GlStateManager.depthMask(true);
+        GlStateManager.enableDepth();
+        GlStateManager.enableCull();
+        GlStateManager.enableLighting();
+        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+        GL11.glColor4f(1.0F, 1.0F, 1.0F, 1.0F);
+    }
+
+    private void drawText(String text, float x, float y, Color color) {
+        fr.drawString(text, x, y, color.getRGB(), textShadowSetting.isToggled());
+    }
+
+    private Color getHealthColor(EntityPlayer player) {
+        final float ratio = MathUtils.clamp(
+                player.getHealth() / Math.max(1.0F, player.getMaxHealth()));
+        return Color.getHSBColor(ratio / 3.0F, 0.82F, 1.0F);
+    }
+
+    private float getWorldScale(float distance) {
+        // Continuous scaling keeps the apparent tag size stable without snapping.
+        float distanceScale = 0.00245F * (distance + 1.0F);
+        distanceScale = MathHelper.clamp_float(distanceScale, 0.02666667F, 0.135F);
+        return distanceScale * scaleSetting.getValueFloat();
+    }
+
+    private float getInterpolatedDistance(EntityPlayer player, float partialTicks) {
+        return (float) Math.sqrt(getInterpolatedDistanceSq(player, partialTicks));
+    }
+
+    private double getInterpolatedDistanceSq(EntityPlayer player, float partialTicks) {
+        final double playerX = interpolate(player.lastTickPosX, player.posX, partialTicks);
+        final double playerY = interpolate(player.lastTickPosY, player.posY, partialTicks);
+        final double playerZ = interpolate(player.lastTickPosZ, player.posZ, partialTicks);
+
+        final double selfX = interpolate(mc.thePlayer.lastTickPosX, mc.thePlayer.posX, partialTicks);
+        final double selfY = interpolate(mc.thePlayer.lastTickPosY, mc.thePlayer.posY, partialTicks);
+        final double selfZ = interpolate(mc.thePlayer.lastTickPosZ, mc.thePlayer.posZ, partialTicks);
+
+        final double dx = playerX - selfX;
+        final double dy = playerY - selfY;
+        final double dz = playerZ - selfZ;
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    private double interpolate(double previous, double current, float partialTicks) {
+        return previous + (current - previous) * partialTicks;
+    }
+
+    public ComboSetting getThemeSetting() {
+        return styleSetting;
+    }
 }

@@ -86,6 +86,13 @@ public class Glide {
 	}
 	
 	public void start() {
+		// Forge's loading screen can bypass Minecraft.drawSplashScreen(), which
+		// normally creates and stores the NanoVG context for the client UI.
+		// Initialise it here as a fallback once the OpenGL context is available.
+		if(nanoVGManager == null) {
+			nanoVGManager = new NanoVGManager();
+		}
+
 		try {
 			OptifineUtils.disableFastRender();
 			this.removeOptifineZoom();
@@ -102,6 +109,7 @@ public class Glide {
 		modManager = new ModManager();
 
 		modManager.init();
+		registerForgeFogHandler();
 
 		if(me.eldodebug.soar.utils.mouse.NativeMouseBridge.isAvailable()) {
 			GlideLogger.info("Native mouse bridge (uinput) loaded — AutoClicker / AimAssist will inject real input");
@@ -135,6 +143,25 @@ public class Glide {
 
 		InternalSettingsMod.getInstance().setToggled(true);
 		clickEffects = new ClickEffects();
+	}
+
+	/**
+	 * EVENT_BUS registration cannot run from a LaunchWrapper tweaker: Forge has
+	 * not constructed Loader at that stage. Glide.start() is injected after the
+	 * client startup sequence, so the Forge event bus is safe to use here.
+	 * Reflection keeps the standalone/Injectable runtime free of Forge classes.
+	 */
+	private void registerForgeFogHandler() {
+		if(!Boolean.getBoolean("flax.runtime.forge")) {
+			return;
+		}
+
+		try {
+			Class<?> handler = Class.forName("me.eldodebug.soar.forge.render.ForgeLinearFogHandler");
+			handler.getMethod("register").invoke(null);
+		} catch(Exception e) {
+			GlideLogger.error("Failed to register Forge distance fog", e);
+		}
 	}
 	
 	public void stop() {

@@ -16,11 +16,27 @@ import me.eldodebug.soar.management.color.palette.ColorType;
 import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.mods.Mod;
 import me.eldodebug.soar.management.mods.ModCategory;
-import me.eldodebug.soar.management.mods.impl.SettingsMod;
+import me.eldodebug.soar.management.mods.settings.Setting;
 import me.eldodebug.soar.management.mods.settings.impl.BooleanSetting;
+import me.eldodebug.soar.management.mods.settings.impl.ColorSetting;
+import me.eldodebug.soar.management.mods.settings.impl.ComboSetting;
+import me.eldodebug.soar.management.mods.settings.impl.ImageSetting;
+import me.eldodebug.soar.management.mods.settings.impl.KeybindSetting;
+import me.eldodebug.soar.management.mods.settings.impl.NumberSetting;
+import me.eldodebug.soar.management.mods.settings.impl.SoundSetting;
+import me.eldodebug.soar.management.mods.settings.impl.TextSetting;
 import me.eldodebug.soar.management.nanovg.NanoVGManager;
 import me.eldodebug.soar.management.nanovg.font.Fonts;
 import me.eldodebug.soar.management.nanovg.font.LegacyIcon;
+import me.eldodebug.soar.ui.comp.Comp;
+import me.eldodebug.soar.ui.comp.impl.CompColorPicker;
+import me.eldodebug.soar.ui.comp.impl.CompComboBox;
+import me.eldodebug.soar.ui.comp.impl.CompImageSelect;
+import me.eldodebug.soar.ui.comp.impl.CompKeybind;
+import me.eldodebug.soar.ui.comp.impl.CompSlider;
+import me.eldodebug.soar.ui.comp.impl.CompSoundSelect;
+import me.eldodebug.soar.ui.comp.impl.CompToggleButton;
+import me.eldodebug.soar.ui.comp.impl.field.CompModTextBox;
 import me.eldodebug.soar.utils.ColorUtils;
 import me.eldodebug.soar.utils.SearchUtils;
 import me.eldodebug.soar.utils.mouse.MouseUtils;
@@ -42,14 +58,17 @@ public class GhostCategory extends ModuleCategory {
     private static final float MIN_RESIZABLE_BODY_HEIGHT = ROW_HEIGHT + OPTION_HEIGHT;
     private static final float RESIZE_EDGE = 5.0F;
 
+    private final AuxiliaryPanel renderPanel;
     private final AuxiliaryPanel otherPanel;
     private AuxiliaryPanel settingsPanel;
-    private SettingsMod openSettingsMod;
+    private Mod openSettingsMod;
+    private final ArrayList<ModuleSetting> settings = new ArrayList<ModuleSetting>();
     private Mod bindingMod;
 
     public GhostCategory(GuiModMenu parent) {
         super(parent, TranslateText.MODULE, LegacyIcon.ARCHIVE, Fonts.LEGACYICON, ModCategory.GHOST, false);
-        otherPanel = new AuxiliaryPanel("Other", ModCategory.OTHER);
+        renderPanel = new AuxiliaryPanel("Render", ModCategory.RENDER, -1);
+        otherPanel = new AuxiliaryPanel("Other", ModCategory.OTHER, 1);
     }
 
     @Override
@@ -65,6 +84,7 @@ public class GhostCategory extends ModuleCategory {
     }
 
     private void resetOtherPanel() {
+        renderPanel.reset();
         otherPanel.reset();
         settingsPanel = null;
         openSettingsMod = null;
@@ -75,6 +95,7 @@ public class GhostCategory extends ModuleCategory {
     @Override
     public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         super.drawScreen(mouseX, mouseY, partialTicks);
+        drawPanel(renderPanel, mouseX, mouseY);
         drawPanel(otherPanel, mouseX, mouseY);
         if(bindingMod != null) {
             drawBindingPrompt();
@@ -109,7 +130,7 @@ public class GhostCategory extends ModuleCategory {
         float panelY = getPanelY(panel);
         float contentHeight = modules.isEmpty() ? 34.0F : modules.size() * ROW_HEIGHT;
         if(settingsPanel == panel && openSettingsMod != null) {
-            contentHeight += OPTION_HEIGHT;
+            contentHeight += getInlineSettingsHeight();
         }
 
         float maxBodyHeight = Math.max(MIN_RESIZABLE_BODY_HEIGHT,
@@ -177,9 +198,8 @@ public class GhostCategory extends ModuleCategory {
             rowY += ROW_HEIGHT;
 
             if(settingsPanel == panel && openSettingsMod == mod) {
-                drawMoveFixOption(nvg, palette, accent, openSettingsMod.getMoveFixSetting(),
-                        panel, panelX, rowY, mouseX, mouseY);
-                rowY += OPTION_HEIGHT;
+                drawInlineSettings(nvg, palette, panel, panelX, rowY, mouseX, mouseY);
+                rowY += getInlineSettingsHeight();
             }
         }
 
@@ -230,27 +250,50 @@ public class GhostCategory extends ModuleCategory {
                 ColorUtils.applyAlpha(accent.getColor2(), (int) (active * 255.0F)));
     }
 
-    private void drawMoveFixOption(NanoVGManager nvg, ColorPalette palette, AccentColor accent,
-            BooleanSetting setting, AuxiliaryPanel panel, float panelX, float optionY,
-            int mouseX, int mouseY) {
-        nvg.drawRect(panelX + 6.0F, optionY + 1.0F, 1.2F, OPTION_HEIGHT - 2.0F,
+    private void drawInlineSettings(NanoVGManager nvg, ColorPalette palette, AuxiliaryPanel panel,
+            float panelX, float optionY, int mouseX, int mouseY) {
+        float height = getInlineSettingsHeight();
+        float cellX = panelX + 12.0F;
+        float cellWidth = panel.width - 18.0F;
+        nvg.drawRect(panelX + 6.0F, optionY + 1.0F, 1.2F, height - 2.0F,
                 new Color(255, 255, 255, 145));
-        nvg.drawText(setting.getName(), panelX + 12.0F, optionY + 10.0F,
-                palette.getFontColor(ColorType.NORMAL), 8.5F, Fonts.MEDIUM);
-
-        float toggleX = panelX + panel.width - 36.0F;
-        float toggleY = optionY + 8.0F;
-        boolean enabled = setting.isToggled();
-        boolean hovered = MouseUtils.isInside(mouseX, mouseY, toggleX, toggleY, 26.0F, 14.0F);
-        nvg.drawRoundedRect(toggleX, toggleY, 26.0F, 14.0F, 7.0F,
-                enabled ? ColorUtils.applyAlpha(accent.getColor1(), hovered ? 235 : 205)
-                        : translucent(palette.getBackgroundColor(ColorType.NORMAL), hovered ? 170 : 130));
-        if(enabled) {
-            nvg.drawGradientRoundedRect(toggleX, toggleY, 26.0F, 14.0F, 7.0F,
-                    ColorUtils.applyAlpha(accent.getColor1(), hovered ? 245 : 220),
-                    ColorUtils.applyAlpha(accent.getColor2(), hovered ? 245 : 220));
+        for(int i = 0; i < settings.size(); i++) {
+            ModuleSetting entry = settings.get(i);
+            entry.animation.setAnimation(entry.openY, 16);
+            float rowY = optionY + 5.0F + i * 31.0F + entry.animation.getValue();
+            nvg.drawText(nvg.getLimitText(entry.setting.getName(), 8.5F, Fonts.MEDIUM,
+                    Math.max(24.0F, cellWidth - 88.0F)), cellX, rowY + 10.0F,
+                    palette.getFontColor(ColorType.NORMAL), 8.5F, Fonts.MEDIUM);
+            positionSettingComponent(entry.comp, cellX, rowY, cellWidth);
+            entry.comp.draw(mouseX, mouseY, 0.0F);
         }
-        nvg.drawCircle(enabled ? toggleX + 19.0F : toggleX + 7.0F, toggleY + 7.0F, 4.5F, Color.WHITE);
+    }
+
+    private float getInlineSettingsHeight() {
+        float greatestShift = 0.0F;
+        for(ModuleSetting entry : settings) greatestShift = Math.max(greatestShift, entry.openY);
+        return 10.0F + settings.size() * 31.0F + greatestShift;
+    }
+
+    private void positionSettingComponent(Comp comp, float cellX, float rowY, float cellWidth) {
+        float controlX = cellX + cellWidth - 84.0F;
+        if(comp instanceof CompToggleButton) {
+            CompToggleButton toggle = (CompToggleButton) comp;
+            toggle.setX(cellX + cellWidth - 34.0F); toggle.setY(rowY + 7.0F); toggle.setScale(0.85F);
+        } else if(comp instanceof CompSlider) {
+            CompSlider slider = (CompSlider) comp;
+            slider.setX(controlX); slider.setY(rowY + 13.0F); slider.setWidth(72);
+        } else if(comp instanceof CompComboBox || comp instanceof CompKeybind) {
+            comp.setX(controlX); comp.setY(rowY + 6.0F);
+        } else if(comp instanceof CompModTextBox) {
+            CompModTextBox textBox = (CompModTextBox) comp;
+            textBox.setX(controlX); textBox.setY(rowY + 6.0F); textBox.setWidth(75); textBox.setHeight(16);
+        } else if(comp instanceof CompColorPicker) {
+            CompColorPicker picker = (CompColorPicker) comp;
+            picker.setX(cellX + cellWidth - 102.0F); picker.setY(rowY + 6.0F); picker.setScale(0.8F);
+        } else if(comp instanceof CompImageSelect || comp instanceof CompSoundSelect) {
+            comp.setX(cellX + cellWidth - 18.0F); comp.setY(rowY + 6.0F);
+        }
     }
 
     private void drawBindingPrompt() {
@@ -303,7 +346,8 @@ public class GhostCategory extends ModuleCategory {
         }
 
         float ghostPanelX = getX() + (getWidth() - DEFAULT_PANEL_WIDTH) / 2.0F;
-        panel.offsetX = ghostPanelX + DEFAULT_PANEL_WIDTH + PANEL_GAP - getX();
+        panel.offsetX = ghostPanelX
+                + panel.position * (DEFAULT_PANEL_WIDTH + PANEL_GAP) - getX();
         panel.offsetY = Math.max(DEFAULT_SECTION_OFFSET_Y, SCREEN_EDGE_MARGIN - getY());
         panel.width = DEFAULT_PANEL_WIDTH;
         panel.bodyHeightOverride = -1.0F;
@@ -435,7 +479,8 @@ public class GhostCategory extends ModuleCategory {
             }
         }
 
-        if(handlePanelClick(otherPanel, mouseX, mouseY, mouseButton)) {
+        if(handlePanelClick(renderPanel, mouseX, mouseY, mouseButton)
+                || handlePanelClick(otherPanel, mouseX, mouseY, mouseButton)) {
             return;
         }
         super.mouseClicked(mouseX, mouseY, mouseButton);
@@ -484,14 +529,12 @@ public class GhostCategory extends ModuleCategory {
             if(MouseUtils.isInside(mouseX, mouseY, panelX, rowY, panel.width, ROW_HEIGHT)) {
                 if(mouseButton == 0) {
                     mod.toggle();
-                } else if(mouseButton == 1 && mod instanceof SettingsMod) {
+                } else if(mouseButton == 1 && hasSettings(mod)) {
                     if(settingsPanel == panel && openSettingsMod == mod) {
                         closeInlineSettings();
                     } else {
                         bindingMod = null;
-                        settingsPanel = panel;
-                        openSettingsMod = (SettingsMod) mod;
-                        updateCanClose();
+                        openInlineSettings(panel, mod);
                     }
                 } else if(mouseButton == 2) {
                     closeInlineSettings();
@@ -503,15 +546,23 @@ public class GhostCategory extends ModuleCategory {
 
             rowY += ROW_HEIGHT;
             if(settingsPanel == panel && openSettingsMod == mod) {
-                float toggleX = panelX + panel.width - 36.0F;
-                float toggleY = rowY + 8.0F;
-                if(mouseButton == 0
-                        && MouseUtils.isInside(mouseX, mouseY, toggleX, toggleY, 26.0F, 14.0F)) {
-                    BooleanSetting moveFix = openSettingsMod.getMoveFixSetting();
-                    moveFix.setToggled(!moveFix.isToggled());
+                float inlineHeight = getInlineSettingsHeight();
+                if(mouseButton == 0 && MouseUtils.isInside(mouseX, mouseY, panelX, rowY,
+                        panel.width, inlineHeight)) {
+                    for(ModuleSetting entry : settings) {
+                        entry.comp.mouseClicked(mouseX, mouseY, mouseButton);
+                        if(entry.comp instanceof CompColorPicker) {
+                            CompColorPicker picker = (CompColorPicker) entry.comp;
+                            if(picker.isInsideOpen(mouseX, mouseY)) {
+                                shiftRowsBelowColorPicker(entry, picker.isOpen()
+                                        ? (picker.isShowAlpha() ? 100 : 85)
+                                        : -(picker.isShowAlpha() ? 100 : 85));
+                            }
+                        }
+                    }
                     return true;
                 }
-                rowY += OPTION_HEIGHT;
+                rowY += inlineHeight;
             }
         }
 
@@ -521,7 +572,11 @@ public class GhostCategory extends ModuleCategory {
 
     @Override
     public void mouseReleased(int mouseX, int mouseY, int mouseButton) {
-        boolean handled = releasePanel(otherPanel, mouseButton);
+        if(openSettingsMod != null && mouseButton == 0) {
+            for(ModuleSetting entry : settings) entry.comp.mouseReleased(mouseX, mouseY, mouseButton);
+        }
+        boolean handled = releasePanel(renderPanel, mouseButton);
+        handled = releasePanel(otherPanel, mouseButton) || handled;
         if(!handled) {
             super.mouseReleased(mouseX, mouseY, mouseButton);
         }
@@ -576,12 +631,53 @@ public class GhostCategory extends ModuleCategory {
             closeInlineSettings();
             return;
         }
+        if(openSettingsMod != null) {
+            for(ModuleSetting entry : settings) entry.comp.keyTyped(typedChar, keyCode);
+            return;
+        }
         super.keyTyped(typedChar, keyCode);
+    }
+
+    private boolean hasSettings(Mod mod) {
+        return Glide.getInstance().getModManager().getSettingsByMod(mod) != null;
+    }
+
+    private void openInlineSettings(AuxiliaryPanel panel, Mod mod) {
+        ArrayList<Setting> moduleSettings = Glide.getInstance().getModManager().getSettingsByMod(mod);
+        if(moduleSettings == null) return;
+        settings.clear();
+        for(Setting setting : moduleSettings) {
+            Comp comp = createComponent(setting);
+            if(comp != null) settings.add(new ModuleSetting(setting, comp));
+        }
+        if(settings.isEmpty()) return;
+        getSearchBox().setFocused(false);
+        settingsPanel = panel;
+        openSettingsMod = mod;
+        updateCanClose();
+    }
+
+    private Comp createComponent(Setting setting) {
+        if(setting instanceof BooleanSetting) return new CompToggleButton((BooleanSetting) setting);
+        if(setting instanceof NumberSetting) return new CompSlider((NumberSetting) setting);
+        if(setting instanceof ComboSetting) return new CompComboBox(75, (ComboSetting) setting);
+        if(setting instanceof ImageSetting) return new CompImageSelect((ImageSetting) setting);
+        if(setting instanceof SoundSetting) return new CompSoundSelect((SoundSetting) setting);
+        if(setting instanceof KeybindSetting) return new CompKeybind(75, (KeybindSetting) setting);
+        if(setting instanceof TextSetting) return new CompModTextBox((TextSetting) setting);
+        if(setting instanceof ColorSetting) return new CompColorPicker((ColorSetting) setting);
+        return null;
+    }
+
+    private void shiftRowsBelowColorPicker(ModuleSetting source, int amount) {
+        int sourceIndex = settings.indexOf(source);
+        for(int i = sourceIndex + 1; i < settings.size(); i++) settings.get(i).openY += amount;
     }
 
     private void closeInlineSettings() {
         settingsPanel = null;
         openSettingsMod = null;
+        settings.clear();
         updateCanClose();
     }
 
@@ -593,9 +689,23 @@ public class GhostCategory extends ModuleCategory {
         return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
     }
 
+    private static final class ModuleSetting {
+        private final Setting setting;
+        private final Comp comp;
+        private final me.eldodebug.soar.utils.animation.simple.SimpleAnimation animation =
+                new me.eldodebug.soar.utils.animation.simple.SimpleAnimation();
+        private float openY;
+
+        private ModuleSetting(Setting setting, Comp comp) {
+            this.setting = setting;
+            this.comp = comp;
+        }
+    }
+
     private static final class AuxiliaryPanel {
         private final String title;
         private final ModCategory category;
+        private final int position;
 
         private boolean open = true;
         private boolean initialized;
@@ -620,9 +730,10 @@ public class GhostCategory extends ModuleCategory {
         private float resizeStartWidth;
         private float resizeStartBodyHeight;
 
-        private AuxiliaryPanel(String title, ModCategory category) {
+        private AuxiliaryPanel(String title, ModCategory category, int position) {
             this.title = title;
             this.category = category;
+            this.position = position;
         }
 
         private void reset() {

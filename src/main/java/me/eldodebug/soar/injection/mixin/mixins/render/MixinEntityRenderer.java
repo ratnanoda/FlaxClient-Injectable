@@ -92,12 +92,18 @@ public abstract class MixinEntityRenderer {
 	
 	@Inject(method = "updateCameraAndRender", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/GuiScreen;drawScreen(IIF)V", shift = At.Shift.BEFORE))
 	public void renderingBefore(float partialTicks, long nanoTime, CallbackInfo ci) {
-		MoBendsMod.getInstance().setRenderingGuiScreen(true);
+		MoBendsMod mod = MoBendsMod.getInstance();
+		if(mod != null) {
+			mod.setRenderingGuiScreen(true);
+		}
 	}
 	
 	@Inject(method = "updateCameraAndRender", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/GuiScreen;drawScreen(IIF)V", shift = At.Shift.AFTER))
 	public void renderingAfter(float partialTicks, long nanoTime, CallbackInfo ci) {
-		MoBendsMod.getInstance().setRenderingGuiScreen(false);
+		MoBendsMod mod = MoBendsMod.getInstance();
+		if(mod != null) {
+			mod.setRenderingGuiScreen(false);
+		}
 	}
 	
     @Inject(method = "renderWorldPass", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/RenderGlobal;renderEntities(Lnet/minecraft/entity/Entity;Lnet/minecraft/client/renderer/culling/ICamera;F)V"))
