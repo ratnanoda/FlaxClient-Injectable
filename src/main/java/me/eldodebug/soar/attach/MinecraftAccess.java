@@ -37,8 +37,9 @@ import net.minecraft.util.IChatComponent;
  * Accesses vanilla 1.8.9 state without requiring Mixin-added interfaces.
  *
  * JVM retransformation cannot add fields, methods, or interfaces to an already
- * loaded class. Keeping these accesses here lets the same client code run both
- * as a normal Forge mod (MCP names) and after late DLL attachment (notch names).
+ * loaded class. Keeping these accesses here lets the same client code run as a
+ * Forge mod (SRG names), in development (MCP names), and after late DLL
+ * attachment (notch names).
  */
 public final class MinecraftAccess {
 
@@ -49,113 +50,114 @@ public final class MinecraftAccess {
     }
 
     public static Timer getTimer(Minecraft minecraft) {
-        return get(minecraft, "timer", "Y");
+        return get(minecraft, "timer", "field_71428_T", "Y");
     }
 
     public static void setSession(Minecraft minecraft, Session session) {
-        set(minecraft, session, "session", "ae");
+        set(minecraft, session, "session", "field_71449_j", "ae");
     }
 
     public static void clickMouse(Minecraft minecraft) {
-        invoke(minecraft, new Class<?>[0], new Object[0], "clickMouse", "aw");
+        invoke(minecraft, new Class<?>[0], new Object[0], "clickMouse", "func_147116_af", "aw");
     }
 
     public static void rightClickMouse(Minecraft minecraft) {
-        invoke(minecraft, new Class<?>[0], new Object[0], "rightClickMouse", "ax");
+        invoke(minecraft, new Class<?>[0], new Object[0], "rightClickMouse", "func_147121_ag", "ax");
     }
 
     public static int getLeftClickCounter(Minecraft minecraft) {
-        return (Integer) get(minecraft, "leftClickCounter", "ag");
+        return (Integer) get(minecraft, "leftClickCounter", "field_71429_W", "ag");
     }
 
     public static void setLeftClickCounter(Minecraft minecraft, int counter) {
-        set(minecraft, counter, "leftClickCounter", "ag");
+        set(minecraft, counter, "leftClickCounter", "field_71429_W", "ag");
     }
 
     public static int getRightClickDelayTimer(Minecraft minecraft) {
-        return (Integer) get(minecraft, "rightClickDelayTimer", "ap");
+        return (Integer) get(minecraft, "rightClickDelayTimer", "field_71467_ac", "ap");
     }
 
     public static void setRightClickDelayTimer(Minecraft minecraft, int delay) {
-        set(minecraft, delay, "rightClickDelayTimer", "ap");
+        set(minecraft, delay, "rightClickDelayTimer", "field_71467_ac", "ap");
     }
 
     public static DefaultResourcePack getDefaultResourcePack(Minecraft minecraft) {
-        return get(minecraft, "mcDefaultResourcePack", "aB");
+        return get(minecraft, "mcDefaultResourcePack", "field_110450_ap", "aB");
     }
 
     public static void resize(Minecraft minecraft, int width, int height) {
-        invoke(minecraft, new Class<?>[]{int.class, int.class}, new Object[]{width, height}, "resize", "a");
+        invoke(minecraft, new Class<?>[]{int.class, int.class}, new Object[]{width, height},
+                "resize", "func_71370_a", "a");
     }
 
     public static Entity getRenderViewEntity(Minecraft minecraft) {
-        return get(minecraft, "renderViewEntity", "ad");
+        return get(minecraft, "renderViewEntity", "field_175622_Z", "ad");
     }
 
     public static double getRenderPosX(RenderManager renderManager) {
-        return (Double) get(renderManager, "renderPosX", "o");
+        return (Double) get(renderManager, "renderPosX", "field_78725_b", "o");
     }
 
     public static double getRenderPosY(RenderManager renderManager) {
-        return (Double) get(renderManager, "renderPosY", "p");
+        return (Double) get(renderManager, "renderPosY", "field_78726_c", "p");
     }
 
     public static double getRenderPosZ(RenderManager renderManager) {
-        return (Double) get(renderManager, "renderPosZ", "q");
+        return (Double) get(renderManager, "renderPosZ", "field_78723_d", "q");
     }
 
     @SuppressWarnings("unchecked")
     public static List<Shader> getShaders(ShaderGroup shaderGroup) {
-        return (List<Shader>) get(shaderGroup, "listShaders", "d");
+        return (List<Shader>) get(shaderGroup, "listShaders", "field_148031_d", "d");
     }
 
     public static int getUpdateCounter(GuiIngame guiIngame) {
-        return (Integer) get(guiIngame, "updateCounter", "n");
+        return (Integer) get(guiIngame, "updateCounter", "field_73837_f", "n");
     }
 
     public static int getRemainingHighlightTicks(GuiIngame guiIngame) {
-        return (Integer) get(guiIngame, "remainingHighlightTicks", "r");
+        return (Integer) get(guiIngame, "remainingHighlightTicks", "field_92017_k", "r");
     }
 
     public static ItemStack getHighlightingItemStack(GuiIngame guiIngame) {
-        return get(guiIngame, "highlightingItemStack", "s");
+        return get(guiIngame, "highlightingItemStack", "field_92016_l", "s");
     }
 
     public static float getCurBlockDamage(PlayerControllerMP controller) {
-        return (Float) get(controller, "curBlockDamageMP", "e");
+        return (Float) get(controller, "curBlockDamageMP", "field_78770_f", "e");
     }
 
     public static int getPotionId(ItemFood food) {
-        return (Integer) get(food, "potionId", "l");
+        return (Integer) get(food, "potionId", "field_77851_ca", "l");
     }
 
     public static boolean isChunkLoaded(World world, int x, int z, boolean allowEmpty) {
         return (Boolean) invoke(world, new Class<?>[]{int.class, int.class, boolean.class},
-                new Object[]{x, z, allowEmpty}, "isChunkLoaded", "a");
+                new Object[]{x, z, allowEmpty}, "isChunkLoaded", "func_175680_a", "a");
     }
 
     public static int getEntityId(S14PacketEntity packet) {
-        return (Integer) get(packet, "entityId", "a");
+        return (Integer) get(packet, "entityId", "field_149074_a", "a");
     }
 
     public static byte getPosX(S14PacketEntity packet) {
-        return (Byte) get(packet, "posX", "b");
+        return (Byte) get(packet, "posX", "field_149072_b", "b");
     }
 
     public static byte getPosY(S14PacketEntity packet) {
-        return (Byte) get(packet, "posY", "c");
+        return (Byte) get(packet, "posY", "field_149073_c", "c");
     }
 
     public static byte getPosZ(S14PacketEntity packet) {
-        return (Byte) get(packet, "posZ", "d");
+        return (Byte) get(packet, "posZ", "field_149070_d", "d");
     }
 
     public static WorldClient getWorld(RenderGlobal renderGlobal) {
-        return get(renderGlobal, "theWorld", "k");
+        return get(renderGlobal, "theWorld", "field_72769_h", "k");
     }
 
     public static boolean hasThinArms(RenderPlayer renderPlayer) {
-        return (Boolean) get(renderPlayer, "smallArms", "a");
+        return (Boolean) get(renderPlayer, "smallArms", "field_177140_a", "a");
     }
 
     public static NetworkPlayerInfo getPlayerInfo(AbstractClientPlayer player) {
@@ -163,6 +165,7 @@ public final class MinecraftAccess {
                 AbstractClientPlayer.class,
                 player,
                 "playerInfo",
+                "field_175157_a",
                 "a");
     }
 
@@ -172,17 +175,18 @@ public final class MinecraftAccess {
                 LayerDeadmau5Head.class,
                 layer,
                 "playerRenderer",
+                "field_177208_a",
                 "a");
     }
 
     @SuppressWarnings("unchecked")
     public static Map<String, RenderPlayer> getPlayerRenderers(RenderManager manager) {
-        return (Map<String, RenderPlayer>) get(manager, "skinMap", "l");
+        return (Map<String, RenderPlayer>) get(manager, "skinMap", "field_178636_l", "l");
     }
 
     @SuppressWarnings("unchecked")
     public static List<LayerRenderer<?>> getLayers(RendererLivingEntity<?> renderer) {
-        return (List<LayerRenderer<?>>) get(renderer, "layerRenderers", "h");
+        return (List<LayerRenderer<?>>) get(renderer, "layerRenderers", "field_177097_h", "h");
     }
 
     public static NetworkPlayerInfo getChatPlayerInfo(ChatLine line) {

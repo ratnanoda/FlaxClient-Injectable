@@ -1,5 +1,6 @@
 package me.eldodebug.soar.attach;
 
+import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import me.eldodebug.soar.Glide;
@@ -31,6 +32,15 @@ public final class AttachBootstrap {
             return;
         }
 
+        if (isModernMinecraft()) {
+            attachModern();
+            return;
+        }
+
+        attachLegacy();
+    }
+
+    private static void attachLegacy() {
         final Minecraft minecraft = Minecraft.getMinecraft();
         if (minecraft == null) {
             ATTACH_REQUESTED.set(false);
@@ -55,6 +65,54 @@ public final class AttachBootstrap {
                 }
             }
         });
+    }
+
+    private static boolean isModernMinecraft() {
+        try {
+            Minecraft.class.getMethod("getInstance");
+            return true;
+        } catch (NoSuchMethodException legacyClient) {
+            return false;
+        }
+    }
+
+    private static void attachModern() {
+        try {
+            Method getInstance = Minecraft.class.getMethod("getInstance");
+            final Object minecraft = getInstance.invoke(null);
+            if (minecraft == null) {
+                throw new IllegalStateException("Minecraft has not created its client instance");
+            }
+
+            Method execute = minecraft.getClass().getMethod("execute", Runnable.class);
+            execute.invoke(minecraft, new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (!LateLoadStatus.isTransformerReady()) {
+                            throw new IllegalStateException("late-load transformer is not ready");
+                        }
+                        ModernClientRuntime.start(minecraft);
+                        CLIENT_STARTED.set(true);
+                        GlideLogger.info("FlaxClient Lunar 26.1.2 initialization completed");
+                    } catch (Throwable error) {
+                        ModernClientRuntime.diagnostic("Modern bootstrap failed", error);
+                        CLIENT_FAILED.set(true);
+                        CLIENT_STARTED.set(false);
+                        ATTACH_REQUESTED.set(false);
+                        GlideLogger.error(
+                                "Failed to initialize FlaxClient for Lunar 26.1.2",
+                                error instanceof Exception
+                                        ? (Exception) error
+                                        : new Exception(error));
+                    }
+                }
+            });
+        } catch (Throwable error) {
+            ModernClientRuntime.diagnostic("Could not schedule modern bootstrap", error);
+            ATTACH_REQUESTED.set(false);
+            throw new IllegalStateException("Could not schedule the Lunar 26.1.2 bootstrap", error);
+        }
     }
 
     static void startClient() {

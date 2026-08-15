@@ -115,7 +115,14 @@ public final class LateClassTransformer {
     private static final String MOUSE_HELPER_DEOBF =
             "net/minecraft/util/MouseHelper";
     private static final String MOUSE_HELPER_NOTCH = "avf";
+    private static final String MODERN_CAMERA = "net/minecraft/client/Camera";
+    private static final String MODERN_MOUSE_HANDLER = "net/minecraft/client/MouseHandler";
+    private static final String MODERN_KEYBOARD_HANDLER = "net/minecraft/client/KeyboardHandler";
+    private static final String MODERN_LIVING_RENDERER =
+            "net/minecraft/client/renderer/entity/LivingEntityRenderer";
     private static final String HOOK_OWNER = "me/eldodebug/soar/attach/LateHooks";
+    private static final String MODERN_HOOK_OWNER =
+            "me/eldodebug/soar/attach/ModernHooks";
 
     private LateClassTransformer() {
     }
@@ -133,6 +140,14 @@ public final class LateClassTransformer {
             MethodNode method = (MethodNode) methodObject;
             if (isMinecraft(internalName)) {
                 changed |= transformMinecraft(method);
+            } else if (MODERN_CAMERA.equals(internalName)) {
+                changed |= transformModernCamera(method);
+            } else if (MODERN_MOUSE_HANDLER.equals(internalName)) {
+                changed |= transformModernMouseHandler(method);
+            } else if (MODERN_KEYBOARD_HANDLER.equals(internalName)) {
+                changed |= transformModernKeyboardHandler(method);
+            } else if (MODERN_LIVING_RENDERER.equals(internalName)) {
+                changed |= transformModernLivingRenderer(method);
             } else if (isGuiIngame(internalName)) {
                 changed |= transformGuiIngame(method);
             } else if (isEntityRenderer(internalName)) {
@@ -211,6 +226,16 @@ public final class LateClassTransformer {
     }
 
     private static boolean transformMinecraft(MethodNode method) {
+        if (matches(method, "()V", "tick")
+                && !containsHook(method, MODERN_HOOK_OWNER, "onClientTick")) {
+            injectBeforeReturns(method, modernHookCall("onClientTick"));
+            return true;
+        }
+        if (matches(method, "(Z)V", "renderFrame")
+                && !containsHook(method, MODERN_HOOK_OWNER, "onRenderFrame")) {
+            injectModernRenderFrame(method);
+            return true;
+        }
         if (matches(method, "()V", "runTick", "s")
                 && !containsHook(method, "onClientTick")) {
             wrapMouseWheelReads(method);
@@ -287,6 +312,174 @@ public final class LateClassTransformer {
             return true;
         }
         return false;
+    }
+
+    private static boolean transformModernCamera(MethodNode method) {
+        if (matches(method, "(Lnet/minecraft/client/DeltaTracker;)V", "update")
+                && !containsHook(method, MODERN_HOOK_OWNER, "onCameraUpdate")) {
+            InsnList hook = new InsnList();
+            hook.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            hook.add(new MethodInsnNode(
+                    Opcodes.INVOKESTATIC,
+                    MODERN_HOOK_OWNER,
+                    "onCameraUpdate",
+                    "(Ljava/lang/Object;)V",
+                    false));
+            injectBeforeReturns(method, hook);
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean transformModernMouseHandler(MethodNode method) {
+        if ((matches(method, "(JLnet/minecraft/client/input/MouseButtonInfo;I)V", "onButton")
+                        || matches(method, "(JDD)V", "onScroll"))
+                && !containsHook(method, MODERN_HOOK_OWNER, "shouldBlockGameInput")) {
+            injectModernInputBlock(method);
+            return true;
+        }
+        if (matches(method, "(D)V", "turnPlayer")
+                && !containsHook(method, MODERN_HOOK_OWNER, "onMouseTurn")) {
+            LabelNode continueLabel = new LabelNode();
+            InsnList hook = new InsnList();
+            hook.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            hook.add(new MethodInsnNode(
+                    Opcodes.INVOKESTATIC,
+                    MODERN_HOOK_OWNER,
+                    "onMouseTurn",
+                    "(Ljava/lang/Object;)Z",
+                    false));
+            hook.add(new JumpInsnNode(Opcodes.IFEQ, continueLabel));
+            hook.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN));
+            hook.add(continueLabel);
+            method.instructions.insert(hook);
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean transformModernKeyboardHandler(MethodNode method) {
+        if (matches(method, "(JILnet/minecraft/client/input/KeyEvent;)V", "keyPress")
+                && !containsHook(method, MODERN_HOOK_OWNER, "onKeyboardInput")) {
+            LabelNode continueLabel = new LabelNode();
+            InsnList hook = new InsnList();
+            hook.add(new VarInsnNode(Opcodes.ALOAD, 4));
+            hook.add(new VarInsnNode(Opcodes.ILOAD, 3));
+            hook.add(new MethodInsnNode(
+                    Opcodes.INVOKESTATIC,
+                    MODERN_HOOK_OWNER,
+                    "onKeyboardInput",
+                    "(Ljava/lang/Object;I)Z",
+                    false));
+            hook.add(new JumpInsnNode(Opcodes.IFEQ, continueLabel));
+            hook.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN));
+            hook.add(continueLabel);
+            method.instructions.insert(hook);
+            return true;
+        }
+        if (matches(method, "(JLnet/minecraft/client/input/CharacterEvent;)V", "charTyped")
+                && !containsHook(method, MODERN_HOOK_OWNER, "shouldBlockGameInput")) {
+            injectModernInputBlock(method);
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean transformModernLocalPlayer(MethodNode method) {
+        if (matches(method, "()V", "tick")
+                && !containsHook(method, MODERN_HOOK_OWNER, "onLocalPlayerTick")) {
+            InsnList hook = new InsnList();
+            hook.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            hook.add(new MethodInsnNode(Opcodes.INVOKESTATIC, MODERN_HOOK_OWNER,
+                    "onLocalPlayerTick", "(Ljava/lang/Object;)V", false));
+            method.instructions.insert(hook);
+            return true;
+        }
+        if (matches(method, "()V", "aiStep")
+                && !containsHook(method, MODERN_HOOK_OWNER, "onLocalPlayerAiStepHead")) {
+            InsnList head = new InsnList();
+            head.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            head.add(new MethodInsnNode(Opcodes.INVOKESTATIC, MODERN_HOOK_OWNER,
+                    "onLocalPlayerAiStepHead", "(Ljava/lang/Object;)V", false));
+            method.instructions.insert(head);
+            InsnList tail = new InsnList();
+            tail.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            tail.add(new MethodInsnNode(Opcodes.INVOKESTATIC, MODERN_HOOK_OWNER,
+                    "onLocalPlayerAiStepTail", "(Ljava/lang/Object;)V", false));
+            injectBeforeReturns(method, tail);
+            return true;
+        }
+        if (matches(method, "()V", "sendPosition")
+                && !containsHook(method, MODERN_HOOK_OWNER, "onLocalPlayerSendPositionHead")) {
+            InsnList head = new InsnList();
+            head.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            head.add(new MethodInsnNode(Opcodes.INVOKESTATIC, MODERN_HOOK_OWNER,
+                    "onLocalPlayerSendPositionHead", "(Ljava/lang/Object;)V", false));
+            method.instructions.insert(head);
+            InsnList tail = new InsnList();
+            tail.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            tail.add(new MethodInsnNode(Opcodes.INVOKESTATIC, MODERN_HOOK_OWNER,
+                    "onLocalPlayerSendPositionTail", "(Ljava/lang/Object;)V", false));
+            injectBeforeReturns(method, tail);
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean transformModernLivingEntity(MethodNode method) {
+        if (!matches(method, "(Lnet/minecraft/world/phys/Vec3;)V", "travel")
+                || containsHook(method, MODERN_HOOK_OWNER, "onLivingEntityTravel")) {
+            return false;
+        }
+        InsnList hook = new InsnList();
+        hook.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        hook.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        hook.add(new MethodInsnNode(Opcodes.INVOKESTATIC, MODERN_HOOK_OWNER,
+                "onLivingEntityTravel",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;", false));
+        hook.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/world/phys/Vec3"));
+        hook.add(new VarInsnNode(Opcodes.ASTORE, 1));
+        method.instructions.insert(hook);
+        return true;
+    }
+
+    private static boolean transformModernLivingRenderer(MethodNode method) {
+        if (!matches(method,
+                "(Lnet/minecraft/client/renderer/entity/state/LivingEntityRenderState;ZZZ)"
+                        + "Lnet/minecraft/client/renderer/rendertype/RenderType;",
+                "getRenderType")
+                || containsHook(method, MODERN_HOOK_OWNER, "onPlayerRenderType")) {
+            return false;
+        }
+        InsnList hook = new InsnList();
+        // The original RenderType is already on the operand stack here.
+        hook.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        hook.add(new MethodInsnNode(
+                Opcodes.INVOKESTATIC,
+                MODERN_HOOK_OWNER,
+                "onPlayerRenderType",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                false));
+        hook.add(new TypeInsnNode(
+                Opcodes.CHECKCAST,
+                "net/minecraft/client/renderer/rendertype/RenderType"));
+        insertBeforeOpcode(method, Opcodes.ARETURN, hook);
+        return true;
+    }
+
+    private static void injectModernInputBlock(MethodNode method) {
+        LabelNode continueLabel = new LabelNode();
+        InsnList hook = new InsnList();
+        hook.add(new MethodInsnNode(
+                Opcodes.INVOKESTATIC,
+                MODERN_HOOK_OWNER,
+                "shouldBlockGameInput",
+                "()Z",
+                false));
+        hook.add(new JumpInsnNode(Opcodes.IFEQ, continueLabel));
+        hook.add(new org.objectweb.asm.tree.InsnNode(Opcodes.RETURN));
+        hook.add(continueLabel);
+        method.instructions.insert(hook);
     }
 
     private static void wrapMouseWheelReads(MethodNode method) {
@@ -1519,18 +1712,58 @@ public final class LateClassTransformer {
                 && (deobfuscatedName.equals(method.name) || notchName.equals(method.name));
     }
 
+    private static boolean matches(
+            MethodNode method,
+            String descriptor,
+            String name) {
+        return descriptor.equals(method.desc) && name.equals(method.name);
+    }
+
     private static boolean containsHook(MethodNode method, String hookName) {
+        return containsHook(method, HOOK_OWNER, hookName);
+    }
+
+    private static boolean containsHook(MethodNode method, String owner, String hookName) {
         for (AbstractInsnNode instruction = method.instructions.getFirst();
                 instruction != null;
                 instruction = instruction.getNext()) {
             if (instruction instanceof MethodInsnNode) {
                 MethodInsnNode call = (MethodInsnNode) instruction;
-                if (HOOK_OWNER.equals(call.owner) && hookName.equals(call.name)) {
+                if (owner.equals(call.owner) && hookName.equals(call.name)) {
                     return true;
                 }
             }
         }
         return false;
+    }
+
+    private static MethodInsnNode modernHookCall(String name) {
+        return new MethodInsnNode(
+                Opcodes.INVOKESTATIC,
+                MODERN_HOOK_OWNER,
+                name,
+                "()V",
+                false);
+    }
+
+    private static void injectModernRenderFrame(MethodNode method) {
+        for (AbstractInsnNode instruction = method.instructions.getFirst();
+                instruction != null;
+                instruction = instruction.getNext()) {
+            if (!(instruction instanceof MethodInsnNode)) {
+                continue;
+            }
+            MethodInsnNode call = (MethodInsnNode) instruction;
+            if (call.getOpcode() == Opcodes.INVOKESTATIC
+                    && "com/mojang/blaze3d/systems/RenderSystem".equals(call.owner)
+                    && "flipFrame".equals(call.name)) {
+                method.instructions.insertBefore(
+                        call,
+                        modernHookCall("onRenderFrame"));
+                return;
+            }
+        }
+        injectBeforeReturns(method, modernHookCall("onRenderFrame"));
     }
 
     private static MethodInsnNode hookCall(String hookName, String descriptor) {
@@ -1626,6 +1859,10 @@ public final class LateClassTransformer {
 
     private static boolean isTarget(String name) {
         return isMinecraft(name)
+                || MODERN_CAMERA.equals(name)
+                || MODERN_MOUSE_HANDLER.equals(name)
+                || MODERN_KEYBOARD_HANDLER.equals(name)
+                || MODERN_LIVING_RENDERER.equals(name)
                 || isGuiIngame(name)
                 || isEntityRenderer(name)
                 || isPlayerSp(name)

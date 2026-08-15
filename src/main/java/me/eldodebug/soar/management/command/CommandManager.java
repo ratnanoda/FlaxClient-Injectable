@@ -4,6 +4,7 @@ import java.util.ArrayList;
 
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.management.command.impl.ScreenshotCommand;
+import me.eldodebug.soar.management.command.impl.FogCommand;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventSendChat;
 
@@ -14,6 +15,7 @@ public class CommandManager {
 	public CommandManager() {
 		
 		commands.add(new ScreenshotCommand());
+		commands.add(new FogCommand());
 		
 		Glide.getInstance().getEventManager().register(this);
 	}

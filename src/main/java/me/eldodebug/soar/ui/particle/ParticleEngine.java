@@ -22,7 +22,10 @@ public class ParticleEngine {
     	
         if(particles.isEmpty() || prevWidth != mc.displayWidth || prevHeight != mc.displayHeight) {
             particles.clear();
-            amount = (mc.displayWidth + mc.displayHeight) / 8;
+            // Keep menu decoration bounded on high-resolution displays. The
+            // previous resolution-proportional count could exceed 300 particles
+            // and made the mouse-link pass quadratic every frame.
+            amount = Math.min(96, Math.max(36, (mc.displayWidth + mc.displayHeight) / 16));
             create();
         }
 
@@ -32,9 +35,8 @@ public class ParticleEngine {
         for(final Particle particle : particles) {
         	
         	if(particle.getTimer().delay(1000 / 60)) {
-        		
+
                 particle.fall();
-                particle.interpolation();
                 
         		particle.getTimer().reset();
         	}
@@ -46,12 +48,14 @@ public class ParticleEngine {
             		(mouseY <= particle.getY() + range);
 
             if(mouseOver) {
-                particles.stream()
-                        .filter(part -> (part.getX() > particle.getX() && part.getX() - particle.getX() < range
-                                && particle.getX() - part.getX() < range)
-                                && (part.getY() > particle.getY() && part.getY() - particle.getY() < range
-                                || particle.getY() > part.getY() && particle.getY() - part.getY() < range))
-                        .forEach(connectable -> particle.connect(connectable.getX(), connectable.getY()));
+                for (Particle connectable : particles) {
+                    if (connectable == particle) continue;
+                    float dx = Math.abs(connectable.getX() - particle.getX());
+                    float dy = Math.abs(connectable.getY() - particle.getY());
+                    if (dx < range && dy < range) {
+                        particle.connect(connectable.getX(), connectable.getY());
+                    }
+                }
             }
 
             RenderUtils.drawRect(particle.getX(), particle.getY(), particle.getSize(), particle.getSize(), Color.WHITE);

@@ -133,6 +133,10 @@ minecraft {
 
 repositories {
     maven {
+        name "forge"
+        url "https://maven.minecraftforge.net"
+    }
+    maven {
         name "minecraftLibraries"
         url "https://libraries.minecraft.net"
     }
@@ -157,6 +161,11 @@ configurations {
 }
 
 dependencies {
+    // Forge API is present in the Forge runtime. ForgeGradle remaps this
+    // provided dependency into the 1.8.9 development namespace without
+    // bundling its classes into the standalone/Injectable distribution.
+    deobfProvided 'net.minecraftforge:forge:1.8.9-11.15.1.2318-1.8.9:universal'
+
     // Embedded MP3 decoder used by the in-client Music player.
     embed('org.spongepowered:mixin:0.7.11-SNAPSHOT') {
         exclude module: 'launchwrapper'
@@ -165,15 +174,20 @@ dependencies {
         exclude module: 'commons-io'
         exclude group: 'org.ow2.asm'
     }
-    // ASM 9 is required to transform Lunar's Java 17 (classfile v61) classes.
+    // ASM 9.9 is required to transform Lunar 26.1.2's Java 25
+    // (classfile v69) classes while retaining Java 8 compatibility.
     // These jars are merged after ForgeGradle's legacy ASM reobfuscation pass.
-    asmRuntime('org.ow2.asm:asm:9.7.1')
-    asmRuntime('org.ow2.asm:asm-tree:9.7.1')
-    asmRuntime('org.ow2.asm:asm-analysis:9.7.1')
-    asmRuntime('org.ow2.asm:asm-commons:9.7.1')
-    asmRuntime('org.ow2.asm:asm-util:9.7.1')
+    asmRuntime('org.ow2.asm:asm:9.9')
+    asmRuntime('org.ow2.asm:asm-tree:9.9')
+    asmRuntime('org.ow2.asm:asm-analysis:9.9')
+    asmRuntime('org.ow2.asm:asm-commons:9.9')
+    asmRuntime('org.ow2.asm:asm-util:9.9')
     embed(files('libs/lwjgl-soar.jar'))
     embed(files('libs/lwjgl-soar-natives.jar'))
+    // Dear ImGui renderer used by the Java 25 Lunar 26.1.2 adapter.
+    embed('io.github.spair:imgui-java-binding:1.87.5') { transitive = false }
+    embed('io.github.spair:imgui-java-lwjgl3:1.87.5') { transitive = false }
+    embed('io.github.spair:imgui-java-natives-windows:1.87.5') { transitive = false }
 }
 
 mixin {
@@ -282,6 +296,75 @@ reobfJar.doLast {
     }
 }
 
+// Reobfuscate only Flax's own classes to Forge's SRG namespace. Dependencies
+// are merged afterwards because ForgeGradle 2.1 cannot process the newer class
+// files contained in some bundled libraries.
+task forgeClassesJar(type: Jar) {
+    dependsOn classes
+    archiveName = "FlaxClient-Forge-classes.jar"
+    destinationDir = file("$buildDir/tmp/forge")
+    from sourceSets.main.output
+}
+
+reobf {
+    forgeClassesJar {
+        mappingType = 'SEARGE'
+    }
+}
+
+// Forge 1.8.9 ships a sealed LWJGL 2 jar. The standalone client also bundles
+// a small LWJGL 3 compatibility layer for NanoVG; classes placed directly in
+// org.lwjgl and org.lwjgl.opengl would violate that seal. Merge dependencies
+// after SRG reobfuscation, then remove only the conflicting LWJGL 2 packages.
+task forgeJar(type: Jar) {
+    dependsOn reobfForgeClassesJar
+    archiveName = "FlaxClient-Forge.jar"
+    destinationDir = file("$buildDir/libs")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    from {
+        zipTree(tasks.getByName("forgeClassesJar").archivePath)
+    }
+    from {
+        (configurations.embed + configurations.asmRuntime).collect {
+            it.isDirectory() ? it : zipTree(it)
+        }
+    }
+    from("$buildDir/tmp/compileJava/mixins.soar.refmap.json") {
+        rename { "mixins.soar.refmap.json" }
+    }
+    from {
+        configurations.embed.findAll { dependency ->
+            dependency.name.startsWith('mixin-')
+        }.collect { dependency -> zipTree(dependency) }
+    } {
+        include 'META-INF/services/org.spongepowered.asm.service.IGlobalPropertyService'
+        include 'META-INF/services/org.spongepowered.asm.service.IMixinService'
+        include 'META-INF/services/org.spongepowered.asm.service.IMixinServiceBootstrap'
+    }
+
+    exclude 'META-INF/MANIFEST.MF'
+    exclude 'META-INF/*.RSA'
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'module-info.class'
+    // Root LWJGL 3 compatibility classes such as org.lwjgl.Version and
+    // CLongBuffer are required by NanoVG. Minecraft's LWJGL 2 root classes are
+    // not present in lwjgl-soar.jar and remain delegated to the parent loader.
+    exclude 'org/lwjgl/opengl/**'
+
+    manifest.attributes(
+            "MixinConfigs": 'mixins.soar.json',
+            "TweakClass": 'me.eldodebug.soar.forge.bootstrap.ForgeTweaker',
+            "TweakOrder": 0,
+            "Manifest-Version": 1.0,
+            'FMLAT': 'soar_at.cfg',
+            "Implementation-Version": project.ext.clientVersionName
+    )
+}
+
+build.dependsOn forgeJar
+
 compileJava.dependsOn generateBuildVersionSource
 
 bumpBuildNumber.doLast {
@@ -319,10 +402,16 @@ task configureAttachDll(type: Exec) {
     dependsOn lunarJar
     onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
     doFirst {
+        def javaHome = file(System.getenv('JAVA_HOME') ?: System.getProperty('java.home'))
         commandLine findCmakeExecutable().absolutePath,
                 "-S", file("attach").absolutePath,
                 "-B", file("attach/build").absolutePath,
                 "-A", "x64",
+                "-DJAVA_INCLUDE_PATH=${new File(javaHome, 'include').absolutePath}",
+                "-DJAVA_INCLUDE_PATH2=${new File(javaHome, 'include/win32').absolutePath}",
+                "-DJAVA_AWT_INCLUDE_PATH=${new File(javaHome, 'include').absolutePath}",
+                "-DJAVA_AWT_LIBRARY=${new File(javaHome, 'lib/jawt.lib').absolutePath}",
+                "-DJAVA_JVM_LIBRARY=${new File(javaHome, 'lib/jvm.lib').absolutePath}",
                 "-DFLAX_CLIENT_JAR=${tasks.lunarJar.archivePath.absolutePath}"
     }
 }
@@ -342,5 +431,6 @@ task attachPackage(type: Sync) {
     onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
     from "attach/build/bin/Release/FlaxClient.dll"
     from "attach/build/bin/Release/FlaxInjector.exe"
+    from "attach/build/bin/Release/FlaxClient.exe"
     into "$buildDir/attach"
 }

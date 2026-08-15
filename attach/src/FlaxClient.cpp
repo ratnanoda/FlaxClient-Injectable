@@ -29,6 +29,10 @@ bool is_transform_target(const char* internal_name) {
     static const char* targets[] = {
         "ave",
         "net/minecraft/client/Minecraft",
+        "net/minecraft/client/Camera",
+        "net/minecraft/client/MouseHandler",
+        "net/minecraft/client/KeyboardHandler",
+        "net/minecraft/client/renderer/entity/LivingEntityRenderer",
         "avo",
         "net/minecraft/client/gui/GuiIngame",
         "bfk",

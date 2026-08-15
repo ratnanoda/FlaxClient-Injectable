@@ -471,13 +471,20 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
     
     @Inject(method = "drawSplashScreen", at = @At("HEAD"), cancellable = true)
     public void overrideSplash(TextureManager textureManagerInstance, CallbackInfo ci) {
+		if(Boolean.getBoolean("flax.runtime.forge")) {
+			return;
+		}
+
     	new GuiSplashScreen().draw();
     	ci.cancel();
     }
     
     @Inject(method = "displayGuiScreen", at = @At("RETURN"), cancellable = true)
     public void displayGuiScreenInject(GuiScreen guiScreenIn, CallbackInfo ci) {
-    	if(guiScreenIn instanceof GuiMainMenu) {
+		// The legacy NanoVG main menu relies on the standalone LWJGL bridge.
+		// Forge 1.8.9 owns an LWJGL 2 context, so keep its vanilla main menu
+		// usable instead of replacing it with an invisible NanoVG-only screen.
+		if(guiScreenIn instanceof GuiMainMenu && !Boolean.getBoolean("flax.runtime.forge")) {
 			displayGuiScreen(Glide.getInstance().getMainMenu());
     	}
     }

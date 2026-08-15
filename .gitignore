@@ -42,4 +42,5 @@ bin/
 
 ### Local tooling / agent ###
 .tooling/
+.cache/
 .claude/

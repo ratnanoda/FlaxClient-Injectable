@@ -30,8 +30,51 @@ public class ModManager {
         mods.add(new HealthbarMod());
         mods.add(new JumpResetMod());
         mods.add(new SafeWalkMod());
+        mods.add(new ShaderMod());
         YouTubePipMod youtubePip = new YouTubePipMod();
         mods.add(youtubePip);
+
+        initMixinCompatibilityModules();
+    }
+
+    /**
+     * The reduced Flax module list intentionally does not expose the legacy
+     * modules below. Several inherited mixins still query their singleton
+     * instances to decide whether to change vanilla behaviour, though. Create
+     * disabled instances without adding them to {@link #mods}, so those mixins
+     * safely fall back to vanilla while the visible module list stays intact.
+     */
+    private void initMixinCompatibilityModules() {
+        new AnimationsMod();
+        new AsyncScreenshotMod();
+        new ChatMod();
+        new ChatTranslateMod();
+        new ClearGlassMod();
+        new ClientSpooferMod();
+        new DamageTiltMod();
+        new EarsMod();
+        new FemaleGenderMod();
+        new FPSBoostMod();
+        new FPSLimiterMod();
+        new FPSSpooferMod();
+        new GlintColorMod();
+        new HitDelayFixMod();
+        new InventoryMod();
+        new ItemPhysicsMod();
+        new Items2DMod();
+        new MinimalViewBobbingMod();
+        new MoBendsMod();
+        new NametagMod();
+        new RawInputMod();
+        new ShinyPotsMod();
+        new Skin3DMod();
+        new SlowSwingMod();
+        new SoundSubtitlesMod();
+        new TabEditorMod();
+        new TimeChangerMod();
+        new UHCOverlayMod();
+        new WaveyCapesMod();
+        new WeatherChangerMod();
     }
     
     public ArrayList<Mod> getMods() {

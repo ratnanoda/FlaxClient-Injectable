@@ -64,6 +64,29 @@ std::filesystem::path executable_path() {
 
 constexpr int embedded_dll_resource_id = 201;
 
+void injector_log(const std::wstring& message) {
+    wchar_t temporary_path[32768]{};
+    DWORD length = GetTempPathW(static_cast<DWORD>(std::size(temporary_path)), temporary_path);
+    if (length == 0 || length >= std::size(temporary_path)) {
+        return;
+    }
+    std::filesystem::path directory(temporary_path);
+    directory /= L"FlaxClient";
+    std::error_code error;
+    std::filesystem::create_directories(directory, error);
+    std::filesystem::path log_path = directory / L"injector.log";
+    HANDLE output = CreateFileW(
+        log_path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (output == INVALID_HANDLE_VALUE) return;
+    std::wstring line = L"[" + std::to_wstring(GetCurrentProcessId())
+        + L"] " + message + L"\r\n";
+    DWORD written = 0;
+    WriteFile(output, line.data(),
+        static_cast<DWORD>(line.size() * sizeof(wchar_t)), &written, nullptr);
+    CloseHandle(output);
+}
+
 std::filesystem::path embedded_runtime_directory() {
     std::wstring buffer(32768, L'\0');
     DWORD length = GetTempPathW(static_cast<DWORD>(buffer.size()), buffer.data());
@@ -117,6 +140,7 @@ std::filesystem::path materialize_embedded_dll() {
         MAKEINTRESOURCEW(embedded_dll_resource_id),
         RT_RCDATA);
     if (resource == nullptr) {
+        injector_log(L"Embedded DLL resource 201 was not found");
         return {};
     }
 
@@ -125,6 +149,7 @@ std::filesystem::path materialize_embedded_dll() {
     const auto* bytes = static_cast<const unsigned char*>(
         loaded == nullptr ? nullptr : LockResource(loaded));
     if (bytes == nullptr || size < 2 || bytes[0] != 'M' || bytes[1] != 'Z') {
+        injector_log(L"Embedded DLL resource was invalid; size=" + std::to_wstring(size));
         return {};
     }
 
@@ -137,11 +162,14 @@ std::filesystem::path materialize_embedded_dll() {
     filename << L"FlaxClient-" << std::hex << std::setw(16)
              << std::setfill(L'0') << hash_bytes(bytes, size) << L".dll";
     std::filesystem::path target = directory / filename.str();
+    injector_log(L"Embedded DLL size=" + std::to_wstring(size)
+        + L" target=" + target.wstring());
     cleanup_stale_embedded_dlls(directory, target);
 
     std::error_code file_error;
     if (std::filesystem::is_regular_file(target, file_error) &&
         std::filesystem::file_size(target, file_error) == size) {
+        injector_log(L"Reusing matching embedded DLL");
         return target;
     }
 
@@ -150,6 +178,7 @@ std::filesystem::path materialize_embedded_dll() {
     {
         std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
         if (!output) {
+            injector_log(L"Could not create temporary embedded DLL");
             return {};
         }
         output.write(
@@ -159,6 +188,7 @@ std::filesystem::path materialize_embedded_dll() {
         if (!output) {
             output.close();
             std::filesystem::remove(temporary, file_error);
+            injector_log(L"Could not write complete embedded DLL");
             return {};
         }
     }
@@ -167,12 +197,16 @@ std::filesystem::path materialize_embedded_dll() {
             temporary.c_str(),
             target.c_str(),
             MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        DWORD move_error_code = GetLastError();
         std::filesystem::remove(temporary, file_error);
         if (!std::filesystem::is_regular_file(target, file_error) ||
             std::filesystem::file_size(target, file_error) != size) {
+            injector_log(L"Could not publish embedded DLL; error="
+                + std::to_wstring(move_error_code));
             return {};
         }
     }
+    injector_log(L"Embedded DLL prepared successfully");
     return target;
 }
 
@@ -389,7 +423,7 @@ std::filesystem::path configured_dll;
 bool configured_dll_override = false;
 bool verify_embedded_only = false;
 DWORD configured_process_id = 0;
-std::wstring status_text = L"Ready to attach to Minecraft 1.8.9";
+std::wstring status_text = L"Ready to attach to Lunar Client 1.8.9 / 26.1.2";
 int animation_frame = 0;
 std::chrono::steady_clock::time_point close_at;
 
@@ -529,7 +563,7 @@ void paint_window(HWND window) {
     std::wstring footer_text =
         ui_state == UiState::success
             ? L"This window will close automatically in 5 seconds"
-            : L"Official / Lunar Client 1.8.9 (x64)";
+            : L"Lunar Client 1.8.9 / 26.1.2";
     draw_centered_text(dc, footer_text, footer, body_font, RGB(105, 113, 142));
 
     DeleteObject(title_font);
@@ -566,7 +600,7 @@ InjectionResult perform_injection() {
         if (candidates.empty()) {
             return {
                 false,
-                L"Start Minecraft 1.8.9 and wait for the main menu first"};
+                L"Start Lunar Client 1.8.9 / 26.1.2 and wait for the main menu first"};
         }
         if (candidates.size() > 1) {
             return {false, L"More than one supported Minecraft process was found"};
@@ -584,8 +618,10 @@ InjectionResult perform_injection() {
         return {true, L"FlaxClient is already loaded"};
     }
     if (!inject(process_id, dll_path)) {
+        injector_log(L"LoadLibrary injection failed for PID " + std::to_wstring(process_id));
         return {false, L"Minecraft could not load FlaxClient.dll"};
     }
+    injector_log(L"LoadLibrary injection succeeded for PID " + std::to_wstring(process_id));
     return {true, L"Injection completed successfully"};
 }
 
@@ -761,8 +797,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     }
 
     parse_arguments();
+    injector_log(L"Injector started");
     if (!configured_dll_override) {
-        configured_dll = materialize_embedded_dll();
+        std::filesystem::path sidecar = executable_path().parent_path()
+            / L"FlaxClient.dll";
+        std::error_code sidecar_error;
+        if (std::filesystem::is_regular_file(sidecar, sidecar_error)) {
+            configured_dll = sidecar;
+            injector_log(L"Using packaged sidecar DLL: " + sidecar.wstring());
+        } else {
+            configured_dll = materialize_embedded_dll();
+        }
     }
     if (verify_embedded_only) {
         std::error_code verify_error;
