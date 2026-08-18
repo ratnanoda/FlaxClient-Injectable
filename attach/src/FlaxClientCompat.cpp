@@ -130,12 +130,12 @@ LPWSTR make_int_resource(WORD id) {
 
 // FlaxClient.cpp already has a stable attach/JVMTI implementation. Keep that
 // implementation intact and only intercept its embedded JAR resource lookup.
-// This avoids forking the injection path while allowing one DLL to carry both
-// the Lunar/MCP and Dawn/Feather-style SRG 1.8.9 jars.
+// CMake generates FlaxClientPatched.cpp from it with one additional change:
+// the Java transformer entry point is routed through CompatibleLateClassTransformer.
 #ifdef MAKEINTRESOURCEW
 #undef MAKEINTRESOURCEW
 #endif
 #define MAKEINTRESOURCEW(id) \
     (::flax_compat::make_int_resource(static_cast<WORD>(id)))
 
-#include "FlaxClient.cpp"
+#include "FlaxClientPatched.cpp"
