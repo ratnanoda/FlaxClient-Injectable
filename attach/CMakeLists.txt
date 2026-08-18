@@ -37,6 +37,23 @@ string(REPLACE
 )
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/FlaxClientPatched.cpp" "${FLAX_CLIENT_CPP}")
 
+# Likewise keep the injector implementation centralized while extending its
+# existing visible-window filter to accept Dawn and legacy Feather titles.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/FlaxInjector.cpp" FLAX_INJECTOR_CPP)
+string(REPLACE
+    "if (value.find(L\"Minecraft\") != std::wstring::npos ||\n        value.find(L\"Lunar Client\") != std::wstring::npos) {"
+    "if (value.find(L\"Minecraft\") != std::wstring::npos ||\n        value.find(L\"Lunar Client\") != std::wstring::npos ||\n        value.find(L\"Dawn\") != std::wstring::npos ||\n        value.find(L\"Feather\") != std::wstring::npos) {"
+    FLAX_INJECTOR_CPP
+    "${FLAX_INJECTOR_CPP}"
+)
+string(REPLACE
+    "L\"Official / Lunar Client 1.8.9 (x64)\""
+    "L\"Lunar / Dawn Client 1.8.9 (x64)\""
+    FLAX_INJECTOR_CPP
+    "${FLAX_INJECTOR_CPP}"
+)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjectorPatched.cpp" "${FLAX_INJECTOR_CPP}")
+
 set(FLAX_CLIENT_SOURCES
     src/FlaxClientCompat.cpp
 )
@@ -76,7 +93,7 @@ configure_file(
 )
 
 add_executable(FlaxInjector WIN32
-    src/FlaxInjector.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjectorPatched.cpp"
     "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjector.rc"
 )
 add_dependencies(FlaxInjector FlaxClient)
