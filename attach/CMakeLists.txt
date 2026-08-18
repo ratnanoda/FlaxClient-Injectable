@@ -20,7 +20,7 @@ set(
 )
 set(
     FLAX_CLIENT_DAWN_JAR
-    "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Release.jar"
+    "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Dawn.jar"
     CACHE FILEPATH
     "SRG-reobfuscated FlaxClient jar embedded for Dawn/Feather-style 1.8.9"
 )
