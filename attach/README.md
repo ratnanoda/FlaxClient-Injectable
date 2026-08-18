@@ -8,10 +8,12 @@ the running Java class loader, installs schema-preserving JVMTI hooks, and
 starts the FlaxClient managers on Minecraft's main thread.
 
 The packaged build supports the existing Lunar Client 1.8.9 path and adds a
-production/notch-mapped 1.8.9 path intended for Dawn Client 1.8.9. At runtime
-the DLL inspects the loaded Minecraft class names and selects the matching
-embedded jar automatically. It does not bypass or disable launcher or
-anti-cheat protections.
+Dawn/Feather-style 1.8.9 path. Lunar uses the MCP/readable runtime jar. Dawn is
+selected when the loaded `net.minecraft.client.Minecraft` class exposes SRG
+members such as `field_71439_g`, and receives the ForgeGradle-reobfuscated SRG
+jar instead. Both jars are embedded into the same DLL and selected at runtime.
+This compatibility path does not bypass or disable launcher or anti-cheat
+protections.
 
 ## Build
 
