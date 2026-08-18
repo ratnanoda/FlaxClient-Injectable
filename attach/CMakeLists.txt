@@ -16,13 +16,13 @@ set(
     FLAX_CLIENT_LUNAR_JAR
     "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Lunar.jar"
     CACHE FILEPATH
-    "Deobfuscated FlaxClient jar embedded for Lunar Client 1.8.9"
+    "MCP-named FlaxClient jar embedded for Lunar Client 1.8.9"
 )
 set(
     FLAX_CLIENT_DAWN_JAR
     "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Release.jar"
     CACHE FILEPATH
-    "Reobfuscated FlaxClient jar embedded for Dawn/production Minecraft 1.8.9"
+    "SRG-reobfuscated FlaxClient jar embedded for Dawn/Feather-style 1.8.9"
 )
 
 set(FLAX_CLIENT_SOURCES
