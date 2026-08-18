@@ -11,6 +11,51 @@ using GetCreatedJavaVMs = jint(JNICALL*)(JavaVM**, jsize, jsize*);
 constexpr int lunar_jar_resource_id = 101;
 constexpr int dawn_jar_resource_id = 102;
 
+bool minecraft_class_uses_srg_members(jvmtiEnv* jvmti, jclass minecraft_class) {
+    jint field_count = 0;
+    jfieldID* fields = nullptr;
+    if (jvmti->GetClassFields(minecraft_class, &field_count, &fields) !=
+            JVMTI_ERROR_NONE ||
+        fields == nullptr) {
+        return false;
+    }
+
+    bool srg = false;
+    for (jint index = 0; index < field_count; ++index) {
+        char* name = nullptr;
+        char* signature = nullptr;
+        char* generic = nullptr;
+        if (jvmti->GetFieldName(
+                minecraft_class,
+                fields[index],
+                &name,
+                &signature,
+                &generic) == JVMTI_ERROR_NONE &&
+            name != nullptr) {
+            if (std::strcmp(name, "field_71439_g") == 0 ||
+                std::strcmp(name, "field_71441_e") == 0 ||
+                std::strcmp(name, "field_71428_T") == 0) {
+                srg = true;
+            }
+        }
+        if (name != nullptr) {
+            jvmti->Deallocate(reinterpret_cast<unsigned char*>(name));
+        }
+        if (signature != nullptr) {
+            jvmti->Deallocate(reinterpret_cast<unsigned char*>(signature));
+        }
+        if (generic != nullptr) {
+            jvmti->Deallocate(reinterpret_cast<unsigned char*>(generic));
+        }
+        if (srg) {
+            break;
+        }
+    }
+
+    jvmti->Deallocate(reinterpret_cast<unsigned char*>(fields));
+    return srg;
+}
+
 int select_client_jar_resource() {
     HMODULE jvm_module = GetModuleHandleW(L"jvm.dll");
     if (jvm_module == nullptr) {
@@ -54,22 +99,21 @@ int select_client_jar_resource() {
             continue;
         }
 
-        if (std::strcmp(signature, "Lave;") == 0) {
-            // Production/notch 1.8.9 names (used by Dawn-style runtimes)
-            // need the ForgeGradle reobfuscated client jar.
-            selected = dawn_jar_resource_id;
-        } else if (std::strcmp(
-                       signature,
-                       "Lnet/minecraft/client/Minecraft;") == 0) {
-            // Lunar's currently supported runtime exposes the deobfuscated
-            // Minecraft class name, so retain the existing Lunar jar.
-            selected = lunar_jar_resource_id;
+        const bool minecraft =
+            std::strcmp(signature, "Lnet/minecraft/client/Minecraft;") == 0;
+        jvmti->Deallocate(reinterpret_cast<unsigned char*>(signature));
+        if (!minecraft) {
+            continue;
         }
 
-        jvmti->Deallocate(reinterpret_cast<unsigned char*>(signature));
-        if (selected == dawn_jar_resource_id) {
-            break;
-        }
+        // Lunar 1.8.9 exposes MCP/readable member names, while the
+        // Forge/Feather-style 1.8.9 runtime exposes the same readable class
+        // name with SRG members such as field_71439_g. Dawn is the successor
+        // to Feather, so select the SRG-reobfuscated jar for that layout.
+        selected = minecraft_class_uses_srg_members(jvmti, classes[index])
+                       ? dawn_jar_resource_id
+                       : lunar_jar_resource_id;
+        break;
     }
 
     jvmti->Deallocate(reinterpret_cast<unsigned char*>(classes));
@@ -87,7 +131,7 @@ LPWSTR make_int_resource(WORD id) {
 // FlaxClient.cpp already has a stable attach/JVMTI implementation. Keep that
 // implementation intact and only intercept its embedded JAR resource lookup.
 // This avoids forking the injection path while allowing one DLL to carry both
-// the Lunar/deobfuscated and Dawn/production 1.8.9 jars.
+// the Lunar/MCP and Dawn/Feather-style SRG 1.8.9 jars.
 #ifdef MAKEINTRESOURCEW
 #undef MAKEINTRESOURCEW
 #endif
