@@ -271,8 +271,61 @@ task lunarJar(type: Jar) {
     )
 }
 
+// Dawn/Feather-style 1.8.9 keeps the readable net/minecraft class names but
+// uses SRG field/method names. Build a separate jar and ask ForgeGradle 2.1 to
+// remap MCP -> SEARGE rather than the tweaker plugin's normal MCP -> NOTCH jar.
+task dawnJar(type: Jar) {
+    dependsOn classes, "genSrgs"
+    archiveName = "FlaxClient-Dawn.jar"
+    from sourceSets.main.output
+    from({ tasks.getByName("genSrgs").mcpToSrg }) {
+        into "flax/mappings"
+        rename { "mcp-srg.srg" }
+    }
+    from(windowsYtDlp) {
+        into bundledWindowsToolPath
+        rename { "yt-dlp.exe" }
+    }
+    from(windowsFfmpegArchive) {
+        into bundledWindowsToolPath
+        rename { "ffmpeg.zip" }
+    }
+    from {
+        configurations.embed.collect {
+            it.isDirectory() ? it : zipTree(it)
+        }
+    }
+    exclude 'META-INF', 'META-INF/**'
+    exclude 'module-info.class'
+    manifest.attributes(
+            "MixinConfigs": 'mixins.soar.json',
+            "TweakClass": 'me.eldodebug.soar.injection.mixin.GlideTweaker',
+            "TweakOrder": 0,
+            "Manifest-Version": 1.0,
+            'FMLAT': 'soar_at.cfg',
+            "Implementation-Version": project.ext.clientVersionName
+    )
+}
+
+reobf {
+    dawnJar {
+        mappingType = "SEARGE"
+    }
+}
+
 reobfJar.doLast {
     def outputJar = tasks.getByName("jar").archivePath
+    configurations.asmRuntime.each { dependency ->
+        ant.zip(destfile: outputJar, update: true) {
+            zipfileset(
+                    src: dependency,
+                    excludes: 'META-INF,META-INF/**,module-info.class')
+        }
+    }
+}
+
+reobfDawnJar.doLast {
+    def outputJar = tasks.getByName("dawnJar").archivePath
     configurations.asmRuntime.each { dependency ->
         ant.zip(destfile: outputJar, update: true) {
             zipfileset(
@@ -316,14 +369,15 @@ def findCmakeExecutable = {
 }
 
 task configureAttachDll(type: Exec) {
-    dependsOn lunarJar
+    dependsOn lunarJar, reobfDawnJar
     onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
     doFirst {
         commandLine findCmakeExecutable().absolutePath,
                 "-S", file("attach").absolutePath,
                 "-B", file("attach/build").absolutePath,
                 "-A", "x64",
-                "-DFLAX_CLIENT_JAR=${tasks.lunarJar.archivePath.absolutePath}"
+                "-DFLAX_CLIENT_LUNAR_JAR=${tasks.lunarJar.archivePath.absolutePath}",
+                "-DFLAX_CLIENT_DAWN_JAR=${tasks.dawnJar.archivePath.absolutePath}"
     }
 }
 
@@ -340,7 +394,8 @@ task buildAttachDll(type: Exec) {
 task attachPackage(type: Sync) {
     dependsOn buildAttachDll
     onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
-    from "attach/build/bin/Release/FlaxClient.dll"
-    from "attach/build/bin/Release/FlaxInjector.exe"
+    // FlaxClient.exe embeds FlaxClient.dll; the DLL embeds both the Lunar MCP
+    // and Dawn/Feather-style SRG 1.8.9 client jars.
+    from "attach/build/bin/Release/FlaxClient.exe"
     into "$buildDir/attach"
 }

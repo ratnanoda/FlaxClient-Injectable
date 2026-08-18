@@ -13,18 +13,54 @@ endif()
 find_package(JNI REQUIRED)
 
 set(
-    FLAX_CLIENT_JAR
-    "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Release.jar"
+    FLAX_CLIENT_LUNAR_JAR
+    "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Lunar.jar"
     CACHE FILEPATH
-    "FlaxClient jar embedded into the attach DLL"
+    "MCP-named FlaxClient jar embedded for Lunar Client 1.8.9"
 )
+set(
+    FLAX_CLIENT_DAWN_JAR
+    "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Dawn.jar"
+    CACHE FILEPATH
+    "SRG-reobfuscated FlaxClient jar embedded for Dawn/Feather-style 1.8.9"
+)
+
+# Keep the established native attach implementation in one source file. The
+# generated copy changes only the Java transformer entry-point name so both
+# Lunar and Dawn can share a small compatibility dispatcher.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/FlaxClient.cpp" FLAX_CLIENT_CPP)
+string(REPLACE
+    "\"me.eldodebug.soar.attach.LateClassTransformer\""
+    "\"me.eldodebug.soar.attach.CompatibleLateClassTransformer\""
+    FLAX_CLIENT_CPP
+    "${FLAX_CLIENT_CPP}"
+)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/FlaxClientPatched.cpp" "${FLAX_CLIENT_CPP}")
+
+# Likewise keep the injector implementation centralized while extending its
+# existing visible-window filter to accept Dawn and legacy Feather titles.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/FlaxInjector.cpp" FLAX_INJECTOR_CPP)
+string(REPLACE
+    "if (value.find(L\"Minecraft\") != std::wstring::npos ||\n        value.find(L\"Lunar Client\") != std::wstring::npos) {"
+    "if (value.find(L\"Minecraft\") != std::wstring::npos ||\n        value.find(L\"Lunar Client\") != std::wstring::npos ||\n        value.find(L\"Dawn\") != std::wstring::npos ||\n        value.find(L\"Feather\") != std::wstring::npos) {"
+    FLAX_INJECTOR_CPP
+    "${FLAX_INJECTOR_CPP}"
+)
+string(REPLACE
+    "L\"Official / Lunar Client 1.8.9 (x64)\""
+    "L\"Lunar / Dawn Client 1.8.9 (x64)\""
+    FLAX_INJECTOR_CPP
+    "${FLAX_INJECTOR_CPP}"
+)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjectorPatched.cpp" "${FLAX_INJECTOR_CPP}")
 
 set(FLAX_CLIENT_SOURCES
-    src/FlaxClient.cpp
+    src/FlaxClientCompat.cpp
 )
 
-if(EXISTS "${FLAX_CLIENT_JAR}")
-    file(TO_CMAKE_PATH "${FLAX_CLIENT_JAR}" FLAX_CLIENT_JAR_RC)
+if(EXISTS "${FLAX_CLIENT_LUNAR_JAR}" AND EXISTS "${FLAX_CLIENT_DAWN_JAR}")
+    file(TO_CMAKE_PATH "${FLAX_CLIENT_LUNAR_JAR}" FLAX_CLIENT_LUNAR_JAR_RC)
+    file(TO_CMAKE_PATH "${FLAX_CLIENT_DAWN_JAR}" FLAX_CLIENT_DAWN_JAR_RC)
     configure_file(
         resources/FlaxClient.rc.in
         "${CMAKE_CURRENT_BINARY_DIR}/FlaxClient.rc"
@@ -32,7 +68,8 @@ if(EXISTS "${FLAX_CLIENT_JAR}")
     )
     list(APPEND FLAX_CLIENT_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/FlaxClient.rc")
 else()
-    message(WARNING "FlaxClient jar was not found; the DLL will require a sidecar jar.")
+    message(WARNING
+        "One or both FlaxClient runtime jars were not found; the DLL will require a sidecar jar.")
 endif()
 
 add_library(FlaxClient SHARED
@@ -56,14 +93,17 @@ configure_file(
 )
 
 add_executable(FlaxInjector WIN32
-    src/FlaxInjector.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjectorPatched.cpp"
     "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjector.rc"
 )
 add_dependencies(FlaxInjector FlaxClient)
 
 target_compile_features(FlaxClient PRIVATE cxx_std_17)
 target_compile_features(FlaxInjector PRIVATE cxx_std_17)
-target_include_directories(FlaxClient PRIVATE ${JNI_INCLUDE_DIRS})
+target_include_directories(FlaxClient PRIVATE
+    ${JNI_INCLUDE_DIRS}
+    "${CMAKE_CURRENT_BINARY_DIR}"
+)
 target_link_libraries(FlaxInjector PRIVATE Shell32)
 target_compile_definitions(FlaxClient PRIVATE
     WIN32_LEAN_AND_MEAN

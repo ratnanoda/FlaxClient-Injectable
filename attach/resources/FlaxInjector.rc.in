@@ -1,8 +1,8 @@
 #include <windows.h>
 #include <winver.h>
 
-#define FLAX_FILE_VERSION 1,0,1,0
-#define FLAX_FILE_VERSION_STRING "1.0.1.0\0"
+#define FLAX_FILE_VERSION 1,1,0,0
+#define FLAX_FILE_VERSION_STRING "1.1.0.0\0"
 
 201 RCDATA "@FLAX_CLIENT_DLL_RC@"
 1 RT_MANIFEST "@FLAX_INJECTOR_MANIFEST_RC@"
@@ -25,7 +25,7 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "CompanyName", "FlaxClient Open Source Project\0"
-            VALUE "FileDescription", "FlaxClient Lunar Client 1.8.9 Attach Tool\0"
+            VALUE "FileDescription", "FlaxClient Lunar + Dawn 1.8.9 Attach Tool\0"
             VALUE "FileVersion", FLAX_FILE_VERSION_STRING
             VALUE "InternalName", "FlaxClient\0"
             VALUE "LegalCopyright", "Copyright (c) FlaxClient contributors\0"

@@ -1,4 +1,4 @@
-name: Build Lunar Single-EXE Package
+name: Build Lunar + Dawn Single-EXE Package
 
 on:
   push:
@@ -29,54 +29,104 @@ jobs:
           java-version: '8'
           architecture: x64
 
-      - name: Build Lunar-compatible client jar
+      - name: Build Lunar and Dawn runtime jars
         shell: powershell
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx6g
         run: |
-          & ".\gradlew.bat" lunarJar --no-daemon --stacktrace
+          & ".\gradlew.bat" lunarJar reobfDawnJar --no-daemon --stacktrace
           if (!(Test-Path "build\libs\FlaxClient-Lunar.jar")) {
             throw "FlaxClient-Lunar.jar was not generated"
           }
+          if (!(Test-Path "build\libs\FlaxClient-Dawn.jar")) {
+            throw "FlaxClient-Dawn.jar was not generated"
+          }
 
-      - name: Verify Lunar mappings and bundled media tools
+      - name: Verify Lunar MCP and Dawn SRG mappings
         shell: powershell
         run: |
-          $jar = "build\libs\FlaxClient-Lunar.jar"
-          $bootstrap = & javap -classpath $jar -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
-          $hooks = & javap -classpath $jar -verbose me.eldodebug.soar.attach.LateHooks 2>&1 | Out-String
-          if ($bootstrap -notmatch "net/minecraft/client/Minecraft") {
+          $lunar = "build\libs\FlaxClient-Lunar.jar"
+          $dawn = "build\libs\FlaxClient-Dawn.jar"
+
+          $lunarBootstrap = & javap -classpath $lunar -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
+          $lunarHooks = & javap -classpath $lunar -verbose me.eldodebug.soar.attach.LateHooks 2>&1 | Out-String
+          if ($lunarBootstrap -notmatch "net/minecraft/client/Minecraft") {
             throw "AttachBootstrap does not contain Lunar-compatible Minecraft class names"
           }
-          if ($hooks -notmatch "net/minecraft/client/gui/GuiIngame") {
+          if ($lunarBootstrap -notmatch "getMinecraft") {
+            throw "Lunar jar does not retain MCP/readable Minecraft member names"
+          }
+          if ($lunarHooks -notmatch "net/minecraft/client/gui/GuiIngame") {
             throw "LateHooks does not contain Lunar-compatible Minecraft class names"
           }
-          $entries = & jar tf $jar
-          if ($entries -notcontains "assets/minecraft/soar/tools/windows-x64/yt-dlp.exe") {
+
+          $dawnBootstrap = & javap -classpath $dawn -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
+          $dawnHooks = & javap -classpath $dawn -verbose me.eldodebug.soar.attach.LateHooks 2>&1 | Out-String
+          if ($dawnBootstrap -notmatch "net/minecraft/client/Minecraft") {
+            throw "Dawn jar lost the readable Minecraft class names expected by the Feather-style runtime"
+          }
+          if (($dawnBootstrap -notmatch "func_71410_x") -and
+              ($dawnHooks -notmatch "field_71439_g") -and
+              ($dawnHooks -notmatch "func_")) {
+            throw "Dawn jar does not appear to contain SRG-reobfuscated Minecraft members"
+          }
+
+          $lunarEntries = & jar tf $lunar
+          if ($lunarEntries -notcontains "assets/minecraft/soar/tools/windows-x64/yt-dlp.exe") {
             throw "Bundled yt-dlp resource is missing"
           }
-          if ($entries -notcontains "assets/minecraft/soar/tools/windows-x64/ffmpeg.zip") {
+          if ($lunarEntries -notcontains "assets/minecraft/soar/tools/windows-x64/ffmpeg.zip") {
             throw "Bundled ffmpeg resource is missing"
           }
-          if ($entries -notcontains "me/eldodebug/soar/gui/modmenu/BeginnerGuideOverlay.class") {
+          if ($lunarEntries -notcontains "me/eldodebug/soar/gui/modmenu/BeginnerGuideOverlay.class") {
             throw "Beginner guide class is missing"
           }
 
-      - name: Configure Lunar single-EXE build
+          $dawnEntries = & jar tf $dawn
+          if ($dawnEntries -notcontains "me/eldodebug/soar/attach/CompatibleLateClassTransformer.class") {
+            throw "Dawn compatibility transformer bridge is missing"
+          }
+          if ($dawnEntries -notcontains "me/eldodebug/soar/attach/SrgMappingAdapter.class") {
+            throw "Dawn SRG mapping adapter is missing"
+          }
+          if ($dawnEntries -notcontains "flax/mappings/mcp-srg.srg") {
+            throw "Dawn MCP-to-SRG mapping resource is missing"
+          }
+
+          $mappingDir = Join-Path $env:RUNNER_TEMP "flax-dawn-map"
+          New-Item -ItemType Directory -Force -Path $mappingDir | Out-Null
+          Push-Location $mappingDir
+          try {
+            & jar xf (Resolve-Path (Join-Path $env:GITHUB_WORKSPACE $dawn)) "flax/mappings/mcp-srg.srg"
+            $mapping = Get-Content "flax\mappings\mcp-srg.srg" -Raw
+            if ($mapping -notmatch "Minecraft/runTick") {
+              throw "Dawn mapping resource does not contain the MCP runTick entry"
+            }
+            if ($mapping -notmatch "func_71407_l") {
+              throw "Dawn mapping resource does not contain the SRG runTick entry"
+            }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Configure universal single-EXE build
         shell: powershell
         run: |
-          $jar = (Resolve-Path "build\libs\FlaxClient-Lunar.jar").Path.Replace('\', '/')
-          cmake -S attach -B attach/build-lunar -A x64 "-DFLAX_CLIENT_JAR=$jar"
+          $lunar = (Resolve-Path "build\libs\FlaxClient-Lunar.jar").Path.Replace('\', '/')
+          $dawn = (Resolve-Path "build\libs\FlaxClient-Dawn.jar").Path.Replace('\', '/')
+          cmake -S attach -B attach/build-universal -A x64 `
+            "-DFLAX_CLIENT_LUNAR_JAR=$lunar" `
+            "-DFLAX_CLIENT_DAWN_JAR=$dawn"
 
       - name: Build embedded DLL and single EXE
         shell: powershell
-        run: cmake --build attach/build-lunar --config Release --target FlaxInjector
+        run: cmake --build attach/build-universal --config Release --target FlaxInjector
 
       - name: Verify embedded runtime and metadata
         shell: powershell
         run: |
-          $exe = "attach\build-lunar\bin\Release\FlaxClient.exe"
-          $dll = "attach\build-lunar\bin\Release\FlaxClient.dll"
+          $exe = "attach\build-universal\bin\Release\FlaxClient.exe"
+          $dll = "attach\build-universal\bin\Release\FlaxClient.dll"
           if (!(Test-Path $exe)) { throw "FlaxClient.exe was not generated" }
           if (!(Test-Path $dll)) { throw "Intermediate FlaxClient.dll was not generated" }
 
@@ -94,7 +144,7 @@ jobs:
           }
 
           $version = (Get-Item $exe).VersionInfo
-          if ($version.FileDescription -ne "FlaxClient Lunar Client 1.8.9 Attach Tool") {
+          if ($version.FileDescription -ne "FlaxClient Lunar + Dawn 1.8.9 Attach Tool") {
             throw "Expected Windows version metadata is missing"
           }
           Write-Host "File description: $($version.FileDescription)"
@@ -111,7 +161,7 @@ jobs:
       - name: Scan final EXE with Microsoft Defender
         shell: powershell
         run: |
-          $exe = (Resolve-Path "attach\build-lunar\bin\Release\FlaxClient.exe").Path
+          $exe = (Resolve-Path "attach\build-universal\bin\Release\FlaxClient.exe").Path
           $defender = Join-Path $env:ProgramFiles "Windows Defender\MpCmdRun.exe"
           if (!(Test-Path $defender)) {
             Write-Warning "Microsoft Defender command-line scanner is unavailable on this runner."
@@ -135,7 +185,7 @@ jobs:
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path "build\single-exe" | Out-Null
-          Copy-Item "attach\build-lunar\bin\Release\FlaxClient.exe" "build\single-exe\FlaxClient.exe"
+          Copy-Item "attach\build-universal\bin\Release\FlaxClient.exe" "build\single-exe\FlaxClient.exe"
           $files = @(Get-ChildItem "build\single-exe" -File)
           if ($files.Count -ne 1 -or $files[0].Name -ne "FlaxClient.exe") {
             throw "Distribution must contain exactly one FlaxClient.exe"
@@ -144,7 +194,7 @@ jobs:
       - name: Upload single EXE
         uses: actions/upload-artifact@v4
         with:
-          name: FlaxClient-Lunar-Single-EXE-Windows-x64
+          name: FlaxClient-Lunar-Dawn-Single-EXE-Windows-x64
           path: build/single-exe/FlaxClient.exe
           if-no-files-found: error
           retention-days: 7
