@@ -34,19 +34,19 @@ jobs:
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx6g
         run: |
-          & ".\gradlew.bat" lunarJar reobfJar --no-daemon --stacktrace
+          & ".\gradlew.bat" lunarJar reobfDawnJar --no-daemon --stacktrace
           if (!(Test-Path "build\libs\FlaxClient-Lunar.jar")) {
             throw "FlaxClient-Lunar.jar was not generated"
           }
-          if (!(Test-Path "build\libs\FlaxClient-Release.jar")) {
-            throw "FlaxClient-Release.jar was not generated"
+          if (!(Test-Path "build\libs\FlaxClient-Dawn.jar")) {
+            throw "FlaxClient-Dawn.jar was not generated"
           }
 
       - name: Verify Lunar MCP and Dawn SRG mappings
         shell: powershell
         run: |
           $lunar = "build\libs\FlaxClient-Lunar.jar"
-          $dawn = "build\libs\FlaxClient-Release.jar"
+          $dawn = "build\libs\FlaxClient-Dawn.jar"
 
           $lunarBootstrap = & javap -classpath $lunar -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
           $lunarHooks = & javap -classpath $lunar -verbose me.eldodebug.soar.attach.LateHooks 2>&1 | Out-String
@@ -86,7 +86,7 @@ jobs:
         shell: powershell
         run: |
           $lunar = (Resolve-Path "build\libs\FlaxClient-Lunar.jar").Path.Replace('\', '/')
-          $dawn = (Resolve-Path "build\libs\FlaxClient-Release.jar").Path.Replace('\', '/')
+          $dawn = (Resolve-Path "build\libs\FlaxClient-Dawn.jar").Path.Replace('\', '/')
           cmake -S attach -B attach/build-universal -A x64 `
             "-DFLAX_CLIENT_LUNAR_JAR=$lunar" `
             "-DFLAX_CLIENT_DAWN_JAR=$dawn"
