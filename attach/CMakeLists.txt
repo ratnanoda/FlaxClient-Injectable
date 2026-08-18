@@ -13,18 +13,25 @@ endif()
 find_package(JNI REQUIRED)
 
 set(
-    FLAX_CLIENT_JAR
+    FLAX_CLIENT_LUNAR_JAR
+    "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Lunar.jar"
+    CACHE FILEPATH
+    "Deobfuscated FlaxClient jar embedded for Lunar Client 1.8.9"
+)
+set(
+    FLAX_CLIENT_DAWN_JAR
     "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Release.jar"
     CACHE FILEPATH
-    "FlaxClient jar embedded into the attach DLL"
+    "Reobfuscated FlaxClient jar embedded for Dawn/production Minecraft 1.8.9"
 )
 
 set(FLAX_CLIENT_SOURCES
     src/FlaxClient.cpp
 )
 
-if(EXISTS "${FLAX_CLIENT_JAR}")
-    file(TO_CMAKE_PATH "${FLAX_CLIENT_JAR}" FLAX_CLIENT_JAR_RC)
+if(EXISTS "${FLAX_CLIENT_LUNAR_JAR}" AND EXISTS "${FLAX_CLIENT_DAWN_JAR}")
+    file(TO_CMAKE_PATH "${FLAX_CLIENT_LUNAR_JAR}" FLAX_CLIENT_LUNAR_JAR_RC)
+    file(TO_CMAKE_PATH "${FLAX_CLIENT_DAWN_JAR}" FLAX_CLIENT_DAWN_JAR_RC)
     configure_file(
         resources/FlaxClient.rc.in
         "${CMAKE_CURRENT_BINARY_DIR}/FlaxClient.rc"
@@ -32,7 +39,8 @@ if(EXISTS "${FLAX_CLIENT_JAR}")
     )
     list(APPEND FLAX_CLIENT_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/FlaxClient.rc")
 else()
-    message(WARNING "FlaxClient jar was not found; the DLL will require a sidecar jar.")
+    message(WARNING
+        "One or both FlaxClient runtime jars were not found; the DLL will require a sidecar jar.")
 endif()
 
 add_library(FlaxClient SHARED
