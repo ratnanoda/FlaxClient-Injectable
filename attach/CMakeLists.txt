@@ -26,7 +26,7 @@ set(
 )
 
 set(FLAX_CLIENT_SOURCES
-    src/FlaxClient.cpp
+    src/FlaxClientCompat.cpp
 )
 
 if(EXISTS "${FLAX_CLIENT_LUNAR_JAR}" AND EXISTS "${FLAX_CLIENT_DAWN_JAR}")
