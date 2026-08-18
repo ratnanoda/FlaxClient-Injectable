@@ -275,9 +275,13 @@ task lunarJar(type: Jar) {
 // uses SRG field/method names. Build a separate jar and ask ForgeGradle 2.1 to
 // remap MCP -> SEARGE rather than the tweaker plugin's normal MCP -> NOTCH jar.
 task dawnJar(type: Jar) {
-    dependsOn classes
+    dependsOn classes, "genSrgs"
     archiveName = "FlaxClient-Dawn.jar"
     from sourceSets.main.output
+    from({ tasks.getByName("genSrgs").mcpToSrg }) {
+        into "flax/mappings"
+        rename { "mcp-srg.srg" }
+    }
     from(windowsYtDlp) {
         into bundledWindowsToolPath
         rename { "yt-dlp.exe" }
