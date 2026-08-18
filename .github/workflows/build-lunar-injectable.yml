@@ -71,15 +71,42 @@ jobs:
             throw "Dawn jar does not appear to contain SRG-reobfuscated Minecraft members"
           }
 
-          $entries = & jar tf $lunar
-          if ($entries -notcontains "assets/minecraft/soar/tools/windows-x64/yt-dlp.exe") {
+          $lunarEntries = & jar tf $lunar
+          if ($lunarEntries -notcontains "assets/minecraft/soar/tools/windows-x64/yt-dlp.exe") {
             throw "Bundled yt-dlp resource is missing"
           }
-          if ($entries -notcontains "assets/minecraft/soar/tools/windows-x64/ffmpeg.zip") {
+          if ($lunarEntries -notcontains "assets/minecraft/soar/tools/windows-x64/ffmpeg.zip") {
             throw "Bundled ffmpeg resource is missing"
           }
-          if ($entries -notcontains "me/eldodebug/soar/gui/modmenu/BeginnerGuideOverlay.class") {
+          if ($lunarEntries -notcontains "me/eldodebug/soar/gui/modmenu/BeginnerGuideOverlay.class") {
             throw "Beginner guide class is missing"
+          }
+
+          $dawnEntries = & jar tf $dawn
+          if ($dawnEntries -notcontains "me/eldodebug/soar/attach/CompatibleLateClassTransformer.class") {
+            throw "Dawn compatibility transformer bridge is missing"
+          }
+          if ($dawnEntries -notcontains "me/eldodebug/soar/attach/SrgMappingAdapter.class") {
+            throw "Dawn SRG mapping adapter is missing"
+          }
+          if ($dawnEntries -notcontains "flax/mappings/mcp-srg.srg") {
+            throw "Dawn MCP-to-SRG mapping resource is missing"
+          }
+
+          $mappingDir = Join-Path $env:RUNNER_TEMP "flax-dawn-map"
+          New-Item -ItemType Directory -Force -Path $mappingDir | Out-Null
+          Push-Location $mappingDir
+          try {
+            & jar xf (Resolve-Path (Join-Path $env:GITHUB_WORKSPACE $dawn)) "flax/mappings/mcp-srg.srg"
+            $mapping = Get-Content "flax\mappings\mcp-srg.srg" -Raw
+            if ($mapping -notmatch "Minecraft/runTick") {
+              throw "Dawn mapping resource does not contain the MCP runTick entry"
+            }
+            if ($mapping -notmatch "func_71407_l") {
+              throw "Dawn mapping resource does not contain the SRG runTick entry"
+            }
+          } finally {
+            Pop-Location
           }
 
       - name: Configure universal single-EXE build
