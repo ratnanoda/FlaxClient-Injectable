@@ -316,14 +316,15 @@ def findCmakeExecutable = {
 }
 
 task configureAttachDll(type: Exec) {
-    dependsOn lunarJar
+    dependsOn lunarJar, reobfJar
     onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
     doFirst {
         commandLine findCmakeExecutable().absolutePath,
                 "-S", file("attach").absolutePath,
                 "-B", file("attach/build").absolutePath,
                 "-A", "x64",
-                "-DFLAX_CLIENT_JAR=${tasks.lunarJar.archivePath.absolutePath}"
+                "-DFLAX_CLIENT_LUNAR_JAR=${tasks.lunarJar.archivePath.absolutePath}",
+                "-DFLAX_CLIENT_DAWN_JAR=${tasks.jar.archivePath.absolutePath}"
     }
 }
 
@@ -340,7 +341,8 @@ task buildAttachDll(type: Exec) {
 task attachPackage(type: Sync) {
     dependsOn buildAttachDll
     onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
-    from "attach/build/bin/Release/FlaxClient.dll"
-    from "attach/build/bin/Release/FlaxInjector.exe"
+    // FlaxClient.exe already embeds FlaxClient.dll, which in turn embeds both
+    // the Lunar/deobfuscated and Dawn/production 1.8.9 client jars.
+    from "attach/build/bin/Release/FlaxClient.exe"
     into "$buildDir/attach"
 }
