@@ -25,6 +25,18 @@ set(
     "SRG-reobfuscated FlaxClient jar embedded for Dawn/Feather-style 1.8.9"
 )
 
+# Keep the established native attach implementation in one source file. The
+# generated copy changes only the Java transformer entry-point name so both
+# Lunar and Dawn can share a small compatibility dispatcher.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/FlaxClient.cpp" FLAX_CLIENT_CPP)
+string(REPLACE
+    "\"me.eldodebug.soar.attach.LateClassTransformer\""
+    "\"me.eldodebug.soar.attach.CompatibleLateClassTransformer\""
+    FLAX_CLIENT_CPP
+    "${FLAX_CLIENT_CPP}"
+)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/FlaxClientPatched.cpp" "${FLAX_CLIENT_CPP}")
+
 set(FLAX_CLIENT_SOURCES
     src/FlaxClientCompat.cpp
 )
@@ -71,7 +83,10 @@ add_dependencies(FlaxInjector FlaxClient)
 
 target_compile_features(FlaxClient PRIVATE cxx_std_17)
 target_compile_features(FlaxInjector PRIVATE cxx_std_17)
-target_include_directories(FlaxClient PRIVATE ${JNI_INCLUDE_DIRS})
+target_include_directories(FlaxClient PRIVATE
+    ${JNI_INCLUDE_DIRS}
+    "${CMAKE_CURRENT_BINARY_DIR}"
+)
 target_link_libraries(FlaxInjector PRIVATE Shell32)
 target_compile_definitions(FlaxClient PRIVATE
     WIN32_LEAN_AND_MEAN
