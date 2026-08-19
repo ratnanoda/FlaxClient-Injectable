@@ -99,6 +99,8 @@ def main() -> int:
     source = Path(sys.argv[1])
     output = Path(sys.argv[2])
     data = source.read_bytes()
+    if not data.startswith(b"MZ"):
+        raise SystemExit(f"input is not a Windows PE executable: {source}")
 
     candidates = []
     for start, end, blob, names in iter_embedded_zips(data):
