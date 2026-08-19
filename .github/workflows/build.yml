@@ -1,4 +1,4 @@
-name: Build beta 1.1 with Leapal FlaxClient
+name: Build beta 1.1 with Leapal-era FlaxClient
 
 on:
   pull_request:
@@ -7,57 +7,41 @@ on:
 
 jobs:
   build-windows-launcher:
-    name: Build Leapal beta 1.1 launcher (Windows x86_64)
+    name: Build Leapal-era beta 1.1 launcher (Windows x86_64)
     runs-on: windows-latest
     permissions:
       contents: read
 
     steps:
-      - name: Checkout validation branch
+      - name: Checkout Leapal-era client source
         uses: actions/checkout@v4
         with:
-          path: tools
+          ref: 43f734ca147179d7e440f4b30ca4bc40a033900c
+          path: leapal-client
 
-      - name: Checkout beta 1.1 source
+      - name: Checkout beta 1.1 launcher source
         uses: actions/checkout@v4
         with:
           ref: flaxclient-beta-1.1
           path: beta
 
-      - name: Download Leapal launcher
+      - name: Set up Java 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 8
+          cache: gradle
+
+      - name: Build Leapal-era FlaxClient jar
         shell: pwsh
+        working-directory: leapal-client
+        env:
+          GRADLE_OPTS: -Xmx4g -Dfile.encoding=UTF-8
         run: |
-          $out = Join-Path $env:RUNNER_TEMP "Leapal-FlaxClientLauncher.exe"
-          $urls = @(
-            "https://leapal.net/downloads/flax",
-            "https://leapal-portal.onrender.com/downloads/flax"
-          )
-
-          $downloaded = $false
-          foreach ($url in $urls) {
-            Write-Host "Trying $url"
-            & curl.exe -fL --retry 4 --retry-delay 5 --max-time 240 $url -o $out
-            if ($LASTEXITCODE -eq 0 -and (Test-Path $out) -and (Get-Item $out).Length -gt 1000000) {
-              $downloaded = $true
-              break
-            }
-          }
-
-          if (-not $downloaded) {
-            throw "Could not download the Leapal FlaxClient launcher."
-          }
-
-          Write-Host "Downloaded $((Get-Item $out).Length) bytes"
-
-      - name: Extract Leapal FlaxClient jar
-        shell: pwsh
-        run: |
-          $source = Join-Path $env:RUNNER_TEMP "Leapal-FlaxClientLauncher.exe"
-          $jar = Join-Path $env:RUNNER_TEMP "FlaxClient-Release.jar"
-          python tools/scripts/extract_embedded_flax_jar.py $source $jar
-          if (-not (Test-Path $jar)) {
-            throw "FlaxClient JAR extraction did not produce an output file."
-          }
+          .\gradlew.bat build
+          $jar = Resolve-Path "build/libs/FlaxClient-Release.jar"
+          Write-Host "Leapal-era JAR: $jar"
+          Get-FileHash $jar -Algorithm SHA256
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -69,11 +53,12 @@ jobs:
         with:
           workspaces: beta/FlaxClientLauncher
 
-      - name: Build beta 1.1 launcher with Leapal payload
+      - name: Build beta 1.1 launcher with Leapal-era payload
         shell: pwsh
         working-directory: beta/FlaxClientLauncher
         run: |
-          $env:FLAX_EMBED_JAR = Join-Path $env:RUNNER_TEMP "FlaxClient-Release.jar"
+          $env:FLAX_EMBED_JAR = Resolve-Path "../../leapal-client/build/libs/FlaxClient-Release.jar"
+          Write-Host "Embedding $env:FLAX_EMBED_JAR"
           cargo build --release --target x86_64-pc-windows-msvc
 
       - name: Stage executable
