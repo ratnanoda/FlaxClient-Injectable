@@ -9,6 +9,7 @@ public enum ModCategory {
     PLAYER(TranslateText.PLAYER),
     RENDER(TranslateText.RENDER),
     GHOST(TranslateText.GHOST),
+    BLATANT(TranslateText.GHOST),
     HUD(TranslateText.HUD),
     WORLD(TranslateText.WORLD),
     OTHER(TranslateText.OTHER);
@@ -24,7 +25,7 @@ public enum ModCategory {
     }
 
     public String getName() {
-        return nameTranslate.getText();
+        return this == BLATANT ? "Blatant" : nameTranslate.getText();
     }
 
     public SimpleAnimation getBackgroundAnimation() {

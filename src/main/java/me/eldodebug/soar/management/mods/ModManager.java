@@ -30,6 +30,7 @@ public class ModManager {
         mods.add(new HealthbarMod());
         mods.add(new JumpResetMod());
         mods.add(new SafeWalkMod());
+        mods.add(new ScaffoldMod());
         YouTubePipMod youtubePip = new YouTubePipMod();
         mods.add(youtubePip);
     }
