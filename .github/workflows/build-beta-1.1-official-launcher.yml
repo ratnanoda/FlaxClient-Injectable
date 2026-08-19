@@ -11,14 +11,34 @@ jobs:
   fetch-release:
     runs-on: windows-latest
     steps:
-      - name: Download release launcher
+      - name: Find and download release EXE
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $url = "https://github.com/ratnanoda/FlaxClient-Injectable/releases/download/flaxclient-beta-1.1/FlaxClientLauncher-windows-x86_64.exe"
+          $api = "https://api.github.com/repos/ratnanoda/FlaxClient-Injectable/releases/tags/flaxclient-beta-1.1"
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          $release = Invoke-RestMethod -Uri $api -Headers $headers
+          Write-Host "Release: $($release.name) / $($release.tag_name)"
+          foreach ($a in $release.assets) {
+            Write-Host "Asset: $($a.name) id=$($a.id) size=$($a.size)"
+          }
+          $asset = $release.assets | Where-Object { $_.name -like "*.exe" } | Select-Object -First 1
+          if (-not $asset) { throw "No EXE asset found on beta 1.1 release" }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          curl.exe -L --fail --retry 3 -o "dist/FlaxClientLauncher-windows-x86_64.exe" $url
-          if ($LASTEXITCODE -ne 0) { throw "Release asset download failed" }
-          $f = Get-Item "dist/FlaxClientLauncher-windows-x86_64.exe"
+          $out = "dist/FlaxClientLauncher-beta-1.1-release.exe"
+          $assetHeaders = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/octet-stream"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+          Invoke-WebRequest -Uri $asset.url -Headers $assetHeaders -OutFile $out
+          $f = Get-Item $out
+          Write-Host "Downloaded asset: $($asset.name)"
           Write-Host "Release launcher size: $($f.Length) bytes"
           $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
           if ($bytes.Length -lt 2 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "Release asset is not a Windows PE executable" }
@@ -28,5 +48,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: FlaxClientLauncher-beta-1.1-release
-          path: dist/FlaxClientLauncher-windows-x86_64.exe
+          path: dist/FlaxClientLauncher-beta-1.1-release.exe
           if-no-files-found: error
