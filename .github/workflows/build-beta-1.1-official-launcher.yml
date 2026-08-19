@@ -1,0 +1,58 @@
+name: Build beta 1.1 official launcher
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout beta 1.1 tag
+        uses: actions/checkout@v4
+        with:
+          repository: ratnanoda/FlaxClient-Injectable
+          ref: flaxclient-beta-1.1
+          path: beta
+
+      - name: Set up Java 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 8
+          cache: gradle
+          cache-dependency-path: beta/gradle/wrapper/gradle-wrapper.properties
+
+      - name: Build FlaxClient JAR
+        shell: pwsh
+        working-directory: beta
+        run: .\gradlew.bat build
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build beta 1.1 launcher
+        shell: pwsh
+        working-directory: beta/FlaxClientLauncher
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Stage launcher
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "beta/FlaxClientLauncher/target/x86_64-pc-windows-msvc/release/flax-client-launcher.exe" "dist/FlaxClientLauncher-windows-x86_64.exe"
+          $f = Get-Item "dist/FlaxClientLauncher-windows-x86_64.exe"
+          Write-Host "Launcher size: $($f.Length) bytes"
+          Get-FileHash $f.FullName -Algorithm SHA256
+
+      - name: Upload launcher artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlaxClientLauncher-windows-x86_64
+          path: dist/FlaxClientLauncher-windows-x86_64.exe
+          if-no-files-found: error
