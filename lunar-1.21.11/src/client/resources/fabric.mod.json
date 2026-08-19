@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "flaxclient",
+  "version": "${version}",
+  "name": "FlaxClient",
+  "description": "Minecraft/Lunar Client 1.21.11 compatibility layer for FlaxClient.",
+  "authors": [
+    "ratnanoda"
+  ],
+  "contact": {
+    "sources": "https://github.com/ratnanoda/FlaxClient-Injectable"
+  },
+  "license": "GPL-3.0-only",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "me.eldodebug.flaxclient.FlaxClient12111"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "1.21.11",
+    "java": ">=21",
+    "fabric-api": ">=0.141.6+1.21.11"
+  }
+}
