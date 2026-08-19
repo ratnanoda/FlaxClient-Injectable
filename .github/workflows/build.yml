@@ -1,120 +1,82 @@
-name: Compile and upload build
+name: Build beta 1.1 with Leapal FlaxClient
 
 on:
-  push:
-    branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "leapal-flax-beta-1.1-ci-base" ]
   workflow_dispatch:
 
 jobs:
-  build-jar:
-    name: Build FlaxClient jar
-    runs-on: ubuntu-latest
+  build-windows-launcher:
+    name: Build Leapal launcher (Windows x86_64)
+    runs-on: windows-latest
     permissions:
       contents: read
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Java 8
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 8
-          cache: gradle
-
-      - name: Build with Gradle Wrapper
-        run: chmod +x ./gradlew && ./gradlew build
-
-      - name: Upload jar artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: FlaxClient
-          path: build/libs/FlaxClient-Release.jar
-          if-no-files-found: error
-
-  build-launcher:
-    name: Build launcher (${{ matrix.label }})
-    needs: build-jar
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: windows-x86_64
-            runner: windows-latest
-            target: x86_64-pc-windows-msvc
-            asset_name: FlaxClientLauncher-windows-x86_64.exe
-            binary_name: flax-client-launcher.exe
-          - label: linux-x86_64
-            runner: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            asset_name: FlaxClientLauncher-linux-x86_64
-            binary_name: flax-client-launcher
-          - label: macos-x86_64
-            runner: macos-13
-            target: x86_64-apple-darwin
-            asset_name: FlaxClientLauncher-macos-x86_64
-            binary_name: flax-client-launcher
-          - label: macos-aarch64
-            runner: macos-14
-            target: aarch64-apple-darwin
-            asset_name: FlaxClientLauncher-macos-aarch64
-            binary_name: flax-client-launcher
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download FlaxClient jar
-        uses: actions/download-artifact@v4
-        with:
-          name: FlaxClient
-          path: build/libs
-
-      - name: Install Linux GUI build dependencies
-        if: runner.os == 'Linux'
+      - name: Download Leapal launcher
+        shell: pwsh
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-3-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxkbcommon-dev \
-            libssl-dev \
-            libwayland-dev \
-            libxkbcommon-x11-dev
+          $out = Join-Path $env:RUNNER_TEMP "Leapal-FlaxClientLauncher.exe"
+          $urls = @(
+            "https://leapal.net/downloads/flax",
+            "https://leapal-portal.onrender.com/downloads/flax"
+          )
+
+          $downloaded = $false
+          foreach ($url in $urls) {
+            Write-Host "Trying $url"
+            & curl.exe -fL --retry 4 --retry-delay 5 --max-time 240 $url -o $out
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $out) -and (Get-Item $out).Length -gt 1000000) {
+              $downloaded = $true
+              break
+            }
+          }
+
+          if (-not $downloaded) {
+            throw "Could not download the Leapal FlaxClient launcher."
+          }
+
+          Write-Host "Downloaded $((Get-Item $out).Length) bytes"
+
+      - name: Extract Leapal FlaxClient jar
+        shell: pwsh
+        run: |
+          $source = Join-Path $env:RUNNER_TEMP "Leapal-FlaxClientLauncher.exe"
+          $jar = Join-Path $env:RUNNER_TEMP "FlaxClient-Release.jar"
+          python scripts/extract_embedded_flax_jar.py $source $jar
+          if (-not (Test-Path $jar)) {
+            throw "FlaxClient JAR extraction did not produce an output file."
+          }
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-pc-windows-msvc
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: FlaxClientLauncher
 
-      - name: Build launcher
+      - name: Build beta 1.1 launcher with Leapal payload
+        shell: pwsh
         working-directory: FlaxClientLauncher
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Stage binary (Unix)
-        if: runner.os != 'Windows'
         run: |
-          mkdir -p dist
-          cp "FlaxClientLauncher/target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "dist/${{ matrix.asset_name }}"
-          chmod +x "dist/${{ matrix.asset_name }}"
+          $env:FLAX_EMBED_JAR = Join-Path $env:RUNNER_TEMP "FlaxClient-Release.jar"
+          cargo build --release --target x86_64-pc-windows-msvc
 
-      - name: Stage binary (Windows)
-        if: runner.os == 'Windows'
+      - name: Stage executable
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item "FlaxClientLauncher/target/${{ matrix.target }}/release/${{ matrix.binary_name }}" "dist/${{ matrix.asset_name }}"
+          Copy-Item "FlaxClientLauncher/target/x86_64-pc-windows-msvc/release/flax-client-launcher.exe" "dist/FlaxClientLauncher-beta-1.1-leapal-windows-x86_64.exe"
+          Get-FileHash "dist/FlaxClientLauncher-beta-1.1-leapal-windows-x86_64.exe" -Algorithm SHA256
 
-      - name: Upload launcher artifact
+      - name: Upload executable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset_name }}
-          path: dist/${{ matrix.asset_name }}
+          name: FlaxClientLauncher-beta-1.1-leapal-windows-x86_64
+          path: dist/FlaxClientLauncher-beta-1.1-leapal-windows-x86_64.exe
           if-no-files-found: error
