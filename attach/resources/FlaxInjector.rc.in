@@ -25,7 +25,7 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "CompanyName", "FlaxClient Open Source Project\0"
-            VALUE "FileDescription", "FlaxClient Lunar 1.8.9 + Dawn 26.2 Attach Tool\0"
+            VALUE "FileDescription", "FlaxClient Minecraft 1.8.9 Attach Tool\0"
             VALUE "FileVersion", FLAX_FILE_VERSION_STRING
             VALUE "InternalName", "FlaxClient\0"
             VALUE "LegalCopyright", "Copyright (c) FlaxClient contributors\0"
