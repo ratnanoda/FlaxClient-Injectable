@@ -4,5 +4,3 @@
 101 RCDATA "@FLAX_CLIENT_LUNAR_JAR_RC@"
 // Resource 102 is the SRG-reobfuscated runtime used by Dawn/Feather-style 1.8.9.
 102 RCDATA "@FLAX_CLIENT_DAWN_JAR_RC@"
-// Resource 103 is the isolated Java 25/Fabric bridge used by Minecraft 26.2.
-103 RCDATA "@FLAX_CLIENT_DAWN26_JAR_RC@"

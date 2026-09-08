@@ -5,7 +5,6 @@ buildscript {
         maven {
             name = "forge"
             url = "https://maven.minecraftforge.net"
-//            url = "http://files.minecraftforge.net/maven"
         }
         maven {
             name = 'sponge'
@@ -165,10 +164,8 @@ dependencies {
         exclude module: 'commons-io'
         exclude group: 'org.ow2.asm'
     }
-    // ASM 9 is required to transform Lunar's Java 17 (classfile v61) classes.
-    // These jars are merged after ForgeGradle's legacy ASM reobfuscation pass.
-    // Minecraft 26.2 is compiled for Java 25 (classfile v69). Keep one ASM
-    // level that can read both legacy 1.8.9 and current Dawn classes.
+    // ASM 9 is required to transform Lunar's Java 17 classes while keeping
+    // the Minecraft 1.8.9 client code itself Java 8 compatible.
     asmRuntime('org.ow2.asm:asm:9.10.1')
     asmRuntime('org.ow2.asm:asm-tree:9.10.1')
     asmRuntime('org.ow2.asm:asm-analysis:9.10.1')
@@ -313,24 +310,6 @@ task dawnJar(type: Jar) {
     )
 }
 
-// A deliberately small runtime for the Java 25 / Fabric-based Minecraft 26.2
-// client. Do not embed ASM here: Fabric already owns ASM 9.10.1 in its parent
-// loader, and a second copy inside Knot causes loader-constraint violations.
-task dawn26Jar(type: Jar) {
-    dependsOn classes
-    archiveName = "FlaxClient-Dawn-26.2.jar"
-    from(sourceSets.main.output) {
-        include "me/eldodebug/soar/attach/modern/Modern26*.class"
-        include "me/eldodebug/soar/attach/modern/ModernLateHooks.class"
-    }
-    exclude 'META-INF', 'META-INF/**'
-    manifest.attributes(
-            "Manifest-Version": 1.0,
-            "Implementation-Version": project.ext.clientVersionName,
-            "Flax-Target": "Dawn-Minecraft-26.2"
-    )
-}
-
 reobf {
     dawnJar {
         mappingType = "SEARGE"
@@ -393,7 +372,7 @@ def findCmakeExecutable = {
 }
 
 task configureAttachDll(type: Exec) {
-    dependsOn lunarJar, reobfDawnJar, dawn26Jar
+    dependsOn lunarJar, reobfDawnJar
     onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
     doFirst {
         commandLine findCmakeExecutable().absolutePath,
@@ -401,8 +380,7 @@ task configureAttachDll(type: Exec) {
                 "-B", file("attach/build").absolutePath,
                 "-A", "x64",
                 "-DFLAX_CLIENT_LUNAR_JAR=${tasks.lunarJar.archivePath.absolutePath}",
-                "-DFLAX_CLIENT_DAWN_JAR=${tasks.dawnJar.archivePath.absolutePath}",
-                "-DFLAX_CLIENT_DAWN26_JAR=${tasks.dawn26Jar.archivePath.absolutePath}"
+                "-DFLAX_CLIENT_DAWN_JAR=${tasks.dawnJar.archivePath.absolutePath}"
     }
 }
 
@@ -419,8 +397,8 @@ task buildAttachDll(type: Exec) {
 task attachPackage(type: Sync) {
     dependsOn buildAttachDll
     onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
-    // FlaxClient.exe embeds FlaxClient.dll; the DLL embeds both the Lunar MCP
-    // and Dawn/Feather-style SRG 1.8.9 client jars.
+    // FlaxClient.exe embeds FlaxClient.dll; the DLL embeds both supported
+    // Minecraft 1.8.9 mapping variants.
     from "attach/build/bin/Release/FlaxClient.exe"
     into "$buildDir/attach"
 }

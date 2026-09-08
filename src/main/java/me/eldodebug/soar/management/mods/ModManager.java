@@ -21,6 +21,7 @@ public class ModManager {
         mods.add(new SettingsMod());
         mods.add(new AimAssistMod());
         mods.add(new AutoClickerMod());
+        mods.add(new HitFlickMod());
         mods.add(new BedESPMod());
         mods.add(new BreakProgressMod());
         mods.add(new ESPMod());
