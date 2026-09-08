@@ -21,9 +21,7 @@ ClientRuntime detected_runtime = ClientRuntime::lunar_1_8_9;
 bool minecraft_class_uses_srg_members(jvmtiEnv* jvmti, jclass minecraft_class) {
     jint field_count = 0;
     jfieldID* fields = nullptr;
-    if (jvmti->GetClassFields(minecraft_class, &field_count, &fields) !=
-            JVMTI_ERROR_NONE ||
-        fields == nullptr) {
+    if (jvmti->GetClassFields(minecraft_class, &field_count, &fields) != JVMTI_ERROR_NONE || fields == nullptr) {
         return false;
     }
 
@@ -32,31 +30,17 @@ bool minecraft_class_uses_srg_members(jvmtiEnv* jvmti, jclass minecraft_class) {
         char* name = nullptr;
         char* signature = nullptr;
         char* generic = nullptr;
-        if (jvmti->GetFieldName(
-                minecraft_class,
-                fields[index],
-                &name,
-                &signature,
-                &generic) == JVMTI_ERROR_NONE &&
-            name != nullptr) {
+        if (jvmti->GetFieldName(minecraft_class, fields[index], &name, &signature, &generic) == JVMTI_ERROR_NONE && name != nullptr) {
             if (std::strcmp(name, "field_71439_g") == 0 ||
                 std::strcmp(name, "field_71441_e") == 0 ||
                 std::strcmp(name, "field_71428_T") == 0) {
                 srg = true;
             }
         }
-        if (name != nullptr) {
-            jvmti->Deallocate(reinterpret_cast<unsigned char*>(name));
-        }
-        if (signature != nullptr) {
-            jvmti->Deallocate(reinterpret_cast<unsigned char*>(signature));
-        }
-        if (generic != nullptr) {
-            jvmti->Deallocate(reinterpret_cast<unsigned char*>(generic));
-        }
-        if (srg) {
-            break;
-        }
+        if (name != nullptr) jvmti->Deallocate(reinterpret_cast<unsigned char*>(name));
+        if (signature != nullptr) jvmti->Deallocate(reinterpret_cast<unsigned char*>(signature));
+        if (generic != nullptr) jvmti->Deallocate(reinterpret_cast<unsigned char*>(generic));
+        if (srg) break;
     }
 
     jvmti->Deallocate(reinterpret_cast<unsigned char*>(fields));
@@ -65,53 +49,39 @@ bool minecraft_class_uses_srg_members(jvmtiEnv* jvmti, jclass minecraft_class) {
 
 int select_client_jar_resource() {
     HMODULE jvm_module = GetModuleHandleW(L"jvm.dll");
-    if (jvm_module == nullptr) {
-        return lunar_jar_resource_id;
-    }
+    if (jvm_module == nullptr) return lunar_jar_resource_id;
 
     const auto get_created_vms = reinterpret_cast<GetCreatedJavaVMs>(
         GetProcAddress(jvm_module, "JNI_GetCreatedJavaVMs"));
-    if (get_created_vms == nullptr) {
-        return lunar_jar_resource_id;
-    }
+    if (get_created_vms == nullptr) return lunar_jar_resource_id;
 
     JavaVM* vm = nullptr;
     jsize vm_count = 0;
-    if (get_created_vms(&vm, 1, &vm_count) != JNI_OK || vm == nullptr ||
-        vm_count == 0) {
+    if (get_created_vms(&vm, 1, &vm_count) != JNI_OK || vm == nullptr || vm_count == 0) {
         return lunar_jar_resource_id;
     }
 
     jvmtiEnv* jvmti = nullptr;
-    if (vm->GetEnv(
-            reinterpret_cast<void**>(&jvmti),
-            JVMTI_VERSION_1_2) != JNI_OK ||
-        jvmti == nullptr) {
+    if (vm->GetEnv(reinterpret_cast<void**>(&jvmti), JVMTI_VERSION_1_2) != JNI_OK || jvmti == nullptr) {
         return lunar_jar_resource_id;
     }
 
     jint class_count = 0;
     jclass* classes = nullptr;
-    if (jvmti->GetLoadedClasses(&class_count, &classes) != JVMTI_ERROR_NONE ||
-        classes == nullptr) {
+    if (jvmti->GetLoadedClasses(&class_count, &classes) != JVMTI_ERROR_NONE || classes == nullptr) {
         return lunar_jar_resource_id;
     }
 
     int selected = lunar_jar_resource_id;
     for (jint index = 0; index < class_count; ++index) {
         char* signature = nullptr;
-        if (jvmti->GetClassSignature(classes[index], &signature, nullptr) !=
-                JVMTI_ERROR_NONE ||
-            signature == nullptr) {
+        if (jvmti->GetClassSignature(classes[index], &signature, nullptr) != JVMTI_ERROR_NONE || signature == nullptr) {
             continue;
         }
 
-        const bool minecraft =
-            std::strcmp(signature, "Lnet/minecraft/client/Minecraft;") == 0;
+        const bool minecraft = std::strcmp(signature, "Lnet/minecraft/client/Minecraft;") == 0;
         jvmti->Deallocate(reinterpret_cast<unsigned char*>(signature));
-        if (!minecraft) {
-            continue;
-        }
+        if (!minecraft) continue;
 
         if (minecraft_class_uses_srg_members(jvmti, classes[index])) {
             detected_runtime = ClientRuntime::dawn_1_8_9;
@@ -132,12 +102,6 @@ ClientRuntime client_runtime() {
     return detected_runtime;
 }
 
-// Kept as a compatibility shim for the shared attach implementation. Modern
-// Minecraft support has been removed; this is always false in the 1.8.9 build.
-bool is_modern_dawn() {
-    return false;
-}
-
 const char* runtime_name() {
     return client_runtime() == ClientRuntime::dawn_1_8_9
                ? "Dawn/Feather 1.8.9"
@@ -152,8 +116,6 @@ LPWSTR make_int_resource(WORD id) {
 
 }  // namespace flax_compat
 
-// FlaxClient.cpp contains the shared attach/JVMTI implementation. Intercept
-// resource 101 so the correct 1.8.9 mapping variant is selected at runtime.
 #ifdef MAKEINTRESOURCEW
 #undef MAKEINTRESOURCEW
 #endif
