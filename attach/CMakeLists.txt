@@ -24,12 +24,6 @@ set(
     CACHE FILEPATH
     "SRG-reobfuscated FlaxClient jar embedded for Dawn/Feather-style 1.8.9"
 )
-set(
-    FLAX_CLIENT_DAWN26_JAR
-    "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Dawn-26.2.jar"
-    CACHE FILEPATH
-    "Java 25 bridge embedded for Dawn/Minecraft 26.2"
-)
 
 # Keep the established native attach implementation in one source file.
 # Runtime dispatch now happens inside the shared implementation.
@@ -46,11 +40,9 @@ set(FLAX_CLIENT_SOURCES
 )
 
 if(EXISTS "${FLAX_CLIENT_LUNAR_JAR}" AND
-   EXISTS "${FLAX_CLIENT_DAWN_JAR}" AND
-   EXISTS "${FLAX_CLIENT_DAWN26_JAR}")
+   EXISTS "${FLAX_CLIENT_DAWN_JAR}")
     file(TO_CMAKE_PATH "${FLAX_CLIENT_LUNAR_JAR}" FLAX_CLIENT_LUNAR_JAR_RC)
     file(TO_CMAKE_PATH "${FLAX_CLIENT_DAWN_JAR}" FLAX_CLIENT_DAWN_JAR_RC)
-    file(TO_CMAKE_PATH "${FLAX_CLIENT_DAWN26_JAR}" FLAX_CLIENT_DAWN26_JAR_RC)
     configure_file(
         resources/FlaxClient.rc.in
         "${CMAKE_CURRENT_BINARY_DIR}/FlaxClient.rc"
@@ -59,7 +51,7 @@ if(EXISTS "${FLAX_CLIENT_LUNAR_JAR}" AND
     list(APPEND FLAX_CLIENT_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/FlaxClient.rc")
 else()
     message(WARNING
-        "One or more FlaxClient runtime jars were not found; the DLL will require a sidecar jar.")
+        "One or more FlaxClient 1.8.9 runtime jars were not found; the DLL will require a sidecar jar.")
 endif()
 
 add_library(FlaxClient SHARED
