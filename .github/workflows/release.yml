@@ -1,6 +1,7 @@
 name: Release FlaxClient 1.8.9
 
 on:
+  pull_request:
   push:
     tags:
       - "v*"
