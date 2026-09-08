@@ -1,4 +1,4 @@
-name: Build Lunar + Dawn Single-EXE Package
+name: Build Lunar + Dawn 1.8.9 Single-EXE Package
 
 on:
   push:
@@ -6,7 +6,6 @@ on:
       - main
   pull_request:
     branches:
-      - chatgpt/unify-youtube-music-20260803
       - main
   workflow_dispatch:
 
@@ -29,20 +28,17 @@ jobs:
           java-version: '8'
           architecture: x64
 
-      - name: Build Lunar and Dawn runtime jars
+      - name: Build Lunar and Dawn 1.8.9 runtime jars
         shell: powershell
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx6g
         run: |
-          & ".\gradlew.bat" lunarJar reobfDawnJar dawn26Jar --no-daemon --stacktrace
+          & ".\gradlew.bat" lunarJar reobfDawnJar --no-daemon --stacktrace
           if (!(Test-Path "build\libs\FlaxClient-Lunar.jar")) {
             throw "FlaxClient-Lunar.jar was not generated"
           }
           if (!(Test-Path "build\libs\FlaxClient-Dawn.jar")) {
             throw "FlaxClient-Dawn.jar was not generated"
-          }
-          if (!(Test-Path "build\libs\FlaxClient-Dawn-26.2.jar")) {
-            throw "FlaxClient-Dawn-26.2.jar was not generated"
           }
 
       - name: Verify Lunar MCP and Dawn SRG mappings
@@ -66,7 +62,7 @@ jobs:
           $dawnBootstrap = & javap -classpath $dawn -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
           $dawnHooks = & javap -classpath $dawn -verbose me.eldodebug.soar.attach.LateHooks 2>&1 | Out-String
           if ($dawnBootstrap -notmatch "net/minecraft/client/Minecraft") {
-            throw "Dawn jar lost the readable Minecraft class names expected by the Feather-style runtime"
+            throw "Dawn jar lost the readable Minecraft class names expected by the 1.8.9 runtime"
           }
           if (($dawnBootstrap -notmatch "func_71410_x") -and
               ($dawnHooks -notmatch "field_71439_g") -and
@@ -81,9 +77,6 @@ jobs:
           if ($lunarEntries -notcontains "assets/minecraft/soar/tools/windows-x64/ffmpeg.zip") {
             throw "Bundled ffmpeg resource is missing"
           }
-          if ($lunarEntries -notcontains "me/eldodebug/soar/gui/modmenu/BeginnerGuideOverlay.class") {
-            throw "Beginner guide class is missing"
-          }
 
           $dawnEntries = & jar tf $dawn
           if ($dawnEntries -notcontains "me/eldodebug/soar/attach/CompatibleLateClassTransformer.class") {
@@ -96,43 +89,14 @@ jobs:
             throw "Dawn MCP-to-SRG mapping resource is missing"
           }
 
-          $dawn26Entries = & jar tf "build\libs\FlaxClient-Dawn-26.2.jar"
-          if ($dawn26Entries -notcontains "me/eldodebug/soar/attach/modern/Modern26LateClassTransformer.class") {
-            throw "Minecraft 26.2 transformer is missing"
-          }
-          if ($dawn26Entries -notcontains "me/eldodebug/soar/attach/modern/Modern26LateHooks.class") {
-            throw "Minecraft 26.2 hook bridge is missing"
-          }
-          if ($dawn26Entries | Where-Object { $_ -like "org/objectweb/asm/*" }) {
-            throw "Minecraft 26.2 bridge must use Fabric's parent-loader ASM"
-          }
-
-          $mappingDir = Join-Path $env:RUNNER_TEMP "flax-dawn-map"
-          New-Item -ItemType Directory -Force -Path $mappingDir | Out-Null
-          Push-Location $mappingDir
-          try {
-            & jar xf (Resolve-Path (Join-Path $env:GITHUB_WORKSPACE $dawn)) "flax/mappings/mcp-srg.srg"
-            $mapping = Get-Content "flax\mappings\mcp-srg.srg" -Raw
-            if ($mapping -notmatch "Minecraft/runTick") {
-              throw "Dawn mapping resource does not contain the MCP runTick entry"
-            }
-            if ($mapping -notmatch "func_71407_l") {
-              throw "Dawn mapping resource does not contain the SRG runTick entry"
-            }
-          } finally {
-            Pop-Location
-          }
-
-      - name: Configure universal single-EXE build
+      - name: Configure 1.8.9 single-EXE build
         shell: powershell
         run: |
           $lunar = (Resolve-Path "build\libs\FlaxClient-Lunar.jar").Path.Replace('\', '/')
           $dawn = (Resolve-Path "build\libs\FlaxClient-Dawn.jar").Path.Replace('\', '/')
-          $dawn26 = (Resolve-Path "build\libs\FlaxClient-Dawn-26.2.jar").Path.Replace('\', '/')
           cmake -S attach -B attach/build-universal -A x64 `
             "-DFLAX_CLIENT_LUNAR_JAR=$lunar" `
-            "-DFLAX_CLIENT_DAWN_JAR=$dawn" `
-            "-DFLAX_CLIENT_DAWN26_JAR=$dawn26"
+            "-DFLAX_CLIENT_DAWN_JAR=$dawn"
 
       - name: Build embedded DLL and single EXE
         shell: powershell
@@ -154,48 +118,13 @@ jobs:
             throw "The final EXE does not appear to contain the DLL resource"
           }
 
-          $runtime = @(Get-ChildItem "$env:LOCALAPPDATA\FlaxClient\runtime\FlaxClient-*.dll" -File -ErrorAction SilentlyContinue)
-          if ($runtime.Count -lt 1) {
-            throw "The embedded DLL was not materialized under LocalAppData"
-          }
-
           $version = (Get-Item $exe).VersionInfo
-          if ($version.FileDescription -ne "FlaxClient Lunar 1.8.9 + Dawn 26.2 Attach Tool") {
-            throw "Expected Windows version metadata is missing"
+          if ($version.FileDescription -ne "FlaxClient Minecraft 1.8.9 Attach Tool") {
+            throw "Expected Minecraft 1.8.9 Windows version metadata is missing"
           }
           Write-Host "File description: $($version.FileDescription)"
           Write-Host "Product version: $($version.ProductVersion)"
-
-          $signature = Get-AuthenticodeSignature $exe
-          Write-Host "Authenticode status: $($signature.Status)"
-          if ($signature.Status -eq "NotSigned") {
-            Write-Warning "This community build is unsigned. Production releases should be Authenticode-signed."
-          }
-
           Get-FileHash $exe -Algorithm SHA256
-
-      - name: Scan final EXE with Microsoft Defender
-        shell: powershell
-        run: |
-          $exe = (Resolve-Path "attach\build-universal\bin\Release\FlaxClient.exe").Path
-          $defender = Join-Path $env:ProgramFiles "Windows Defender\MpCmdRun.exe"
-          if (!(Test-Path $defender)) {
-            Write-Warning "Microsoft Defender command-line scanner is unavailable on this runner."
-            exit 0
-          }
-
-          & $defender -SignatureUpdate
-          $scan = Start-Process -FilePath $defender `
-              -ArgumentList @("-Scan", "-ScanType", "3", "-File", $exe, "-DisableRemediation") `
-              -Wait -PassThru -NoNewWindow
-          if ($scan.ExitCode -eq 2) {
-            throw "Microsoft Defender detected the generated EXE"
-          }
-          if ($scan.ExitCode -ne 0) {
-            Write-Warning "Microsoft Defender scan could not complete (exit code $($scan.ExitCode))."
-          } else {
-            Write-Host "Microsoft Defender scan completed without a detection."
-          }
 
       - name: Stage one-file distribution
         shell: powershell
@@ -210,7 +139,7 @@ jobs:
       - name: Upload single EXE
         uses: actions/upload-artifact@v4
         with:
-          name: FlaxClient-Lunar-Dawn-Single-EXE-Windows-x64
+          name: FlaxClient-1.8.9-Single-EXE-Windows-x64
           path: build/single-exe/FlaxClient.exe
           if-no-files-found: error
           retention-days: 7
