@@ -27,7 +27,7 @@ import net.minecraft.client.Minecraft;
  */
 public final class MediaToolResolver {
 
-    private static final String BUNDLE_VERSION = "youtube-music-1";
+    private static final String BUNDLE_VERSION = "youtube-music-2";
     private static final String WINDOWS_RESOURCE_ROOT =
             "assets/minecraft/soar/tools/windows-x64/";
 

@@ -11,6 +11,7 @@ import org.lwjgl3.BufferUtils;
 
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.management.nanovg.NanoVGManager;
+import me.eldodebug.soar.utils.render.RenderStateGuard;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
 
@@ -22,6 +23,10 @@ public class ScreenStencil {
 	private NVGLUFramebuffer fb;
 	
 	public void wrap(Runnable task, float x, float y, float width, float height, float radius, float alpha) {
+		RenderStateGuard.runIsolated(() -> wrapInternal(task, x, y, width, height, radius, alpha));
+	}
+
+	private void wrapInternal(Runnable task, float x, float y, float width, float height, float radius, float alpha) {
 		
 		ScaledResolution sr = new ScaledResolution(mc);
 		NanoVGManager nvg = Glide.getInstance().getNanoVGManager();

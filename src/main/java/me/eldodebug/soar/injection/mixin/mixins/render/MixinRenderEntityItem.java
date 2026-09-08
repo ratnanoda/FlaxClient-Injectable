@@ -25,12 +25,18 @@ public abstract class MixinRenderEntityItem {
 	
 	@Overwrite
 	private int func_177077_a(EntityItem itemIn, double p_177077_2_, double p_177077_4_, double p_177077_6_, float p_177077_8_, IBakedModel p_177077_9_) {
-		return RenderEntityItemHook.func_177077_a(itemIn, p_177077_2_, p_177077_4_, p_177077_6_, p_177077_8_, p_177077_9_, func_177078_a(itemIn.getEntityItem()));
+		ItemStack stack = itemIn == null ? null : itemIn.getEntityItem();
+		int count = stack == null ? 0 : func_177078_a(stack);
+		return RenderEntityItemHook.func_177077_a(itemIn, p_177077_2_, p_177077_4_, p_177077_6_, p_177077_8_, p_177077_9_, count);
 	}
 	
     @Redirect(method = {"doRender(Lnet/minecraft/entity/item/EntityItem;DDDFF)V"}, at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/entity/RenderItem;renderItem(Lnet/minecraft/item/ItemStack;Lnet/minecraft/client/resources/model/IBakedModel;)V"))
     public void stopItemModelRender(RenderItem instance, ItemStack stack, IBakedModel model) {
-        if (Items2DMod.getInstance().isToggled() && !model.isGui3d()) {
+		Items2DMod items2D = Items2DMod.getInstance();
+        if (stack == null || model == null || instance == null) {
+            return;
+        }
+        if (items2D != null && items2D.isToggled() && model != null && !model.isGui3d()) {
             RenderEntityItemHook.oldItemRender(instance, model, stack);
         } else {
             this.itemRenderer.renderItem(stack, model);

@@ -222,7 +222,7 @@ public abstract class MixinMinecraft implements IMixinMinecraft {
     
     @Inject(method = "runTick", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/Minecraft;dispatchKeypresses()V", shift = At.Shift.AFTER))
     private void onKey(CallbackInfo ci) {
-        if (Keyboard.getEventKeyState() && Minecraft.getMinecraft().currentScreen == null) {
+		if (Keyboard.getEventKeyState()) {
         	new EventKey(Keyboard.getEventKey() == 0 ? Keyboard.getEventCharacter() + 256 : Keyboard.getEventKey()).call();
         }
     }

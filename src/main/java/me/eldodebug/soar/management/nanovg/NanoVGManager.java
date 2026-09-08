@@ -20,13 +20,17 @@ package me.eldodebug.soar.management.nanovg;
 
 import java.awt.Color;
 import java.io.File;
+import java.nio.IntBuffer;
 import java.util.HashMap;
 
+import org.lwjgl.BufferUtils;
 import org.lwjgl.nanovg.NVGColor;
 import org.lwjgl.nanovg.NVGPaint;
 import org.lwjgl.nanovg.NanoVG;
 import org.lwjgl.nanovg.NanoVGGL2;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL13;
+import org.lwjgl.opengl.GL20;
 
 import me.eldodebug.soar.logger.GlideLogger;
 import me.eldodebug.soar.management.nanovg.asset.AssetManager;
@@ -67,19 +71,50 @@ public class NanoVGManager {
     public void setupAndDraw(Runnable task, boolean scale) {
 
     	ScaledResolution sr = new ScaledResolution(mc);
-    	
-        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-        NanoVG.nvgBeginFrame(nvg, mc.displayWidth, mc.displayHeight, 1);
-        
-        if(scale) {
-        	NanoVG.nvgScale(nvg, sr.getScaleFactor(), sr.getScaleFactor());
-        }
-        
-        task.run();
+		IntBuffer viewport = BufferUtils.createIntBuffer(16);
+		GL11.glGetInteger(GL11.GL_VIEWPORT, viewport);
+		int framebufferWidth = viewport.get(2);
+		int framebufferHeight = viewport.get(3);
+		if(framebufferWidth <= 0 || framebufferHeight <= 0) {
+			framebufferWidth = mc.displayWidth;
+			framebufferHeight = mc.displayHeight;
+		}
 
-        GL11.glDisable(GL11.GL_ALPHA_TEST);
-        NanoVG.nvgEndFrame(nvg);
-        GL11.glPopAttrib();
+		int previousProgram = GL11.glGetInteger(GL20.GL_CURRENT_PROGRAM);
+		int previousActiveTexture = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
+		int previousMatrixMode = GL11.glGetInteger(GL11.GL_MATRIX_MODE);
+		boolean frameStarted = false;
+
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+		GL11.glPushClientAttrib(-1);
+		try {
+			NanoVG.nvgBeginFrame(nvg, framebufferWidth, framebufferHeight, 1);
+			frameStarted = true;
+
+			if(scale) {
+				NanoVG.nvgScale(nvg, sr.getScaleFactor(), sr.getScaleFactor());
+			}
+
+			task.run();
+
+			GL11.glDisable(GL11.GL_ALPHA_TEST);
+			NanoVG.nvgEndFrame(nvg);
+			frameStarted = false;
+		} finally {
+			if(frameStarted) {
+				NanoVG.nvgCancelFrame(nvg);
+			}
+			GL11.glPopClientAttrib();
+			GL11.glPopAttrib();
+
+			// glPushAttrib does not cover programmable-pipeline or matrix state.
+			// Lunar renders parts of its HUD with its own GLSL program, so letting
+			// NanoVG leave program 0/current texture behind causes alternating
+			// frames to disappear or flash.
+			GL20.glUseProgram(previousProgram);
+			GL13.glActiveTexture(previousActiveTexture);
+			GL11.glMatrixMode(previousMatrixMode);
+		}
     }
     
     public void setupAndDraw(Runnable task) {

@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL14;
 
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.management.color.AccentColor;
@@ -20,7 +21,6 @@ import me.eldodebug.soar.utils.ColorUtils;
 import me.eldodebug.soar.utils.MathUtils;
 import me.eldodebug.soar.utils.Render3DUtils;
 import me.eldodebug.soar.utils.animation.simple.SimpleAnimation;
-import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.RenderGlobal;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.AxisAlignedBB;
@@ -49,38 +49,36 @@ public class HealthbarMod extends Mod {
 		double maxRange = renderRangeSetting.getValue();
 		double maxRangeSq = maxRange * maxRange;
 
-		GlStateManager.pushMatrix();
-		GlStateManager.enableBlend();
-		GlStateManager.disableTexture2D();
-		GlStateManager.disableLighting();
-		GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
-		GlStateManager.disableDepth();
-		GlStateManager.depthMask(false);
-		GL11.glLineWidth(1.0F);
+		GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+		GL11.glPushMatrix();
+		try {
+			GL11.glEnable(GL11.GL_BLEND);
+			GL11.glDisable(GL11.GL_TEXTURE_2D);
+			GL11.glDisable(GL11.GL_LIGHTING);
+			GL14.glBlendFuncSeparate(770, 771, 1, 0);
+			GL11.glDisable(GL11.GL_DEPTH_TEST);
+			GL11.glDepthMask(false);
+			GL11.glLineWidth(1.0F);
 
-		for(EntityPlayer player : mc.theWorld.playerEntities) {
-			if(player == null || player == mc.thePlayer || player.isDead) {
-				continue;
+			for(EntityPlayer player : mc.theWorld.playerEntities) {
+				if(player == null || player == mc.thePlayer || player.isDead) {
+					continue;
+				}
+
+				if(player.isInvisible()) {
+					continue;
+				}
+
+				if(mc.thePlayer.getDistanceSqToEntity(player) > maxRangeSq) {
+					continue;
+				}
+
+				renderHealthbar(player, event.getPartialTicks(), alpha);
 			}
-
-			if(player.isInvisible()) {
-				continue;
-			}
-
-			if(mc.thePlayer.getDistanceSqToEntity(player) > maxRangeSq) {
-				continue;
-			}
-
-			renderHealthbar(player, event.getPartialTicks(), alpha);
+		} finally {
+			GL11.glPopMatrix();
+			GL11.glPopAttrib();
 		}
-
-		GlStateManager.depthMask(true);
-		GlStateManager.enableDepth();
-		GlStateManager.disableBlend();
-		GlStateManager.enableLighting();
-		GlStateManager.enableTexture2D();
-		ColorUtils.resetColor();
-		GlStateManager.popMatrix();
 	}
 
 	private void renderHealthbar(EntityPlayer player, float partialTicks, float alpha) {
@@ -143,25 +141,33 @@ public class HealthbarMod extends Mod {
 		int green = (int) (120.0F + (animatedHealth * 135.0F));
 		AccentColor accentColor = Glide.getInstance().getColorManager().getCurrentColor();
 		Color accent = accentColor.getInterpolateColor();
-		ColorUtils.setColor(new Color(0, 0, 0).getRGB(), alpha * 0.32F);
-		Render3DUtils.drawFillBox(barBackground);
+		setRawColor(new Color(0, 0, 0), alpha * 0.32F);
+		Render3DUtils.drawFillBoxRaw(barBackground);
 
-		ColorUtils.setColor(new Color(18, 23, 30).getRGB(), alpha * 0.88F);
-		Render3DUtils.drawFillBox(new AxisAlignedBB(innerMinX, barMinY, innerMinZ, innerMaxX, barMaxY, innerMaxZ));
+		setRawColor(new Color(18, 23, 30), alpha * 0.88F);
+		Render3DUtils.drawFillBoxRaw(new AxisAlignedBB(innerMinX, barMinY, innerMinZ, innerMaxX, barMaxY, innerMaxZ));
 
 		if(delayedTop > barMinY) {
-			ColorUtils.setColor(new Color(255, 150, 110).getRGB(), alpha * 0.50F);
-			Render3DUtils.drawFillBox(delayedBar);
+			setRawColor(new Color(255, 150, 110), alpha * 0.50F);
+			Render3DUtils.drawFillBoxRaw(delayedBar);
 		}
 
 		if(currentTop > barMinY) {
-			ColorUtils.setColor(new Color(red, green, 86).getRGB(), alpha * 0.92F);
-			Render3DUtils.drawFillBox(currentBar);
+			setRawColor(new Color(red, green, 86), alpha * 0.92F);
+			Render3DUtils.drawFillBoxRaw(currentBar);
 		}
 
 		int outlineAlpha = Math.max(35, (int) (alpha * 180.0F));
 		RenderGlobal.drawOutlinedBoundingBox(barBackground, accent.getRed(), accent.getGreen(), accent.getBlue(), outlineAlpha);
 		RenderGlobal.drawOutlinedBoundingBox(new AxisAlignedBB(innerMinX, barMinY, innerMinZ, innerMaxX, barMaxY, innerMaxZ), 255, 255, 255, Math.max(20, (int) (alpha * 80.0F)));
+	}
+
+	private static void setRawColor(Color color, float alpha) {
+		GL11.glColor4f(
+				color.getRed() / 255.0F,
+				color.getGreen() / 255.0F,
+				color.getBlue() / 255.0F,
+				MathUtils.clamp(alpha));
 	}
 
 	private AxisAlignedBB getRenderBoundingBox(EntityPlayer player, float partialTicks) {

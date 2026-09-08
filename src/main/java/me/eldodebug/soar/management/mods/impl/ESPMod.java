@@ -9,6 +9,7 @@ import org.lwjgl.opengl.GL11;
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventRender3D;
 import me.eldodebug.soar.management.language.TranslateText;
+import me.eldodebug.soar.logger.GlideLogger;
 import me.eldodebug.soar.management.mods.Mod;
 import me.eldodebug.soar.management.mods.ModCategory;
 import me.eldodebug.soar.management.mods.settings.impl.BooleanSetting;
@@ -19,11 +20,9 @@ import me.eldodebug.soar.management.mods.settings.impl.combo.Option;
 import me.eldodebug.soar.utils.ColorUtils;
 import me.eldodebug.soar.utils.Render3DUtils;
 import net.minecraft.client.renderer.GlStateManager;
-import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.RenderGlobal;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.entity.RenderManager;
-import net.minecraft.client.shader.Framebuffer;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.AxisAlignedBB;
 
@@ -37,8 +36,8 @@ public class ESPMod extends Mod {
 	private final NumberSetting lineWidthSetting = new NumberSetting(TranslateText.LINE_WIDTH, this, 2, 1, 5, true);
 	private final BooleanSetting fillSetting = new BooleanSetting(TranslateText.FILL, this, true);
 	private final BooleanSetting outlineSetting = new BooleanSetting(TranslateText.OUTLINE, this, true);
-	private Framebuffer realFramebuffer;
 	private boolean renderingRealPlayers;
+	private boolean reportedRealRenderError;
 
 	public ESPMod() {
 		super(TranslateText.ESP, TranslateText.ESP_DESCRIPTION, ModCategory.GHOST);
@@ -56,10 +55,6 @@ public class ESPMod extends Mod {
 	@Override
 	public void onDisable() {
 		super.onDisable();
-		if(realFramebuffer != null) {
-			realFramebuffer.deleteFramebuffer();
-			realFramebuffer = null;
-		}
 	}
 
 	@EventTarget
@@ -111,101 +106,76 @@ public class ESPMod extends Mod {
 	}
 
 	/**
-	 * Render complete players into a transparent framebuffer with its own depth
-	 * buffer, then composite it over the world. Walls are absent from that depth
-	 * buffer, while body parts, skin layers, armor and held items still depth-test
-	 * against each other exactly as they do in Minecraft's normal player pass.
+	 * Render complete players directly over the completed world. Lunar now uses
+	 * an internal compositor around Minecraft's main framebuffer, so compositing
+	 * a separate vanilla Framebuffer can be discarded by Lunar on the same frame.
 	 */
 	private void renderRealPlayers(float partialTicks) {
-		if(renderingRealPlayers || !OpenGlHelper.isFramebufferEnabled()) {
-			return;
-		}
-		ensureRealFramebuffer();
-		if(realFramebuffer == null) {
+		if(renderingRealPlayers) {
 			return;
 		}
 
 		renderingRealPlayers = true;
+		reportedRealRenderError = false;
 		RenderManager renderManager = mc.getRenderManager();
 		boolean shadowsWereEnabled = renderManager.isRenderShadow();
+		GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+		GL11.glPushClientAttrib(-1);
 		try {
-			// glClear obeys these masks. EventRender3D can be reached after particle
-			// rendering left depth writes disabled, which otherwise preserves stale
-			// player depth/alpha from the previous frame.
 			GlStateManager.colorMask(true, true, true, true);
-			GlStateManager.depthMask(true);
-			realFramebuffer.setFramebufferColor(0.0F, 0.0F, 0.0F, 0.0F);
-			realFramebuffer.framebufferClear();
-			realFramebuffer.bindFramebuffer(true);
-			GlStateManager.enableDepth();
-			GlStateManager.depthMask(true);
+			GlStateManager.disableDepth();
+			GlStateManager.depthMask(false);
 			GlStateManager.enableAlpha();
 			GlStateManager.alphaFunc(GL11.GL_GREATER, 0.1F);
 			GlStateManager.enableTexture2D();
+			GlStateManager.enableBlend();
+			GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA,
+					GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
 			GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 			mc.entityRenderer.enableLightmap();
 			RenderHelper.enableStandardItemLighting();
 			renderManager.setRenderShadow(false);
 
 			for(EntityPlayer player : mc.theWorld.playerEntities) {
-				if(player == null || player == mc.thePlayer || player.isDead) {
+				if(player == null || player == mc.thePlayer || player.isDead
+						|| !player.isEntityAlive()
+						|| player.getDistanceSqToEntity(mc.thePlayer) > 256.0D * 256.0D) {
 					continue;
 				}
-				renderManager.renderEntityStatic(player, partialTicks, false);
+				try {
+					renderManager.renderEntityStatic(player, partialTicks, false);
+				} catch (RuntimeException error) {
+					// A player can be removed or have a partially-updated cosmetic
+					// model during a server transition. Skip only that player so one
+					// bad entity cannot take down the whole render loop.
+					reportRealRenderError(error);
+				} catch (LinkageError error) {
+					// Dawn/Lunar cosmetic renderers may expose incompatible optional
+					// methods; keep Real ESP fail-soft across both launchers.
+					reportRealRenderError(error);
+				}
 			}
 		} finally {
 			renderManager.setRenderShadow(shadowsWereEnabled);
 			RenderHelper.disableStandardItemLighting();
 			mc.entityRenderer.disableLightmap();
-			mc.getFramebuffer().bindFramebuffer(true);
+			GL11.glPopClientAttrib();
+			GL11.glPopAttrib();
+			GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 			renderingRealPlayers = false;
 		}
-
-		// framebufferRenderExt installs an orthographic projection. Preserve the
-		// world matrices because EventRender3D runs immediately before the hand.
-		GL11.glMatrixMode(GL11.GL_PROJECTION);
-		GL11.glPushMatrix();
-		GL11.glMatrixMode(GL11.GL_MODELVIEW);
-		GL11.glPushMatrix();
-		boolean fogWasEnabled = GL11.glIsEnabled(GL11.GL_FOG);
-		GlStateManager.disableFog();
-		GlStateManager.disableLighting();
-		GlStateManager.enableBlend();
-		GlStateManager.tryBlendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA,
-				GL11.GL_ONE, GL11.GL_ONE_MINUS_SRC_ALPHA);
-		realFramebuffer.framebufferRenderExt(mc.displayWidth, mc.displayHeight, false);
-		GL11.glMatrixMode(GL11.GL_MODELVIEW);
-		GL11.glPopMatrix();
-		GL11.glMatrixMode(GL11.GL_PROJECTION);
-		GL11.glPopMatrix();
-		GL11.glMatrixMode(GL11.GL_MODELVIEW);
-
-		GlStateManager.colorMask(true, true, true, true);
-		GlStateManager.depthMask(true);
-		GlStateManager.enableDepth();
-		GlStateManager.enableAlpha();
-		GlStateManager.disableBlend();
-		GlStateManager.disableLighting();
-		if(fogWasEnabled) {
-			GlStateManager.enableFog();
-		} else {
-			GlStateManager.disableFog();
-		}
-		GlStateManager.enableTexture2D();
-		GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
 	}
 
-	private void ensureRealFramebuffer() {
-		if(realFramebuffer != null
-				&& realFramebuffer.framebufferWidth == mc.displayWidth
-				&& realFramebuffer.framebufferHeight == mc.displayHeight) {
-			return;
+	private void reportRealRenderError(Throwable error) {
+		if(!reportedRealRenderError) {
+			reportedRealRenderError = true;
+			GlideLogger.warn("ESP Real skipped an incompatible player renderer: "
+					+ error.getClass().getSimpleName());
 		}
-		if(realFramebuffer != null) {
-			realFramebuffer.deleteFramebuffer();
-		}
-		realFramebuffer = new Framebuffer(mc.displayWidth, mc.displayHeight, true);
-		realFramebuffer.setFramebufferFilter(GL11.GL_NEAREST);
+	}
+
+	public boolean isRenderingRealPlayers() {
+		return renderingRealPlayers;
 	}
 
 	private AxisAlignedBB getRenderBoundingBox(EntityPlayer player, float partialTicks) {

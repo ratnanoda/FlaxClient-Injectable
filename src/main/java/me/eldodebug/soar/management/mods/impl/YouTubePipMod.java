@@ -7,6 +7,9 @@ import java.util.Arrays;
 
 import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL13;
+
+import net.minecraft.client.renderer.GlStateManager;
 
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.management.color.AccentColor;
@@ -118,26 +121,40 @@ public final class YouTubePipMod extends HUDMod {
         frameBuffer.clear();
         frameBuffer.put(frame);
         frameBuffer.flip();
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId);
-        GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, width, height,
-                GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, frameBuffer);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
+        int previousActiveTexture = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
+        int previousTexture = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+        try {
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId);
+            GL11.glTexSubImage2D(GL11.GL_TEXTURE_2D, 0, 0, 0, width, height,
+                    GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, frameBuffer);
+        } finally {
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, previousTexture);
+            GlStateManager.setActiveTexture(previousActiveTexture);
+        }
     }
 
     private void createTexture(int width, int height) {
-        textureId = GL11.glGenTextures();
-        textureWidth = width;
-        textureHeight = height;
-        frameBuffer = BufferUtils.createByteBuffer(width * height * 4);
-        uploadedFrameSequence = -1L;
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_CLAMP);
-        GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_CLAMP);
-        GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, width, height, 0,
-                GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, (ByteBuffer) null);
-        GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
+        int previousActiveTexture = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
+        GlStateManager.setActiveTexture(GL13.GL_TEXTURE0);
+        int previousTexture = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
+        try {
+            textureId = GL11.glGenTextures();
+            textureWidth = width;
+            textureHeight = height;
+            frameBuffer = BufferUtils.createByteBuffer(width * height * 4);
+            uploadedFrameSequence = -1L;
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, textureId);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MIN_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_MAG_FILTER, GL11.GL_LINEAR);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_S, GL11.GL_CLAMP);
+            GL11.glTexParameteri(GL11.GL_TEXTURE_2D, GL11.GL_TEXTURE_WRAP_T, GL11.GL_CLAMP);
+            GL11.glTexImage2D(GL11.GL_TEXTURE_2D, 0, GL11.GL_RGBA8, width, height, 0,
+                    GL11.GL_RGBA, GL11.GL_UNSIGNED_BYTE, (ByteBuffer) null);
+        } finally {
+            GL11.glBindTexture(GL11.GL_TEXTURE_2D, previousTexture);
+            GlStateManager.setActiveTexture(previousActiveTexture);
+        }
     }
 
     public int getQualityHeight() {

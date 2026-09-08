@@ -1,5 +1,6 @@
 package me.eldodebug.soar.attach;
 
+import eu.shoroa.contrib.render.ShBlur;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.nio.IntBuffer;
@@ -9,9 +10,6 @@ import java.util.WeakHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import me.eldodebug.soar.Glide;
-import me.eldodebug.soar.gui.GuiEditHUD;
-import me.eldodebug.soar.gui.modmenu.GuiModMenu;
-import me.eldodebug.soar.gui.mainmenu.GuiGlideMainMenu;
 import me.eldodebug.soar.hooks.RenderEntityItemHook;
 import me.eldodebug.soar.logger.GlideLogger;
 import me.eldodebug.soar.management.event.impl.EventClickMouse;
@@ -81,6 +79,7 @@ import me.eldodebug.soar.management.mods.impl.ClientSpooferMod;
 import me.eldodebug.soar.management.mods.impl.DamageTiltMod;
 import me.eldodebug.soar.management.mods.impl.FPSBoostMod;
 import me.eldodebug.soar.management.mods.impl.SoundSubtitlesMod;
+import me.eldodebug.soar.utils.render.RenderStateGuard;
 import me.eldodebug.soar.management.mods.impl.AsyncScreenshotMod;
 import me.eldodebug.soar.management.mods.impl.GlintColorMod;
 import me.eldodebug.soar.management.mods.impl.Items2DMod;
@@ -89,6 +88,7 @@ import me.eldodebug.soar.management.mods.impl.TabEditorMod;
 import me.eldodebug.soar.management.mods.impl.EarsMod;
 import me.eldodebug.soar.management.mods.impl.FemaleGenderMod;
 import me.eldodebug.soar.management.mods.impl.GhostNametagsMod;
+import me.eldodebug.soar.management.mods.impl.ESPMod;
 import me.eldodebug.soar.management.mods.impl.GhostFreelookMod;
 import me.eldodebug.soar.management.mods.impl.NametagMod;
 import me.eldodebug.soar.management.mods.impl.RawInputMod;
@@ -102,6 +102,7 @@ import net.minecraft.client.audio.ISound;
 import net.minecraft.client.audio.PositionedSoundRecord;
 import net.minecraft.client.entity.AbstractClientPlayer;
 import net.minecraft.client.gui.GuiIngame;
+import net.minecraft.client.network.NetworkPlayerInfo;
 import net.minecraft.client.model.ModelPlayer;
 import net.minecraft.client.model.ModelRenderer;
 import net.minecraft.client.renderer.OpenGlHelper;
@@ -187,8 +188,7 @@ public final class LateHooks {
         if (!isRuntimeReady()) {
             return;
         }
-        Minecraft minecraft = Minecraft.getMinecraft();
-        if (Keyboard.getEventKeyState() && minecraft.currentScreen == null) {
+        if (Keyboard.getEventKeyState()) {
             new EventKey(
                     Keyboard.getEventKey() == 0
                             ? Keyboard.getEventCharacter() + 256
@@ -212,18 +212,12 @@ public final class LateHooks {
     public static void onUpdateDisplay() {
         if (isRuntimeReady()) {
             EVENT_UPDATE_DISPLAY.call();
-            Minecraft minecraft = Minecraft.getMinecraft();
-            if (minecraft.currentScreen != null
-                    && !(minecraft.currentScreen instanceof GuiModMenu)
-                    && !(minecraft.currentScreen instanceof GuiEditHUD)
-                    && !(minecraft.currentScreen instanceof GuiGlideMainMenu)) {
-                new EventRenderNotification().call();
-            }
         }
     }
 
     public static void onUpdateFramebufferSize() {
         if (isRuntimeReady()) {
+            ShBlur.getInstance().resize();
             EVENT_UPDATE_FRAMEBUFFER_SIZE.call();
         }
     }
@@ -578,9 +572,18 @@ public final class LateHooks {
             double z,
             float partialTicks,
             Object modelObject) {
+        if (!(rendererObject instanceof RenderEntityItem)
+                || !(entityObject instanceof EntityItem)
+                || !(modelObject instanceof IBakedModel)) {
+            return 0;
+        }
         RenderEntityItem renderer = (RenderEntityItem) rendererObject;
         EntityItem entity = (EntityItem) entityObject;
         IBakedModel model = (IBakedModel) modelObject;
+        ItemStack stack = entity.getEntityItem();
+        if (stack == null || stack.getItem() == null) {
+            return 0;
+        }
         return RenderEntityItemHook.func_177077_a(
                 entity,
                 x,
@@ -588,13 +591,18 @@ public final class LateHooks {
                 z,
                 partialTicks,
                 model,
-                getDroppedItemCount(renderer, entity.getEntityItem()));
+                getDroppedItemCount(renderer, stack));
     }
 
     public static void renderDroppedItem(
             Object rendererObject,
             Object stackObject,
             Object modelObject) {
+        if (!(rendererObject instanceof RenderItem)
+                || !(stackObject instanceof ItemStack)
+                || !(modelObject instanceof IBakedModel)) {
+            return;
+        }
         RenderItem renderer = (RenderItem) rendererObject;
         ItemStack stack = (ItemStack) stackObject;
         IBakedModel model = (IBakedModel) modelObject;
@@ -611,21 +619,45 @@ public final class LateHooks {
 
     public static void onRender2D(float partialTicks) {
         if (isRuntimeReady()) {
-            Minecraft minecraft = Minecraft.getMinecraft();
-            new EventRenderVisualizer(partialTicks).call();
-            new EventRenderDamageTint(partialTicks).call();
-            if (!(minecraft.currentScreen instanceof GuiEditHUD)) {
-                new EventRender2D(partialTicks).call();
-                if (minecraft.currentScreen == null) {
-                    new EventRenderNotification().call();
+            RenderStateGuard.runIsolated(new Runnable() {
+                @Override
+                public void run() {
+                    Minecraft minecraft = Minecraft.getMinecraft();
+					Object screen = minecraft.currentScreen;
+					boolean flaxScreen = screen != null
+							&& screen.getClass().getName().startsWith("me.eldodebug.soar.");
+					// Lunar and vanilla screens own their compositor state. Rendering
+					// Flax HUD/NanoVG over those screens can corrupt their next pass.
+					if(screen != null && !flaxScreen) {
+						return;
+					}
+                    ShBlur.getInstance().render();
+					if(screen != null) {
+						return;
+					}
+                    new EventRenderVisualizer(partialTicks).call();
+                    new EventRenderDamageTint(partialTicks).call();
+					new EventRender2D(partialTicks).call();
+					new EventRenderNotification().call();
                 }
-            }
+            });
         }
     }
 
     public static void onRender3D(float partialTicks) {
         if (isRuntimeReady()) {
-            new EventRender3D(partialTicks).call();
+            RenderStateGuard.runIsolated(new Runnable() {
+                @Override
+                public void run() {
+					// ESP-style world overlays are not needed while any vanilla,
+					// Lunar/Dawn or Flax screen is composing. Keeping them out of
+					// GUI frames also avoids leaking host-specific framebuffer state.
+					if (Minecraft.getMinecraft().currentScreen != null) {
+						return;
+					}
+                    new EventRender3D(partialTicks).call();
+                }
+            });
         }
     }
 
@@ -743,8 +775,12 @@ public final class LateHooks {
         if (!isRuntimeReady() || !(player instanceof AbstractClientPlayer)) {
             return vanillaValue;
         }
-        EventLocationSkin event = new EventLocationSkin(
-                MinecraftAccess.getPlayerInfo((AbstractClientPlayer) player));
+        NetworkPlayerInfo playerInfo =
+                MinecraftAccess.getPlayerInfo((AbstractClientPlayer) player);
+        if (playerInfo == null) {
+            return vanillaValue;
+        }
+        EventLocationSkin event = new EventLocationSkin(playerInfo);
         event.call();
         return event.isCancelled() && event.getSkin() != null
                 ? event.getSkin()
@@ -755,8 +791,12 @@ public final class LateHooks {
         if (!isRuntimeReady() || !(player instanceof AbstractClientPlayer)) {
             return vanillaValue;
         }
-        EventLocationCape event = new EventLocationCape(
-                MinecraftAccess.getPlayerInfo((AbstractClientPlayer) player));
+        NetworkPlayerInfo playerInfo =
+                MinecraftAccess.getPlayerInfo((AbstractClientPlayer) player);
+        if (playerInfo == null) {
+            return vanillaValue;
+        }
+        EventLocationCape event = new EventLocationCape(playerInfo);
         event.call();
         return event.isCancelled()
                 ? event.getCape()
@@ -940,6 +980,10 @@ public final class LateHooks {
         if (!isRuntimeReady()) {
             return false;
         }
+		ESPMod esp = ESPMod.getInstance();
+		if(esp != null && esp.isRenderingRealPlayers()) {
+			return true;
+		}
         GhostNametagsMod mod = GhostNametagsMod.getInstance();
         return entity instanceof EntityPlayer
                 && mod != null
@@ -1189,15 +1233,26 @@ public final class LateHooks {
         if (!isRuntimeReady()) {
             return;
         }
+        if (Minecraft.getMinecraft().currentScreen != null) {
+            return;
+        }
         EventShader event = new EventShader();
         event.call();
         for (ShaderGroup group : event.getGroups()) {
+            if (group == null) {
+                continue;
+            }
             GlStateManager.matrixMode(5890);
             GlStateManager.pushMatrix();
-            GlStateManager.loadIdentity();
-            group.loadShaderGroup(
-                    MinecraftAccess.getTimer(Minecraft.getMinecraft()).renderPartialTicks);
-            GlStateManager.popMatrix();
+            try {
+                GlStateManager.loadIdentity();
+                group.loadShaderGroup(
+                        MinecraftAccess.getTimer(Minecraft.getMinecraft()).renderPartialTicks);
+            } finally {
+                GlStateManager.matrixMode(5890);
+                GlStateManager.popMatrix();
+                GlStateManager.matrixMode(5888);
+            }
         }
     }
 

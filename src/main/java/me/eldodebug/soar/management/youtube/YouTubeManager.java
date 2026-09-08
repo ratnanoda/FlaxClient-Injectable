@@ -242,27 +242,63 @@ public final class YouTubeManager {
             entry.setDownloadError(null);
             String output = new File(cacheDirectory, cachePrefix(entry) + ".%(ext)s").getAbsolutePath();
             try {
-                Process process = new ProcessBuilder(ytDlpCommand, "--encoding", "utf-8",
-                        "--no-playlist", "--no-warnings", "--newline",
-                        "-f", "bv*[height<=" + qualityHeight + "]+ba/b[height<=" + qualityHeight + "]/b",
-                        "--merge-output-format", "mp4", "--ffmpeg-location", ffmpegCommand,
-                        "-o", output, "--print", "after_move:filepath", entry.getUrl())
-                        .redirectError(ProcessBuilder.Redirect.INHERIT).start();
-                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
-                String line;
-                String lastPath = null;
-                while((line = reader.readLine()) != null) {
-                    if(!line.trim().isEmpty()) lastPath = line.trim();
+                String[] formats = {
+                        "bv*[height<=" + qualityHeight + "]+ba/b[height<=" + qualityHeight + "]/b",
+                        "18/b[height<=" + qualityHeight + "]/b"
+                };
+                String lastError = null;
+                File media = null;
+                for(String format : formats) {
+                    ProcessResult result = runYtDlpDownload(output, format, entry.getUrl());
+                    media = findCachedMedia(entry);
+                    if(result.exitCode == 0 && media != null) break;
+                    lastError = result.lastError;
                 }
-                int exit = process.waitFor();
-                if(exit != 0 || lastPath == null) throw new IllegalStateException("yt-dlp exited with " + exit);
-                File media = new File(lastPath);
-                if(!media.isFile()) throw new IllegalStateException("Downloaded file was not found");
+                if(media == null) {
+                    throw new IllegalStateException(lastError == null
+                            ? "yt-dlp did not create a media file" : lastError);
+                }
                 entry.setMediaFile(media);
                 return media;
             } finally {
                 entry.setDownloading(false);
             }
+        }
+    }
+
+    private ProcessResult runYtDlpDownload(String output, String format, String url) throws Exception {
+        Process process = new ProcessBuilder(ytDlpCommand, "--encoding", "utf-8",
+                "--no-playlist", "--newline", "--force-ipv4",
+                "--retries", "3", "--fragment-retries", "3",
+                "-f", format, "--merge-output-format", "mp4",
+                "--ffmpeg-location", ffmpegCommand, "-o", output,
+                "--print", "after_move:filepath", url)
+                .redirectErrorStream(true).start();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(
+                process.getInputStream(), StandardCharsets.UTF_8));
+        String line;
+        String lastError = null;
+        while((line = reader.readLine()) != null) {
+            String trimmed = line.trim();
+            if(trimmed.startsWith("ERROR:") || trimmed.startsWith("WARNING:")) {
+                lastError = trimmed;
+            }
+        }
+        int exit = process.waitFor();
+        if(exit != 0) {
+            GlideLogger.warn("yt-dlp download attempt failed (exit " + exit + "): "
+                    + (lastError == null ? "no diagnostic output" : lastError));
+        }
+        return new ProcessResult(exit, lastError);
+    }
+
+    private static final class ProcessResult {
+        private final int exitCode;
+        private final String lastError;
+
+        private ProcessResult(int exitCode, String lastError) {
+            this.exitCode = exitCode;
+            this.lastError = lastError;
         }
     }
 

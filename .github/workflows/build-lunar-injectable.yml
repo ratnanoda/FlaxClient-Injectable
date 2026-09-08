@@ -34,12 +34,15 @@ jobs:
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx6g
         run: |
-          & ".\gradlew.bat" lunarJar reobfDawnJar --no-daemon --stacktrace
+          & ".\gradlew.bat" lunarJar reobfDawnJar dawn26Jar --no-daemon --stacktrace
           if (!(Test-Path "build\libs\FlaxClient-Lunar.jar")) {
             throw "FlaxClient-Lunar.jar was not generated"
           }
           if (!(Test-Path "build\libs\FlaxClient-Dawn.jar")) {
             throw "FlaxClient-Dawn.jar was not generated"
+          }
+          if (!(Test-Path "build\libs\FlaxClient-Dawn-26.2.jar")) {
+            throw "FlaxClient-Dawn-26.2.jar was not generated"
           }
 
       - name: Verify Lunar MCP and Dawn SRG mappings
@@ -93,6 +96,17 @@ jobs:
             throw "Dawn MCP-to-SRG mapping resource is missing"
           }
 
+          $dawn26Entries = & jar tf "build\libs\FlaxClient-Dawn-26.2.jar"
+          if ($dawn26Entries -notcontains "me/eldodebug/soar/attach/modern/Modern26LateClassTransformer.class") {
+            throw "Minecraft 26.2 transformer is missing"
+          }
+          if ($dawn26Entries -notcontains "me/eldodebug/soar/attach/modern/Modern26LateHooks.class") {
+            throw "Minecraft 26.2 hook bridge is missing"
+          }
+          if ($dawn26Entries | Where-Object { $_ -like "org/objectweb/asm/*" }) {
+            throw "Minecraft 26.2 bridge must use Fabric's parent-loader ASM"
+          }
+
           $mappingDir = Join-Path $env:RUNNER_TEMP "flax-dawn-map"
           New-Item -ItemType Directory -Force -Path $mappingDir | Out-Null
           Push-Location $mappingDir
@@ -114,9 +128,11 @@ jobs:
         run: |
           $lunar = (Resolve-Path "build\libs\FlaxClient-Lunar.jar").Path.Replace('\', '/')
           $dawn = (Resolve-Path "build\libs\FlaxClient-Dawn.jar").Path.Replace('\', '/')
+          $dawn26 = (Resolve-Path "build\libs\FlaxClient-Dawn-26.2.jar").Path.Replace('\', '/')
           cmake -S attach -B attach/build-universal -A x64 `
             "-DFLAX_CLIENT_LUNAR_JAR=$lunar" `
-            "-DFLAX_CLIENT_DAWN_JAR=$dawn"
+            "-DFLAX_CLIENT_DAWN_JAR=$dawn" `
+            "-DFLAX_CLIENT_DAWN26_JAR=$dawn26"
 
       - name: Build embedded DLL and single EXE
         shell: powershell
@@ -144,7 +160,7 @@ jobs:
           }
 
           $version = (Get-Item $exe).VersionInfo
-          if ($version.FileDescription -ne "FlaxClient Lunar + Dawn 1.8.9 Attach Tool") {
+          if ($version.FileDescription -ne "FlaxClient Lunar 1.8.9 + Dawn 26.2 Attach Tool") {
             throw "Expected Windows version metadata is missing"
           }
           Write-Host "File description: $($version.FileDescription)"

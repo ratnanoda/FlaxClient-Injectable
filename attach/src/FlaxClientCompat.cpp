@@ -10,6 +10,58 @@ using GetCreatedJavaVMs = jint(JNICALL*)(JavaVM**, jsize, jsize*);
 
 constexpr int lunar_jar_resource_id = 101;
 constexpr int dawn_jar_resource_id = 102;
+constexpr int dawn26_jar_resource_id = 103;
+
+enum class ClientRuntime {
+    lunar_1_8_9,
+    dawn_1_8_9,
+    dawn_26_2,
+};
+
+ClientRuntime detected_runtime = ClientRuntime::lunar_1_8_9;
+
+bool minecraft_class_has_field(
+    jvmtiEnv* jvmti,
+    jclass minecraft_class,
+    const char* expected) {
+    jint field_count = 0;
+    jfieldID* fields = nullptr;
+    if (jvmti->GetClassFields(minecraft_class, &field_count, &fields) !=
+            JVMTI_ERROR_NONE ||
+        fields == nullptr) {
+        return false;
+    }
+
+    bool found = false;
+    for (jint index = 0; index < field_count; ++index) {
+        char* name = nullptr;
+        char* signature = nullptr;
+        char* generic = nullptr;
+        if (jvmti->GetFieldName(
+                minecraft_class,
+                fields[index],
+                &name,
+                &signature,
+                &generic) == JVMTI_ERROR_NONE &&
+            name != nullptr && std::strcmp(name, expected) == 0) {
+            found = true;
+        }
+        if (name != nullptr) {
+            jvmti->Deallocate(reinterpret_cast<unsigned char*>(name));
+        }
+        if (signature != nullptr) {
+            jvmti->Deallocate(reinterpret_cast<unsigned char*>(signature));
+        }
+        if (generic != nullptr) {
+            jvmti->Deallocate(reinterpret_cast<unsigned char*>(generic));
+        }
+        if (found) {
+            break;
+        }
+    }
+    jvmti->Deallocate(reinterpret_cast<unsigned char*>(fields));
+    return found;
+}
 
 bool minecraft_class_uses_srg_members(jvmtiEnv* jvmti, jclass minecraft_class) {
     jint field_count = 0;
@@ -106,18 +158,47 @@ int select_client_jar_resource() {
             continue;
         }
 
-        // Lunar 1.8.9 exposes MCP/readable member names, while the
-        // Forge/Feather-style 1.8.9 runtime exposes the same readable class
-        // name with SRG members such as field_71439_g. Dawn is the successor
-        // to Feather, so select the SRG-reobfuscated jar for that layout.
-        selected = minecraft_class_uses_srg_members(jvmti, classes[index])
-                       ? dawn_jar_resource_id
-                       : lunar_jar_resource_id;
+        // Minecraft 26.2 uses Mojang's readable names and Fabric's Knot
+        // loader. Its reflection-only bridge is carried in the readable jar,
+        // leaving both established 1.8.9 variants unchanged.
+        if (minecraft_class_has_field(jvmti, classes[index], "player") &&
+            minecraft_class_has_field(jvmti, classes[index], "level")) {
+            detected_runtime = ClientRuntime::dawn_26_2;
+            selected = dawn26_jar_resource_id;
+        } else if (minecraft_class_uses_srg_members(jvmti, classes[index])) {
+            detected_runtime = ClientRuntime::dawn_1_8_9;
+            selected = dawn_jar_resource_id;
+        } else {
+            detected_runtime = ClientRuntime::lunar_1_8_9;
+            selected = lunar_jar_resource_id;
+        }
         break;
     }
 
     jvmti->Deallocate(reinterpret_cast<unsigned char*>(classes));
     return selected;
+}
+
+ClientRuntime client_runtime() {
+    // Resource selection runs after the VM is live. Re-probing also covers
+    // sidecar/debug builds where no embedded-resource lookup occurred.
+    select_client_jar_resource();
+    return detected_runtime;
+}
+
+bool is_modern_dawn() {
+    return client_runtime() == ClientRuntime::dawn_26_2;
+}
+
+const char* runtime_name() {
+    switch (client_runtime()) {
+        case ClientRuntime::dawn_26_2:
+            return "Dawn/Minecraft 26.2";
+        case ClientRuntime::dawn_1_8_9:
+            return "Dawn/Feather 1.8.9";
+        default:
+            return "Lunar/MCP 1.8.9";
+    }
 }
 
 LPWSTR make_int_resource(WORD id) {

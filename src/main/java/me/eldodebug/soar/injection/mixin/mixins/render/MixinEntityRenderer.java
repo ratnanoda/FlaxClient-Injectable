@@ -29,6 +29,7 @@ import me.eldodebug.soar.management.mods.impl.AnimationsMod;
 import me.eldodebug.soar.management.mods.impl.WeatherChangerMod;
 import me.eldodebug.soar.management.mods.settings.impl.ComboSetting;
 import me.eldodebug.soar.management.mods.settings.impl.combo.Option;
+import me.eldodebug.soar.utils.render.RenderStateGuard;
 import net.minecraft.block.material.Material;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.entity.EntityPlayerSP;
@@ -73,7 +74,7 @@ public abstract class MixinEntityRenderer {
 	
     @Inject(method = "renderWorldPass", at = @At(value = "FIELD", target = "Lnet/minecraft/client/renderer/EntityRenderer;renderHand:Z", shift = At.Shift.BEFORE))
     private void onRender3D(int pass, float partialTicks, long finishTimeNano, CallbackInfo ci) {
-    	new EventRender3D(partialTicks).call();
+		RenderStateGuard.runIsolated(() -> new EventRender3D(partialTicks).call());
     }
     
 	@Redirect(method = "updateCameraAndRender", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/entity/EntityPlayerSP;setAngles(FF)V"))
@@ -203,16 +204,27 @@ public abstract class MixinEntityRenderer {
 	
 	@Inject(method = "updateCameraAndRender", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/shader/Framebuffer;bindFramebuffer(Z)V", shift = At.Shift.BEFORE))
 	public void addShaders(float partialTicks, long nanoTime, CallbackInfo callback) {
+		if(mc.currentScreen != null) {
+			return;
+		}
 		
 		EventShader event = new EventShader();
 		event.call();
 		
 		for(ShaderGroup group : event.getGroups()) {
+			if(group == null) {
+				continue;
+			}
 			GlStateManager.matrixMode(5890);
 			GlStateManager.pushMatrix();
-			GlStateManager.loadIdentity();
-			group.loadShaderGroup(((IMixinMinecraft)mc).getTimer().renderPartialTicks);
-			GlStateManager.popMatrix();
+			try {
+				GlStateManager.loadIdentity();
+				group.loadShaderGroup(((IMixinMinecraft)mc).getTimer().renderPartialTicks);
+			} finally {
+				GlStateManager.matrixMode(5890);
+				GlStateManager.popMatrix();
+				GlStateManager.matrixMode(5888);
+			}
 		}
 	}
 	

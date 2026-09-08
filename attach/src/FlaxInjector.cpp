@@ -37,7 +37,9 @@ BOOL CALLBACK find_minecraft_window(HWND window, LPARAM parameter) {
     GetWindowTextW(window, title, static_cast<int>(std::size(title)));
     std::wstring value(title);
     if (value.find(L"Minecraft") != std::wstring::npos ||
-        value.find(L"Lunar Client") != std::wstring::npos) {
+        value.find(L"Lunar Client") != std::wstring::npos ||
+        value.find(L"Dawn") != std::wstring::npos ||
+        value.find(L"Feather") != std::wstring::npos) {
         search->minecraft_window = true;
         return FALSE;
     }
@@ -190,6 +192,39 @@ uintptr_t remote_module_base(DWORD process_id, const wchar_t* module_name) {
     if (Module32FirstW(snapshot, &module)) {
         do {
             if (_wcsicmp(module.szModule, module_name) == 0) {
+                result = reinterpret_cast<uintptr_t>(module.modBaseAddr);
+                break;
+            }
+        } while (Module32NextW(snapshot, &module));
+    }
+    CloseHandle(snapshot);
+    return result;
+}
+
+uintptr_t remote_flax_module_base(DWORD process_id) {
+    HANDLE snapshot = CreateToolhelp32Snapshot(
+        TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
+        process_id);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+
+    MODULEENTRY32W module{};
+    module.dwSize = sizeof(module);
+    uintptr_t result = 0;
+    if (Module32FirstW(snapshot, &module)) {
+        do {
+            std::wstring name(module.szModule);
+            std::transform(
+                name.begin(),
+                name.end(),
+                name.begin(),
+                [](wchar_t character) { return std::towlower(character); });
+            const bool embedded_runtime =
+                name.size() > 15 &&
+                name.compare(0, 11, L"flaxclient-") == 0 &&
+                name.compare(name.size() - 4, 4, L".dll") == 0;
+            if (name == L"flaxclient.dll" || embedded_runtime) {
                 result = reinterpret_cast<uintptr_t>(module.modBaseAddr);
                 break;
             }
@@ -388,8 +423,14 @@ UINT ui_dpi = 96;
 std::filesystem::path configured_dll;
 bool configured_dll_override = false;
 bool verify_embedded_only = false;
+bool force_inject = false;
+// Double-clicking the standalone injector should perform the expected attach
+// once the window is visible. The UI still starts in the idle state, so it
+// never falsely reports that injection already happened. Use --manual when a
+// user wants to select the Inject button explicitly.
+bool auto_inject = true;
 DWORD configured_process_id = 0;
-std::wstring status_text = L"Ready to attach to Minecraft 1.8.9";
+std::wstring status_text = L"Ready to attach to Minecraft";
 int animation_frame = 0;
 std::chrono::steady_clock::time_point close_at;
 
@@ -529,7 +570,7 @@ void paint_window(HWND window) {
     std::wstring footer_text =
         ui_state == UiState::success
             ? L"This window will close automatically in 5 seconds"
-            : L"Official / Lunar Client 1.8.9 (x64)";
+            : L"Lunar 1.8.9 / Dawn 26.2 (x64)";
     draw_centered_text(dc, footer_text, footer, body_font, RGB(105, 113, 142));
 
     DeleteObject(title_font);
@@ -580,7 +621,7 @@ InjectionResult perform_injection() {
     if (is_badlion_process(process_id)) {
         return {false, L"Badlion is not supported by this build"};
     }
-    if (remote_module_base(process_id, L"FlaxClient.dll") != 0) {
+    if (!force_inject && remote_flax_module_base(process_id) != 0) {
         return {true, L"FlaxClient is already loaded"};
     }
     if (!inject(process_id, dll_path)) {
@@ -734,6 +775,12 @@ void parse_arguments() {
             configured_dll_override = true;
         } else if (argument == L"--verify-embedded") {
             verify_embedded_only = true;
+        } else if (argument == L"--auto") {
+            auto_inject = true;
+        } else if (argument == L"--manual") {
+            auto_inject = false;
+        } else if (argument == L"--force") {
+            force_inject = true;
         }
     }
     LocalFree(arguments);
@@ -813,6 +860,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     SetTimer(main_window, animation_timer, 30, nullptr);
     ShowWindow(main_window, show_command);
     UpdateWindow(main_window);
+
+    // The window starts idle and transitions to Injecting only after the
+    // asynchronous attach actually begins. This keeps the initial state honest
+    // while making a normal double-click useful without extra arguments.
+    if (auto_inject && !configured_dll.empty()) {
+        start_injection(main_window);
+    }
 
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {

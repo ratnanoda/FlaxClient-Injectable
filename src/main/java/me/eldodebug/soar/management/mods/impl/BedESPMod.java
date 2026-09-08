@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL14;
 
 import me.eldodebug.soar.management.event.EventTarget;
 import me.eldodebug.soar.management.event.impl.EventRender3D;
@@ -24,7 +25,6 @@ import me.eldodebug.soar.utils.Render3DUtils;
 import net.minecraft.block.BlockBed;
 import net.minecraft.block.BlockDirectional;
 import net.minecraft.block.state.IBlockState;
-import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.RenderGlobal;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.entity.player.EntityPlayer;
@@ -169,55 +169,61 @@ public class BedESPMod extends Mod {
         float alpha = alphaSetting.getValueFloat();
         int alphaInt = (int) (alpha * 255);
 
-        GlStateManager.pushMatrix();
-        GlStateManager.enableBlend();
-        GlStateManager.disableTexture2D();
-        GlStateManager.disableLighting();
-        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
-        GlStateManager.disableDepth();
-        GlStateManager.depthMask(false);
-        GL11.glLineWidth(lineWidthSetting.getValueFloat());
+        GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+        GL11.glPushMatrix();
+        try {
+            GL11.glEnable(GL11.GL_BLEND);
+            GL11.glDisable(GL11.GL_TEXTURE_2D);
+            GL11.glDisable(GL11.GL_LIGHTING);
+            GL14.glBlendFuncSeparate(770, 771, 1, 0);
+            GL11.glDisable(GL11.GL_DEPTH_TEST);
+            GL11.glDepthMask(false);
+            GL11.glLineWidth(lineWidthSetting.getValueFloat());
 
-        boolean outlineMode = modeSetting.getOption().getTranslate()
-                .equals(TranslateText.OUTLINE);
-        boolean glowMode = modeSetting.getOption().getTranslate()
-                .equals(TranslateText.GLOW);
+            boolean outlineMode = modeSetting.getOption().getTranslate()
+                    .equals(TranslateText.OUTLINE);
+            boolean glowMode = modeSetting.getOption().getTranslate()
+                    .equals(TranslateText.GLOW);
 
-        for(Bed bed : beds) {
-            AxisAlignedBB box = new AxisAlignedBB(
-                    bed.box.minX - viewX,
-                    bed.box.minY - viewY,
-                    bed.box.minZ - viewZ,
-                    bed.box.maxX - viewX,
-                    bed.box.maxY - viewY,
-                    bed.box.maxZ - viewZ);
+            for(Bed bed : beds) {
+                AxisAlignedBB box = new AxisAlignedBB(
+                        bed.box.minX - viewX,
+                        bed.box.minY - viewY,
+                        bed.box.minZ - viewZ,
+                        bed.box.maxX - viewX,
+                        bed.box.maxY - viewY,
+                        bed.box.maxZ - viewZ);
 
-            if(glowMode) {
-                for(int layer = 1; layer <= 3; layer++) {
-                    double grow = 0.04D * layer;
-                    ColorUtils.setColor(color.getRGB(), alpha * 0.12F);
-                    Render3DUtils.drawFillBox(box.expand(grow, grow, grow));
+                if(glowMode) {
+                    for(int layer = 1; layer <= 3; layer++) {
+                        double grow = 0.04D * layer;
+                        setRawColor(color, alpha * 0.12F);
+                        Render3DUtils.drawFillBoxRaw(box.expand(grow, grow, grow));
+                    }
+                } else if(!outlineMode) {
+                    setRawColor(color, alpha * 0.22F);
+                    Render3DUtils.drawFillBoxRaw(box);
                 }
-            } else if(!outlineMode) {
-                ColorUtils.setColor(color.getRGB(), alpha * 0.22F);
-                Render3DUtils.drawFillBox(box);
+
+                RenderGlobal.drawOutlinedBoundingBox(
+                        box,
+                        color.getRed(),
+                        color.getGreen(),
+                        color.getBlue(),
+                        alphaInt);
             }
-
-            RenderGlobal.drawOutlinedBoundingBox(
-                    box,
-                    color.getRed(),
-                    color.getGreen(),
-                    color.getBlue(),
-                    alphaInt);
+        } finally {
+            GL11.glPopMatrix();
+            GL11.glPopAttrib();
         }
+    }
 
-        GlStateManager.depthMask(true);
-        GlStateManager.enableDepth();
-        GlStateManager.disableBlend();
-        GlStateManager.enableLighting();
-        GlStateManager.enableTexture2D();
-        ColorUtils.resetColor();
-        GlStateManager.popMatrix();
+    private static void setRawColor(Color color, float alpha) {
+        GL11.glColor4f(
+                color.getRed() / 255.0F,
+                color.getGreen() / 255.0F,
+                color.getBlue() / 255.0F,
+                MathHelper.clamp_float(alpha, 0.0F, 1.0F));
     }
 
     private static class Bed {

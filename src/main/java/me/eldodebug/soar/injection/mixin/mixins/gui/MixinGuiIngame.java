@@ -12,8 +12,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import me.eldodebug.soar.gui.GuiEditHUD;
-import me.eldodebug.soar.gui.modmenu.GuiModMenu;
 import me.eldodebug.soar.injection.interfaces.IMixinGuiIngame;
 import me.eldodebug.soar.management.event.impl.EventRender2D;
 import me.eldodebug.soar.management.event.impl.EventRenderCrosshair;
@@ -27,6 +25,7 @@ import me.eldodebug.soar.management.event.impl.EventRenderSelectedItem;
 import me.eldodebug.soar.management.event.impl.EventRenderTooltip;
 import me.eldodebug.soar.management.event.impl.EventRenderVisualizer;
 import me.eldodebug.soar.management.mods.impl.AnimationsMod;
+import me.eldodebug.soar.utils.render.RenderStateGuard;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiIngame;
@@ -72,31 +71,29 @@ public abstract class MixinGuiIngame implements IMixinGuiIngame {
 	
 	@Inject(method = "renderGameOverlay", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/GlStateManager;enableBlend()V", ordinal = 0, shift = At.Shift.AFTER), cancellable = true)
 	public void preRenderGameOverlay(float partialTicks, CallbackInfo callback) {
-        GlStateManager.disableAlpha();
-        GlStateManager.disableDepth();
-        GlStateManager.depthMask(false);
-        GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
-    	new EventRenderVisualizer(partialTicks).call();
-		GlStateManager.enableBlend();
-        GlStateManager.depthMask(true);
-        GlStateManager.enableDepth();
-        GlStateManager.enableAlpha();
-        GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+		if(mc.currentScreen != null) return;
+		RenderStateGuard.runIsolated(() -> {
+			GlStateManager.disableAlpha();
+			GlStateManager.disableDepth();
+			GlStateManager.depthMask(false);
+			GlStateManager.tryBlendFuncSeparate(770, 771, 1, 0);
+			new EventRenderVisualizer(partialTicks).call();
+		});
 	}
 
 	@Inject(method = "renderGameOverlay", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/GlStateManager;color(FFFF)V", shift = At.Shift.BEFORE, ordinal = 2))
     public void postRenderGameOverlay(float partialTicks, CallbackInfo ci) {
-		ShBlur.getInstance().render();
-
-		new EventRenderDamageTint(partialTicks).call();
-		
-		if(!(mc.currentScreen instanceof GuiEditHUD)) {
+		RenderStateGuard.runIsolated(() -> {
+			Object screen = mc.currentScreen;
+			boolean flaxScreen = screen != null
+					&& screen.getClass().getName().startsWith("me.eldodebug.soar.");
+			if(screen != null && !flaxScreen) return;
+			ShBlur.getInstance().render();
+			if(screen != null) return;
+			new EventRenderDamageTint(partialTicks).call();
 			new EventRender2D(partialTicks).call();
-			
-			if(!(mc.currentScreen instanceof GuiModMenu)) {
-				new EventRenderNotification().call();
-			}
-		}
+			new EventRenderNotification().call();
+		});
 	}
 	
     @Redirect(method = "renderPlayerStats", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/gui/GuiIngame;drawTexturedModalRect(IIIIII)V"))

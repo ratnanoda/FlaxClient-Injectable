@@ -84,6 +84,9 @@ public class MotionBlurMod extends Mod {
 	
 	@EventTarget
 	public void onUpdateDisplay(EventUpdateDisplay event) {
+		if(mc.currentScreen != null) {
+			return;
+		}
 		
 		if(typeSetting.getOption().getTranslate().equals(TranslateText.ACCUM)) {
 			

@@ -11,6 +11,7 @@ import org.lwjgl3.BufferUtils;
 
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.management.nanovg.NanoVGManager;
+import me.eldodebug.soar.utils.render.RenderStateGuard;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.renderer.GlStateManager;
@@ -23,10 +24,46 @@ public class ScreenAnimation {
 	private NVGLUFramebuffer fb;
 	
 	public void wrap(Runnable glRender, Runnable task, float x, float y, float width, float height, float animationProgress, float alphaProgress, boolean stencil) {
+		if(glRender == null) {
+			wrapInternal(null, task, x, y, width, height, animationProgress, alphaProgress, stencil);
+		} else {
+			RenderStateGuard.runIsolated(() -> wrapInternal(glRender, task, x, y, width, height,
+					animationProgress, alphaProgress, stencil));
+		}
+	}
+
+	private void wrapInternal(Runnable glRender, Runnable task, float x, float y, float width, float height, float animationProgress, float alphaProgress, boolean stencil) {
 		
 		ScaledResolution sr = new ScaledResolution(mc);
 		NanoVGManager nvg = Glide.getInstance().getNanoVGManager();
 		int factor = sr.getScaleFactor();
+
+		/*
+		 * Pure NanoVG screens do not need an intermediate OpenGL framebuffer.
+		 * Recent Lunar builds changed their framebuffer pipeline, which made the
+		 * old NVGLU texture disappear when it was rebound into Lunar's compositor.
+		 * Applying the same transform directly keeps the animation and avoids the
+		 * launcher-specific FBO entirely. Mixed Minecraft/NanoVG renderers retain
+		 * the legacy off-screen path below.
+		 */
+		if(glRender == null) {
+			final float safeScale = Math.max(0.0F, animationProgress);
+			final float safeAlpha = Math.max(0.0F, Math.min(alphaProgress, 1.0F));
+			nvg.setupAndDraw(() -> {
+				nvg.save();
+				try {
+					if(stencil) {
+						nvg.scissor(x, y, width, height);
+					}
+					nvg.setAlpha(safeAlpha);
+					nvg.scale(x, y, width, height, safeScale);
+					task.run();
+				} finally {
+					nvg.restore();
+				}
+			});
+			return;
+		}
 		
 		if(fbWidth != mc.displayWidth || fbHeight != mc.displayHeight) {
 			close();

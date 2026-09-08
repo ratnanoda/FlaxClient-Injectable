@@ -167,11 +167,13 @@ dependencies {
     }
     // ASM 9 is required to transform Lunar's Java 17 (classfile v61) classes.
     // These jars are merged after ForgeGradle's legacy ASM reobfuscation pass.
-    asmRuntime('org.ow2.asm:asm:9.7.1')
-    asmRuntime('org.ow2.asm:asm-tree:9.7.1')
-    asmRuntime('org.ow2.asm:asm-analysis:9.7.1')
-    asmRuntime('org.ow2.asm:asm-commons:9.7.1')
-    asmRuntime('org.ow2.asm:asm-util:9.7.1')
+    // Minecraft 26.2 is compiled for Java 25 (classfile v69). Keep one ASM
+    // level that can read both legacy 1.8.9 and current Dawn classes.
+    asmRuntime('org.ow2.asm:asm:9.10.1')
+    asmRuntime('org.ow2.asm:asm-tree:9.10.1')
+    asmRuntime('org.ow2.asm:asm-analysis:9.10.1')
+    asmRuntime('org.ow2.asm:asm-commons:9.10.1')
+    asmRuntime('org.ow2.asm:asm-util:9.10.1')
     embed(files('libs/lwjgl-soar.jar'))
     embed(files('libs/lwjgl-soar-natives.jar'))
 }
@@ -282,6 +284,10 @@ task dawnJar(type: Jar) {
         into "flax/mappings"
         rename { "mcp-srg.srg" }
     }
+    from({ tasks.getByName("genSrgs").mcpToNotch }) {
+        into "flax/mappings"
+        rename { "mcp-notch.srg" }
+    }
     from(windowsYtDlp) {
         into bundledWindowsToolPath
         rename { "yt-dlp.exe" }
@@ -304,6 +310,24 @@ task dawnJar(type: Jar) {
             "Manifest-Version": 1.0,
             'FMLAT': 'soar_at.cfg',
             "Implementation-Version": project.ext.clientVersionName
+    )
+}
+
+// A deliberately small runtime for the Java 25 / Fabric-based Minecraft 26.2
+// client. Do not embed ASM here: Fabric already owns ASM 9.10.1 in its parent
+// loader, and a second copy inside Knot causes loader-constraint violations.
+task dawn26Jar(type: Jar) {
+    dependsOn classes
+    archiveName = "FlaxClient-Dawn-26.2.jar"
+    from(sourceSets.main.output) {
+        include "me/eldodebug/soar/attach/modern/Modern26*.class"
+        include "me/eldodebug/soar/attach/modern/ModernLateHooks.class"
+    }
+    exclude 'META-INF', 'META-INF/**'
+    manifest.attributes(
+            "Manifest-Version": 1.0,
+            "Implementation-Version": project.ext.clientVersionName,
+            "Flax-Target": "Dawn-Minecraft-26.2"
     )
 }
 
@@ -369,7 +393,7 @@ def findCmakeExecutable = {
 }
 
 task configureAttachDll(type: Exec) {
-    dependsOn lunarJar, reobfDawnJar
+    dependsOn lunarJar, reobfDawnJar, dawn26Jar
     onlyIf { org.gradle.internal.os.OperatingSystem.current().isWindows() }
     doFirst {
         commandLine findCmakeExecutable().absolutePath,
@@ -377,7 +401,8 @@ task configureAttachDll(type: Exec) {
                 "-B", file("attach/build").absolutePath,
                 "-A", "x64",
                 "-DFLAX_CLIENT_LUNAR_JAR=${tasks.lunarJar.archivePath.absolutePath}",
-                "-DFLAX_CLIENT_DAWN_JAR=${tasks.dawnJar.archivePath.absolutePath}"
+                "-DFLAX_CLIENT_DAWN_JAR=${tasks.dawnJar.archivePath.absolutePath}",
+                "-DFLAX_CLIENT_DAWN26_JAR=${tasks.dawn26Jar.archivePath.absolutePath}"
     }
 }
 

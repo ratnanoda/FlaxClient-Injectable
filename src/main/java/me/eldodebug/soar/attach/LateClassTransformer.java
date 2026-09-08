@@ -230,7 +230,7 @@ public final class LateClassTransformer {
         }
         if (matches(method, "()V", "updateFramebufferSize", "ay")
                 && !containsHook(method, "onUpdateFramebufferSize")) {
-            method.instructions.insert(hookCall("onUpdateFramebufferSize", "()V"));
+            injectBeforeReturns(method, hookCall("onUpdateFramebufferSize", "()V"));
             return true;
         }
         if (matches(method, "()V", "dispatchKeypresses", "Z")
@@ -509,27 +509,71 @@ public final class LateClassTransformer {
             }
             return containsHook(method, "rotateHurtCamera");
         }
-        if (matches(method, "(FJ)V", "updateCameraAndRender", "a")
-                && !containsHook(method, "onPlayerHeadRotation")) {
+        if (matches(method, "(FJ)V", "updateCameraAndRender", "a")) {
             boolean changed = false;
-            for (AbstractInsnNode instruction = method.instructions.getFirst();
-                    instruction != null;
-                    instruction = instruction.getNext()) {
-                if (instruction instanceof MethodInsnNode) {
-                    MethodInsnNode call = (MethodInsnNode) instruction;
-                    if (("setAngles".equals(call.name) || "c".equals(call.name))
-                            && "(FF)V".equals(call.desc)) {
-                        call.setOpcode(Opcodes.INVOKESTATIC);
-                        call.owner = HOOK_OWNER;
-                        call.name = "onPlayerHeadRotation";
-                        call.desc = "(Ljava/lang/Object;FF)V";
-                        call.itf = false;
-                        changed = true;
+            if (!containsHook(method, "onPlayerHeadRotation")) {
+                for (AbstractInsnNode instruction = method.instructions.getFirst();
+                        instruction != null;
+                        instruction = instruction.getNext()) {
+                    if (instruction instanceof MethodInsnNode) {
+                        MethodInsnNode call = (MethodInsnNode) instruction;
+                        if (("setAngles".equals(call.name) || "c".equals(call.name))
+                                && "(FF)V".equals(call.desc)) {
+                            call.setOpcode(Opcodes.INVOKESTATIC);
+                            call.owner = HOOK_OWNER;
+                            call.name = "onPlayerHeadRotation";
+                            call.desc = "(Ljava/lang/Object;FF)V";
+                            call.itf = false;
+                            changed = true;
+                        }
                     }
                 }
             }
-            if (changed) {
-                injectBeforeReturns(method, hookCall("onShader", "()V"));
+
+            /*
+             * ShaderGroup must run after the world has been rendered but before
+             * Minecraft rebinds its main framebuffer for the HUD and GuiScreen.
+             * Injecting at RETURN also post-processes NanoVG itself. On current
+             * Lunar builds that feeds the animated ClickGUI back through motion
+             * blur, producing long particle trails and an invisible menu.
+             */
+            if (!containsHook(method, "onShader")) {
+                MethodInsnNode framebufferBind = null;
+                for (AbstractInsnNode instruction = method.instructions.getFirst();
+                        instruction != null;
+                        instruction = instruction.getNext()) {
+                    if (!(instruction instanceof MethodInsnNode)) {
+                        continue;
+                    }
+                    MethodInsnNode call = (MethodInsnNode) instruction;
+                    boolean readableFramebuffer =
+                            "net/minecraft/client/shader/Framebuffer".equals(call.owner)
+                                    && ("bindFramebuffer".equals(call.name)
+                                            || "func_147610_a".equals(call.name));
+                    AbstractInsnNode bindArgument = previousCodeInstruction(call);
+                    AbstractInsnNode framebufferGetter = previousCodeInstruction(bindArgument);
+                    boolean mainFramebuffer = framebufferGetter instanceof MethodInsnNode
+                            && "net/minecraft/client/Minecraft".equals(
+                                    ((MethodInsnNode) framebufferGetter).owner)
+                            && ("getFramebuffer".equals(
+                                            ((MethodInsnNode) framebufferGetter).name)
+                                    || "func_147110_a".equals(
+                                            ((MethodInsnNode) framebufferGetter).name));
+                    if (readableFramebuffer
+                            && "(Z)V".equals(call.desc)
+                            && bindArgument != null
+                            && bindArgument.getOpcode() == Opcodes.ICONST_1
+                            && mainFramebuffer) {
+                        framebufferBind = call;
+                        break;
+                    }
+                }
+                if (framebufferBind != null) {
+                    method.instructions.insertBefore(
+                            framebufferBind,
+                            hookCall("onShader", "()V"));
+                    changed = true;
+                }
             }
             return changed;
         }
@@ -1517,6 +1561,14 @@ public final class LateClassTransformer {
             String notchName) {
         return descriptor.equals(method.desc)
                 && (deobfuscatedName.equals(method.name) || notchName.equals(method.name));
+    }
+
+    private static AbstractInsnNode previousCodeInstruction(AbstractInsnNode instruction) {
+        AbstractInsnNode current = instruction == null ? null : instruction.getPrevious();
+        while (current != null && current.getOpcode() < 0) {
+            current = current.getPrevious();
+        }
+        return current;
     }
 
     private static boolean containsHook(MethodNode method, String hookName) {

@@ -14,6 +14,7 @@ import me.eldodebug.soar.injection.interfaces.IMixinRenderPlayer;
 import me.eldodebug.soar.management.event.impl.EventHitOverlay;
 import me.eldodebug.soar.management.event.impl.EventRendererLivingEntity;
 import me.eldodebug.soar.management.mods.impl.GhostNametagsMod;
+import me.eldodebug.soar.management.mods.impl.ESPMod;
 import me.eldodebug.soar.management.mods.impl.NametagMod;
 import me.eldodebug.soar.management.mods.impl.Skin3DMod;
 import net.minecraft.client.Minecraft;
@@ -44,6 +45,10 @@ public abstract class MixinRendererLivingEntity <T extends EntityLivingBase> ext
 
 	@Inject(method = "renderName", at = @At("HEAD"), cancellable = true)
 	public void preRenderName(T entity, double x, double y, double z, CallbackInfo ci) {
+		if(ESPMod.getInstance() != null && ESPMod.getInstance().isRenderingRealPlayers()) {
+			ci.cancel();
+			return;
+		}
 		if(entity instanceof EntityPlayer && GhostNametagsMod.getInstance() != null && GhostNametagsMod.getInstance().isToggled()) {
 			ci.cancel();
 			return;

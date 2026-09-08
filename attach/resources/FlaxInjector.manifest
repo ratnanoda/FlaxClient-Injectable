@@ -5,7 +5,7 @@
       processorArchitecture="amd64"
       name="FlaxClient.AttachTool"
       type="win32" />
-  <description>FlaxClient Lunar Client 1.8.9 attach tool</description>
+  <description>FlaxClient Lunar 1.8.9 and Dawn Client 26.2 attach tool</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>

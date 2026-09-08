@@ -76,6 +76,47 @@ public class Render3DUtils {
 
 		GlStateManager.enableCull();
 	}
+
+	/**
+	 * Fixed-function fill that does not touch GlStateManager's cached state.
+	 * Late-attached clients restore the host renderer with glPopAttrib; mixing
+	 * that with GlStateManager setters leaves its cache out of sync and corrupts
+	 * the following HUD pass.
+	 */
+	public static void drawFillBoxRaw(AxisAlignedBB box) {
+		GL11.glBegin(GL11.GL_QUADS);
+		// bottom
+		GL11.glVertex3d(box.minX, box.minY, box.minZ);
+		GL11.glVertex3d(box.maxX, box.minY, box.minZ);
+		GL11.glVertex3d(box.maxX, box.minY, box.maxZ);
+		GL11.glVertex3d(box.minX, box.minY, box.maxZ);
+		// top
+		GL11.glVertex3d(box.minX, box.maxY, box.minZ);
+		GL11.glVertex3d(box.minX, box.maxY, box.maxZ);
+		GL11.glVertex3d(box.maxX, box.maxY, box.maxZ);
+		GL11.glVertex3d(box.maxX, box.maxY, box.minZ);
+		// north
+		GL11.glVertex3d(box.minX, box.minY, box.minZ);
+		GL11.glVertex3d(box.minX, box.maxY, box.minZ);
+		GL11.glVertex3d(box.maxX, box.maxY, box.minZ);
+		GL11.glVertex3d(box.maxX, box.minY, box.minZ);
+		// south
+		GL11.glVertex3d(box.minX, box.minY, box.maxZ);
+		GL11.glVertex3d(box.maxX, box.minY, box.maxZ);
+		GL11.glVertex3d(box.maxX, box.maxY, box.maxZ);
+		GL11.glVertex3d(box.minX, box.maxY, box.maxZ);
+		// west
+		GL11.glVertex3d(box.minX, box.minY, box.minZ);
+		GL11.glVertex3d(box.minX, box.minY, box.maxZ);
+		GL11.glVertex3d(box.minX, box.maxY, box.maxZ);
+		GL11.glVertex3d(box.minX, box.maxY, box.minZ);
+		// east
+		GL11.glVertex3d(box.maxX, box.minY, box.minZ);
+		GL11.glVertex3d(box.maxX, box.maxY, box.minZ);
+		GL11.glVertex3d(box.maxX, box.maxY, box.maxZ);
+		GL11.glVertex3d(box.maxX, box.minY, box.maxZ);
+		GL11.glEnd();
+	}
 	
     public static void drawBoundingBox(final AxisAlignedBB aa) {
 

@@ -4,6 +4,8 @@ import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Arrays;
 
+import org.lwjgl.input.Mouse;
+
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.attach.MinecraftAccess;
 import me.eldodebug.soar.management.event.EventTarget;
@@ -20,6 +22,7 @@ import me.eldodebug.soar.management.nanovg.NanoVGManager;
 import me.eldodebug.soar.management.nanovg.font.Fonts;
 import me.eldodebug.soar.utils.animation.simple.SimpleAnimation;
 import net.minecraft.client.gui.ScaledResolution;
+import net.minecraft.block.state.IBlockState;
 import net.minecraft.util.BlockPos;
 import net.minecraft.util.MathHelper;
 import net.minecraft.util.MovingObjectPosition.MovingObjectType;
@@ -39,6 +42,9 @@ public class BreakProgressMod extends Mod {
 	private boolean wasBreaking;
 	private float lastProgress;
 	private BlockPos minedPos;
+	private BlockPos fallbackPos;
+	private float fallbackProgress;
+	private int fallbackTick;
 
 	public BreakProgressMod() {
 		super(TranslateText.BREAK_PROGRESS, TranslateText.BREAK_PROGRESS_DESCRIPTION, ModCategory.GHOST);
@@ -51,6 +57,9 @@ public class BreakProgressMod extends Mod {
 		progressAnimation.setValue(0.0F);
 		wasBreaking = false;
 		lastProgress = 0.0F;
+		fallbackPos = null;
+		fallbackProgress = 0.0F;
+		fallbackTick = 0;
 	}
 
 	@EventTarget
@@ -184,6 +193,50 @@ public class BreakProgressMod extends Mod {
 		}
 
 		float damage = MinecraftAccess.getCurBlockDamage(mc.playerController);
-		return MathHelper.clamp_float(damage, 0.0F, 1.0F);
+		if(damage > 0.0F) {
+			fallbackProgress = damage;
+			fallbackTick = mc.thePlayer == null ? 0 : mc.thePlayer.ticksExisted;
+			return MathHelper.clamp_float(damage, 0.0F, 1.0F);
+		}
+
+		// Some Dawn controller transformers keep their own break accumulator and
+		// leave curBlockDamageMP at zero. Derive the same per-tick progress from
+		// the targeted block hardness so the HUD still reflects local mining.
+		if(mc.thePlayer == null
+				|| mc.objectMouseOver == null
+				|| mc.objectMouseOver.typeOfHit != MovingObjectType.BLOCK
+				|| !Mouse.isButtonDown(0)) {
+			resetFallback();
+			return 0.0F;
+		}
+
+		BlockPos target = mc.objectMouseOver.getBlockPos();
+		if(target == null) {
+			resetFallback();
+			return 0.0F;
+		}
+		int tick = mc.thePlayer.ticksExisted;
+		if(!target.equals(fallbackPos)) {
+			fallbackPos = target;
+			fallbackProgress = 0.0F;
+			fallbackTick = tick;
+		}
+		int elapsedTicks = Math.max(0, tick - fallbackTick);
+		fallbackTick = tick;
+		if(elapsedTicks > 0) {
+			IBlockState state = mc.theWorld.getBlockState(target);
+			float perTick = state.getBlock().getPlayerRelativeBlockHardness(
+					mc.thePlayer, mc.theWorld, target);
+			if(Float.isFinite(perTick) && perTick > 0.0F) {
+				fallbackProgress += perTick * elapsedTicks;
+			}
+		}
+		return MathHelper.clamp_float(fallbackProgress, 0.0F, 1.0F);
+	}
+
+	private void resetFallback() {
+		fallbackPos = null;
+		fallbackProgress = 0.0F;
+		fallbackTick = 0;
 	}
 }

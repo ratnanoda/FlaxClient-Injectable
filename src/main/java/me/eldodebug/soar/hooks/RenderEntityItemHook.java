@@ -21,13 +21,23 @@ import net.minecraft.util.MathHelper;
 public class RenderEntityItemHook {
 
 	public static int func_177077_a(EntityItem itemIn, double p_177077_2_, double p_177077_4_, double p_177077_6_, float p_177077_8_, IBakedModel p_177077_9_, int func_177078_a) {
-		
+		if(itemIn == null || p_177077_9_ == null) {
+			return func_177078_a;
+		}
+
+        // Pickup particles can render an EntityItem while its stack is being
+        // removed on another client tick. Keep the vanilla render path alive
+        // instead of dereferencing that transient null stack.
         ItemStack itemstack = itemIn.getEntityItem();
+        if(itemstack == null || itemstack.getItem() == null) {
+            return func_177078_a;
+        }
         Item item = itemstack.getItem();
         Block block = Block.getBlockFromItem(item);
-        
+
         ItemPhysicsMod mod = ItemPhysicsMod.getInstance();
-        float speed = mod.getSpeedSetting().getValueFloat();
+        boolean itemPhysics = mod != null && mod.isToggled();
+        float speed = mod == null ? 1.0F : mod.getSpeedSetting().getValueFloat();
         		
         if (item == null){
             return 0;
@@ -36,7 +46,7 @@ public class RenderEntityItemHook {
             boolean flag = p_177077_9_.isGui3d();
             int i = func_177078_a;
             
-            if(mod.isToggled()) {
+            if(itemPhysics) {
             	if(block != null) {
                     GlStateManager.translate((float)p_177077_2_, (float)p_177077_4_ + 0.15F, (float)p_177077_6_);
             	}else {
@@ -50,9 +60,10 @@ public class RenderEntityItemHook {
                 GlStateManager.translate((float)p_177077_2_, (float)p_177077_4_ + f1 + 0.25F * f2, (float)p_177077_6_);
             }
 
-            if(!mod.isToggled()) {
+            if(!itemPhysics) {
                 if (flag || Minecraft.getMinecraft().getRenderManager().options != null) {
-                    if (p_177077_9_.isGui3d() || !Items2DMod.getInstance().isToggled()) {
+                    Items2DMod items2D = Items2DMod.getInstance();
+                    if (p_177077_9_.isGui3d() || items2D == null || !items2D.isToggled()) {
                         float f3 = (((float)itemIn.getAge() + p_177077_8_) / 20.0F + itemIn.hoverStart) * (180F / (float)Math.PI);
                         GlStateManager.rotate(f3, 0.0F, 1.0F, 0.0F);
                     }else {
@@ -69,12 +80,16 @@ public class RenderEntityItemHook {
                 GlStateManager.translate(f6, f4, f5);
             }
 
-            if(mod.isToggled() && !itemIn.onGround) {
+			if(itemPhysics && !itemIn.onGround) {
             	float angle = System.currentTimeMillis() % (360 * 20) / (float) (4.5 - (speed));
             	GlStateManager.rotate(angle, 1F, 1F, 1F);
             }
             
-            UHCOverlayMod uhcMod = UHCOverlayMod.getInstance();
+			UHCOverlayMod uhcMod = UHCOverlayMod.getInstance();
+			if(uhcMod == null) {
+				GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+				return i;
+			}
         	float ingotScale = uhcMod.getGoldIngotScaleSetting().getValueFloat();
         	float nuggetScale = uhcMod.getGoldNuggetScaleSetting().getValueFloat();
         	float appleScale = uhcMod.getGoldAppleScaleSetting().getValueFloat();
@@ -88,32 +103,32 @@ public class RenderEntityItemHook {
             if(uhcMod.isToggled()) {
                 if(item == Items.gold_ingot) {
 
-                    if(!mod.isToggled()) {
+                    if(!itemPhysics) {
                         GlStateManager.translate(f6, f4 + (ingotScale / 8), f5);
                     }
 
                 	GlStateManager.scale(ingotScale, ingotScale, ingotScale);
                 }
                 if(item == Items.gold_nugget) {
-                    if(!mod.isToggled()) {
+                    if(!itemPhysics) {
                         GlStateManager.translate(f6, f4 + (nuggetScale / 8), f5);
                     }
                 	GlStateManager.scale(nuggetScale, nuggetScale, nuggetScale);
                 }
                 if(item == Items.golden_apple) {
-                    if(!mod.isToggled()) {
+                    if(!itemPhysics) {
                         GlStateManager.translate(f6, f4 + (appleScale / 8), f5);
                     }
                 	GlStateManager.scale(appleScale, appleScale, appleScale);
                 }
                 if(block == Blocks.gold_ore) {
-                    if(!mod.isToggled()) {
+                    if(!itemPhysics) {
                         GlStateManager.translate(f6, f4 + (oreScale / 8), f5);
                     }
                 	GlStateManager.scale(oreScale, oreScale, oreScale);
                 }
                 if(item == Items.skull) {
-                    if(!mod.isToggled()) {
+                    if(!itemPhysics) {
                         GlStateManager.translate(f6, f4 + (skullScale / 8), f5);
                     }
                 	GlStateManager.scale(skullScale, skullScale, skullScale);
@@ -126,6 +141,9 @@ public class RenderEntityItemHook {
 	}
 	
     public static void oldItemRender(RenderItem instance, IBakedModel model, ItemStack stack) {
+        if(instance == null || model == null || stack == null) {
+            return;
+        }
         GlStateManager.pushMatrix();
         Minecraft.getMinecraft().getTextureManager().bindTexture(TextureMap.locationBlocksTexture);
         Minecraft.getMinecraft().getTextureManager().getTexture(TextureMap.locationBlocksTexture).setBlurMipmap(false, false);

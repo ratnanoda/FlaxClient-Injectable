@@ -57,7 +57,12 @@ public class InternalSettingsMod extends Mod {
 	@EventTarget
 	public void onKey(EventKey event) {
 		if(event.getKeyCode() == modMenuKeybindSetting.getKeyCode()) {
-			mc.displayGuiScreen(Glide.getInstance().getModMenu());
+			// Lunar and LWJGL can emit repeat key-down events while a GUI is open.
+			// Re-displaying the same screen calls initGui again and restarts the
+			// opening animation every frame, which looked like random flashing.
+			if(mc.currentScreen != Glide.getInstance().getModMenu()) {
+				mc.displayGuiScreen(Glide.getInstance().getModMenu());
+			}
 		}
 
 //		Uncomment to enable the ability to change the theme of the mod menu using the down arrow key

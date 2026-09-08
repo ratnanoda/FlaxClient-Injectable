@@ -35,14 +35,66 @@ bool is_transform_target(const char* internal_name) {
         "net/minecraft/client/renderer/EntityRenderer",
         "bew",
         "net/minecraft/client/entity/EntityPlayerSP",
+        "ek",
+        "net/minecraft/network/NetworkManager",
         "wn",
         "net/minecraft/entity/player/EntityPlayer",
+        "pr",
+        "net/minecraft/entity/EntityLivingBase",
         "bet",
         "net/minecraft/client/entity/AbstractClientPlayer",
         "bjl",
         "net/minecraft/client/renderer/entity/RendererLivingEntity",
+        "bbr",
+        "net/minecraft/client/model/ModelPlayer",
+        "bln",
+        "net/minecraft/client/renderer/entity/RenderPlayer",
+        "bfn",
+        "net/minecraft/client/renderer/ItemRenderer",
         "bcy",
         "net/minecraft/client/network/NetHandlerPlayClient",
+        "bdb",
+        "net/minecraft/client/multiplayer/WorldClient",
+        "avn",
+        "net/minecraft/client/gui/FontRenderer",
+        "bmh",
+        "net/minecraft/client/renderer/texture/TextureMap",
+        "bht",
+        "net/minecraft/client/renderer/chunk/RenderChunk",
+        "bfh",
+        "net/minecraft/client/renderer/ChunkRenderContainer",
+        "biu",
+        "net/minecraft/client/renderer/entity/RenderManager",
+        "bkf",
+        "net/minecraft/client/renderer/entity/RenderTNTPrimed",
+        "adm",
+        "net/minecraft/world/World",
+        "ato",
+        "net/minecraft/world/storage/WorldInfo",
+        "aec",
+        "net/minecraft/world/biome/WorldChunkManager",
+        "pk",
+        "net/minecraft/entity/Entity",
+        "bpx",
+        "net/minecraft/client/audio/SoundManager",
+        "bho",
+        "net/minecraft/client/renderer/chunk/ChunkRenderDispatcher",
+        "afh",
+        "net/minecraft/block/Block",
+        "avj",
+        "net/minecraft/util/ScreenShotHelper",
+        "awh",
+        "net/minecraft/client/gui/GuiPlayerTabOverlay",
+        "bjh",
+        "net/minecraft/client/renderer/entity/RenderItem",
+        "bjf",
+        "net/minecraft/client/renderer/entity/RenderEntityItem",
+        "bkt",
+        "net/minecraft/client/renderer/entity/layers/LayerDeadmau5Head",
+        "avf",
+        "net/minecraft/util/MouseHelper",
+        "net/minecraft/client/gui/Gui",
+        "net/minecraft/client/Camera",
     };
     for (const char* target : targets) {
         if (std::strcmp(internal_name, target) == 0) {
@@ -86,7 +138,9 @@ std::filesystem::path materialize_client_jar() {
             loaded_resource == nullptr ? nullptr : LockResource(loaded_resource);
         if (resource_bytes != nullptr && resource_size > 0) {
             std::filesystem::path target = log_path().parent_path();
-            target /= L"FlaxClient-";
+            target /= flax_compat::is_modern_dawn()
+                          ? L"FlaxClient-26.2-bridge-"
+                          : L"FlaxClient-";
             target += std::to_wstring(GetCurrentProcessId());
             target += L".jar";
 
@@ -329,6 +383,105 @@ jobject create_jar_url(JNIEnv* env, const std::filesystem::path& jar_path) {
     return url;
 }
 
+jobject create_jar_nio_path(JNIEnv* env, const std::filesystem::path& jar_path) {
+    const std::string utf8_path = jar_path.u8string();
+    jstring path = env->NewStringUTF(utf8_path.c_str());
+    jclass paths_class = env->FindClass("java/nio/file/Paths");
+    jclass string_class = env->FindClass("java/lang/String");
+    jobjectArray empty_more = string_class == nullptr
+                                  ? nullptr
+                                  : env->NewObjectArray(0, string_class, nullptr);
+    jmethodID get_path = paths_class == nullptr
+                             ? nullptr
+                             : env->GetStaticMethodID(
+                                   paths_class,
+                                   "get",
+                                   "(Ljava/lang/String;[Ljava/lang/String;)Ljava/nio/file/Path;");
+    jobject result = path == nullptr || empty_more == nullptr || get_path == nullptr
+                         ? nullptr
+                         : env->CallStaticObjectMethod(paths_class, get_path, path, empty_more);
+    if (clear_java_exception(env, "creating the Knot class-path entry")) {
+        result = nullptr;
+    }
+    if (path != nullptr) {
+        env->DeleteLocalRef(path);
+    }
+    if (empty_more != nullptr) {
+        env->DeleteLocalRef(empty_more);
+    }
+    if (string_class != nullptr) {
+        env->DeleteLocalRef(string_class);
+    }
+    if (paths_class != nullptr) {
+        env->DeleteLocalRef(paths_class);
+    }
+    return result;
+}
+
+bool add_jar_to_knot_loader(
+    JNIEnv* env,
+    jobject class_loader,
+    const std::filesystem::path& jar_path) {
+    jclass loader_class = env->GetObjectClass(class_loader);
+    if (loader_class == nullptr) {
+        clear_java_exception(env, "identifying the Fabric Knot class loader");
+        return false;
+    }
+    jmethodID get_delegate = env->GetMethodID(
+        loader_class,
+        "getDelegate",
+        "()Lnet/fabricmc/loader/impl/launch/knot/KnotClassDelegate;");
+    if (get_delegate == nullptr) {
+        // This is the expected path for LaunchWrapper/Lunar.
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+        env->DeleteLocalRef(loader_class);
+        return false;
+    }
+
+    jobject delegate = env->CallObjectMethod(class_loader, get_delegate);
+    if (delegate == nullptr ||
+        clear_java_exception(env, "getting the Knot class loader delegate")) {
+        if (delegate != nullptr) {
+            env->DeleteLocalRef(delegate);
+        }
+        env->DeleteLocalRef(loader_class);
+        return false;
+    }
+
+    jobject path = create_jar_nio_path(env, jar_path);
+    jclass delegate_class = env->GetObjectClass(delegate);
+    jmethodID add_code_source = delegate_class == nullptr
+                                    ? nullptr
+                                    : env->GetMethodID(
+                                          delegate_class,
+                                          "addCodeSource",
+                                          "(Ljava/nio/file/Path;)V");
+    bool success = path != nullptr && add_code_source != nullptr;
+    if (success) {
+        env->CallVoidMethod(delegate, add_code_source, path);
+        success = !clear_java_exception(
+            env,
+            "adding FlaxClient to the Knot class path");
+    } else {
+        clear_java_exception(env, "resolving KnotClassDelegate.addCodeSource");
+    }
+
+    if (delegate_class != nullptr) {
+        env->DeleteLocalRef(delegate_class);
+    }
+    if (path != nullptr) {
+        env->DeleteLocalRef(path);
+    }
+    env->DeleteLocalRef(delegate);
+    env->DeleteLocalRef(loader_class);
+    if (success) {
+        log_message("Added the client jar through Fabric KnotClassDelegate.");
+    }
+    return success;
+}
+
 jobject find_loaded_minecraft_class_loader(JavaVM* vm) {
     jvmtiEnv* jvmti = nullptr;
     if (vm->GetEnv(
@@ -381,6 +534,29 @@ jobject find_loaded_minecraft_class_loader(JavaVM* vm) {
             "Using the defining class loader of the loaded Minecraft class.");
     }
     return result;
+}
+
+jobject find_system_class_loader(JNIEnv* env) {
+    jclass class_loader_class = env->FindClass("java/lang/ClassLoader");
+    jmethodID get_system_loader = class_loader_class == nullptr
+                                      ? nullptr
+                                      : env->GetStaticMethodID(
+                                            class_loader_class,
+                                            "getSystemClassLoader",
+                                            "()Ljava/lang/ClassLoader;");
+    if (get_system_loader == nullptr ||
+        clear_java_exception(env, "resolving ClassLoader.getSystemClassLoader")) {
+        if (class_loader_class != nullptr) {
+            env->DeleteLocalRef(class_loader_class);
+        }
+        return nullptr;
+    }
+    jobject loader = env->CallStaticObjectMethod(class_loader_class, get_system_loader);
+    if (clear_java_exception(env, "getting the Java system class loader")) {
+        loader = nullptr;
+    }
+    env->DeleteLocalRef(class_loader_class);
+    return loader;
 }
 
 jobject find_minecraft_class_loader(
@@ -447,6 +623,40 @@ bool add_jar_to_launch_loader(
     JavaVM* vm,
     jobject class_loader,
     const std::filesystem::path& jar_path) {
+    if (flax_compat::is_modern_dawn()) {
+        jvmtiEnv* jvmti = nullptr;
+        if (vm->GetEnv(
+                reinterpret_cast<void**>(&jvmti),
+                JVMTI_VERSION_1_2) != JNI_OK ||
+            jvmti == nullptr) {
+            log_message("JVMTI was unavailable for the Dawn 26.2 class path.");
+            return false;
+        }
+        const std::string utf8_path = jar_path.u8string();
+        const jvmtiError result =
+            jvmti->AddToSystemClassLoaderSearch(utf8_path.c_str());
+        if (result != JVMTI_ERROR_NONE) {
+            log_message(
+                "Dawn 26.2 system class-path extension failed (error %d).",
+                result);
+            return false;
+        }
+        log_message("Added the Dawn 26.2 bridge to the Java system class path.");
+        // Fabric deliberately isolates game classes from arbitrary parent
+        // code sources. The transformer itself stays in the system loader so
+        // it shares Fabric's ASM, while the static hook linkage is also made
+        // visible to Knot through its supported code-source path.
+        if (!add_jar_to_knot_loader(env, class_loader, jar_path)) {
+            log_message("Could not expose the Dawn 26.2 hooks to Fabric Knot.");
+            return false;
+        }
+        return true;
+    }
+
+    if (add_jar_to_knot_loader(env, class_loader, jar_path)) {
+        return true;
+    }
+
     jobject url = create_jar_url(env, jar_path);
     if (url == nullptr) {
         return false;
@@ -629,7 +839,26 @@ bool retransform_loaded_minecraft_classes(jvmtiEnv* jvmti) {
         "Retransformed %d of %d currently loaded Minecraft hook targets.",
         transformed,
         found);
-    return transformed == found;
+
+    /*
+     * Forge/Dawn may have already changed the schema of a small number of
+     * vanilla classes before a late attach. HotSpot then rejects those
+     * individual retransforms with errors 63/64 even though the remaining
+     * classes were installed successfully. Treating that partial result as a
+     * total failure prevented AttachBootstrap from ever running, so the user
+     * saw a successful DLL injection but no client. Continue when at least one
+     * hook was installed; LateHooks is deliberately defensive when a specific
+     * optional hook is unavailable.
+     */
+    if (transformed == 0) {
+        return false;
+    }
+    if (transformed != found) {
+        log_message(
+            "Continuing with %d unsupported Dawn-modified hook targets disabled.",
+            found - transformed);
+    }
+    return true;
 }
 
 bool install_late_transformer(
@@ -654,11 +883,15 @@ bool install_late_transformer(
         return false;
     }
 
+    const bool modern_dawn = flax_compat::is_modern_dawn();
+    const char* transformer_name = modern_dawn
+                                       ? "me.eldodebug.soar.attach.modern.Modern26LateClassTransformer"
+                                       : "me.eldodebug.soar.attach.CompatibleLateClassTransformer";
     jclass transformer_class = load_class_from(
         env,
         class_loader,
-        "me.eldodebug.soar.attach.LateClassTransformer",
-        "loading LateClassTransformer");
+        transformer_name,
+        "loading the FlaxClient late transformer");
     if (transformer_class == nullptr) {
         return false;
     }
@@ -668,7 +901,7 @@ bool install_late_transformer(
         "transform",
         "(Ljava/lang/String;[B)[B");
     if (transform_method == nullptr ||
-        clear_java_exception(env, "resolving LateClassTransformer.transform")) {
+        clear_java_exception(env, "resolving the FlaxClient late transformer")) {
         env->DeleteLocalRef(transformer_class);
         return false;
     }
@@ -679,7 +912,7 @@ bool install_late_transformer(
     g_jvmti = jvmti;
     env->DeleteLocalRef(transformer_class);
     if (g_transformer_class == nullptr ||
-        clear_java_exception(env, "retaining LateClassTransformer")) {
+        clear_java_exception(env, "retaining the FlaxClient late transformer")) {
         return false;
     }
 
@@ -706,7 +939,7 @@ bool install_late_transformer(
     if (!retransform_loaded_minecraft_classes(jvmti)) {
         return false;
     }
-    if (!mark_late_load_ready(env, class_loader)) {
+    if (!modern_dawn && !mark_late_load_ready(env, class_loader)) {
         return false;
     }
 
@@ -715,11 +948,14 @@ bool install_late_transformer(
 }
 
 bool invoke_bootstrap(JNIEnv* env, jobject class_loader) {
+    const bool modern_dawn = flax_compat::is_modern_dawn();
     jclass bootstrap_class = load_class_from(
         env,
         class_loader,
-        "me.eldodebug.soar.attach.AttachBootstrap",
-        "loading AttachBootstrap");
+        modern_dawn
+            ? "me.eldodebug.soar.attach.modern.Modern26AttachBootstrap"
+            : "me.eldodebug.soar.attach.AttachBootstrap",
+        "loading the FlaxClient attach bootstrap");
     if (bootstrap_class == nullptr) {
         return false;
     }
@@ -793,15 +1029,28 @@ DWORD WINAPI attach_worker(void*) {
     }
 
     jobject class_loader = find_minecraft_class_loader(env, vm);
+    log_message("Detected runtime: %s.", flax_compat::runtime_name());
     bool success = class_loader != nullptr;
     if (success) {
         success = add_jar_to_launch_loader(env, vm, class_loader, jar_path);
     }
-    if (success) {
-        success = install_late_transformer(env, vm, class_loader);
+    jobject client_loader = class_loader;
+    if (success && flax_compat::is_modern_dawn()) {
+        client_loader = find_system_class_loader(env);
+        success = client_loader != nullptr;
+        if (success) {
+            log_message("Using the Java system loader for the isolated 26.2 bridge.");
+        }
     }
     if (success) {
-        success = invoke_bootstrap(env, class_loader);
+        success = install_late_transformer(env, vm, client_loader);
+    }
+    if (success) {
+        success = invoke_bootstrap(env, client_loader);
+    }
+    if (client_loader != nullptr && class_loader != nullptr &&
+        !env->IsSameObject(client_loader, class_loader)) {
+        env->DeleteLocalRef(client_loader);
     }
     if (class_loader != nullptr) {
         env->DeleteLocalRef(class_loader);

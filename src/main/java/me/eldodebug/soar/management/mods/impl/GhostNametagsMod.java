@@ -9,7 +9,6 @@ import org.lwjgl.opengl.GL11;
 
 import me.eldodebug.soar.Glide;
 import me.eldodebug.soar.management.event.EventTarget;
-import me.eldodebug.soar.management.event.impl.EventRender2D;
 import me.eldodebug.soar.management.event.impl.EventRender3D;
 import me.eldodebug.soar.management.language.TranslateText;
 import me.eldodebug.soar.management.mods.Mod;
@@ -22,8 +21,8 @@ import me.eldodebug.soar.management.mods.settings.impl.combo.Option;
 import me.eldodebug.soar.utils.ColorUtils;
 import me.eldodebug.soar.utils.MathUtils;
 import me.eldodebug.soar.utils.render.RenderUtils;
-import me.eldodebug.soar.utils.render.WorldToScreen;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.util.MathHelper;
 
@@ -53,16 +52,6 @@ public class GhostNametagsMod extends Mod {
 
 	@EventTarget
 	public void onRender3D(EventRender3D event) {
-		// Capture the camera matrices during the world pass; the nametags are
-		// drawn as a flat 2D overlay so they always face the camera.
-		if(mc.theWorld == null || mc.thePlayer == null) {
-			return;
-		}
-		WorldToScreen.capture();
-	}
-
-	@EventTarget
-	public void onRender2D(EventRender2D event) {
 		if(mc.theWorld == null || mc.thePlayer == null) {
 			return;
 		}
@@ -81,26 +70,34 @@ public class GhostNametagsMod extends Mod {
 				mc.thePlayer.getDistanceSqToEntity(a)));
 
 		for(EntityPlayer player : targets) {
-			renderNameTag(player, event.getPartialTicks());
+			renderWorldNameTag(player, event.getPartialTicks());
 		}
 	}
 
-	private void renderNameTag(EntityPlayer player, float partialTicks) {
-
-		double worldX = interpolate(player.lastTickPosX, player.posX, partialTicks);
-		double worldY = interpolate(player.lastTickPosY, player.posY, partialTicks) + player.height + 0.62D;
-		double worldZ = interpolate(player.lastTickPosZ, player.posZ, partialTicks);
-
-		float[] screen = WorldToScreen.project(worldX, worldY, worldZ);
-		if(screen == null) {
-			return;
-		}
-
+	private void renderWorldNameTag(EntityPlayer player, float partialTicks) {
+		RenderManager manager = mc.getRenderManager();
+		double x = interpolate(player.lastTickPosX, player.posX, partialTicks)
+				- manager.viewerPosX;
+		double y = interpolate(player.lastTickPosY, player.posY, partialTicks)
+				- manager.viewerPosY + player.height + 0.62D;
+		double z = interpolate(player.lastTickPosZ, player.posZ, partialTicks)
+				- manager.viewerPosZ;
 		float distance = mc.thePlayer.getDistanceToEntity(player);
-		float distanceScale = MathHelper.clamp_float(0.55F - distance * 0.0015F, 0.32F, 0.55F);
-		float scale = distanceScale * scaleSetting.getValueFloat();
+		// A perspective projection makes a fixed world-space label shrink with
+		// distance. Scale it by distance (relative to a comfortable 8-block
+		// reference) so its on-screen size remains stable instead of becoming
+		// unreadable in the distance. The small floor avoids a zero/near-zero
+		// scale when another player is standing directly inside the camera.
+		float distanceScale = MathHelper.clamp_float(distance / 8.0F, 0.12F, 16.0F);
+		float worldScale = 0.025F * scaleSetting.getValueFloat() * distanceScale;
 
-		drawNameTag(player, screen[0], screen[1], scale);
+		GlStateManager.pushMatrix();
+		GlStateManager.translate(x, y, z);
+		GlStateManager.rotate(-manager.playerViewY, 0.0F, 1.0F, 0.0F);
+		GlStateManager.rotate(manager.playerViewX, 1.0F, 0.0F, 0.0F);
+		GlStateManager.scale(-worldScale, -worldScale, worldScale);
+		drawNameTag(player, 0.0F, 0.0F, 1.0F);
+		GlStateManager.popMatrix();
 	}
 
 	private void drawNameTag(EntityPlayer player, float screenX, float screenY, float scale) {
@@ -177,15 +174,17 @@ public class GhostNametagsMod extends Mod {
 
 	private void drawBackground(String preset, float x, float y, float width, float height) {
 
-		if(preset.equals(TranslateText.MINIMAL.getKey())) {
-			// Text only - no background.
-			return;
-		}
-
 		int opacityAlpha = (int) (MathUtils.clamp(backgroundOpacitySetting.getValueFloat() / 100.0F) * 255.0F);
 		Color base = backgroundColorSetting.getColor();
 		Color background = new Color(base.getRed(), base.getGreen(), base.getBlue(), opacityAlpha);
 		Color accent = Glide.getInstance().getColorManager().getCurrentColor().getInterpolateColor();
+
+		if(preset.equals(TranslateText.MINIMAL.getKey())) {
+			// Minimal keeps the panel plain and compact, but still provides a
+			// readable background whose opacity can be adjusted in the settings.
+			RenderUtils.drawRect(x, y, width, height, background);
+			return;
+		}
 
 		if(preset.equals(TranslateText.CLASSIC.getKey())) {
 			RenderUtils.drawRect(x, y, width, height, background);
