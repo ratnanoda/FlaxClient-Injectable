@@ -32,6 +32,10 @@ public class InternalSettingsMod extends Mod {
 
 	private final NumberSetting volumeSetting = new NumberSetting(TranslateText.VOLUME, this, 0.8, 0, 1, false);
 
+	// Stored with the rest of the internal settings. GuiModMenu snapshots this
+	// value in initGui(), so moving the slider never resizes a live layout.
+	private final NumberSetting guiScaleSetting = new NumberSetting(TranslateText.SCALE, this, 1.0, 0.65, 1.30, false);
+
 	private final KeybindSetting modMenuKeybindSetting = new KeybindSetting(TranslateText.KEYBIND, this, Keyboard.KEY_RSHIFT);
 
 	private final TextSetting capeNameSetting = new TextSetting(TranslateText.CUSTOM_CAPE, this, "None");
@@ -92,6 +96,8 @@ public class InternalSettingsMod extends Mod {
 	public BooleanSetting getFastCloseEscSetting(){return fastCloseEscSetting;}
 
 	public NumberSetting getVolumeSetting() {return volumeSetting;}
+
+	public NumberSetting getGuiScaleSetting() {return guiScaleSetting;}
 
 	public ComboSetting getModThemeSetting() {return modThemeSetting;}
 
