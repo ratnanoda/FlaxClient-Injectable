@@ -54,13 +54,19 @@ public class GuiModMenu extends GuiScreen {
 	private static final int SIDEBAR_WIDTH = 42;
 	private static final int SIDEBAR_GRIP_HEIGHT = 13;
 	private static final int NAV_ITEM_HEIGHT = 30;
+	private static final float MIN_GUI_SCALE = 0.65F;
+	private static final float MAX_GUI_SCALE = 1.30F;
 
 	private Animation introAnimation;
 	// x/width retain the legacy parent coordinate contract used by Category.
 	private int x, y, width, height;
 	private int contentX, contentY, contentWidth, contentHeight;
 	private int sidebarX, sidebarY, sidebarHeight;
+	// scaledWidth/Height are the logical GUI canvas. screenWidth/Height are the
+	// actual Minecraft scaled resolution used for the background and animation.
 	private int scaledWidth, scaledHeight;
+	private int screenWidth, screenHeight;
+	private float activeGuiScale = 1.0F;
 
 	private final ArrayList<Category> categories = new ArrayList<Category>();
 	private final ArrayList<Category> navigationCategories = new ArrayList<Category>();
@@ -97,8 +103,18 @@ public class GuiModMenu extends GuiScreen {
 	@Override
 	public void initGui() {
 		ScaledResolution sr = new ScaledResolution(mc);
-		scaledWidth = sr.getScaledWidth();
-		scaledHeight = sr.getScaledHeight();
+		screenWidth = sr.getScaledWidth();
+		screenHeight = sr.getScaledHeight();
+
+		float previousScale = activeGuiScale;
+		double configuredScale = InternalSettingsMod.getInstance() == null
+				? 1.0 : InternalSettingsMod.getInstance().getGuiScaleSetting().getValue();
+		activeGuiScale = (float) Math.max(MIN_GUI_SCALE, Math.min(MAX_GUI_SCALE, configuredScale));
+
+		// Use a virtual canvas so every component (including module dropdowns)
+		// scales together and still lays itself out inside the visible screen.
+		scaledWidth = Math.max(1, Math.round(screenWidth / activeGuiScale));
+		scaledHeight = Math.max(1, Math.round(screenHeight / activeGuiScale));
 		currentCategory = getCategoryByClass(GhostCategory.class);
 
 		contentWidth = Math.min(798, Math.max(418, scaledWidth - 92));
@@ -113,7 +129,8 @@ public class GuiModMenu extends GuiScreen {
 		height = contentHeight;
 
 		sidebarHeight = SIDEBAR_GRIP_HEIGHT + 34 + visibleCategories().size() * NAV_ITEM_HEIGHT + 39;
-		if(!sidebarPositioned) {
+		boolean scaleChanged = Math.abs(previousScale - activeGuiScale) > 0.001F;
+		if(!sidebarPositioned || scaleChanged) {
 			sidebarX = Math.max(10, contentX - SIDEBAR_WIDTH - 14);
 			sidebarY = (scaledHeight - sidebarHeight) / 2;
 			sidebarPositioned = true;
@@ -139,7 +156,7 @@ public class GuiModMenu extends GuiScreen {
 			BlurUtils.drawBlurScreen((float) (Math.min(introAnimation.getValue(), 1) * 18) + 1F);
 		}
 		nvg.setupAndDraw(() -> drawAtmosphere(nvg));
-		screenAnimation.wrap(() -> drawNanoVG(mouseX, mouseY, partialTicks), 0, 0, scaledWidth, scaledHeight,
+		screenAnimation.wrap(() -> drawNanoVG(mouseX, mouseY, partialTicks), 0, 0, screenWidth, screenHeight,
 				2 - introAnimation.getValueFloat(), Math.min(introAnimation.getValueFloat(), 1), false);
 		new EventRenderNotification().call();
 		super.drawScreen(mouseX, mouseY, partialTicks);
@@ -157,23 +174,37 @@ public class GuiModMenu extends GuiScreen {
 			return;
 		}
 
-		if(draggingSidebar) {
-			sidebarX = mouseX - sidebarDragX;
-			sidebarY = mouseY - sidebarDragY;
-			clampSidebar();
-		}
+		int guiMouseX = toGuiMouse(mouseX);
+		int guiMouseY = toGuiMouse(mouseY);
 
-		drawSidebar(nvg, palette, accent, mouseX, mouseY);
-		boolean modulePage = currentCategory instanceof ModuleCategory;
-		if(!modulePage) drawContentGlass(nvg, palette, accent);
-		drawFloatingToolbar(nvg, palette, accent, mouseX, mouseY, partialTicks, modulePage);
-		drawCurrentCategory(nvg, mouseX, mouseY, partialTicks, modulePage);
-		beginnerGuide.draw(mouseX, mouseY, partialTicks);
+		nvg.save();
+		try {
+			nvg.scale(0, 0, activeGuiScale);
 
-		if(!beginnerGuide.isOpen() && MouseUtils.isInside(mouseX, mouseY, contentX, contentY + 31, contentWidth, contentHeight - 31)) {
-			scroll.onScroll();
+			if(draggingSidebar) {
+				sidebarX = guiMouseX - sidebarDragX;
+				sidebarY = guiMouseY - sidebarDragY;
+				clampSidebar();
+			}
+
+			drawSidebar(nvg, palette, accent, guiMouseX, guiMouseY);
+			boolean modulePage = currentCategory instanceof ModuleCategory;
+			if(!modulePage) drawContentGlass(nvg, palette, accent);
+			drawFloatingToolbar(nvg, palette, accent, guiMouseX, guiMouseY, partialTicks, modulePage);
+			drawCurrentCategory(nvg, guiMouseX, guiMouseY, partialTicks, modulePage);
+			beginnerGuide.draw(guiMouseX, guiMouseY, partialTicks);
+
+			if(!beginnerGuide.isOpen() && MouseUtils.isInside(guiMouseX, guiMouseY, contentX, contentY + 31, contentWidth, contentHeight - 31)) {
+				scroll.onScroll();
+			}
+			scroll.onAnimation();
+		} finally {
+			nvg.restore();
 		}
-		scroll.onAnimation();
+	}
+
+	private int toGuiMouse(int coordinate) {
+		return Math.round(coordinate / activeGuiScale);
 	}
 
 	private void drawSidebar(NanoVGManager nvg, ColorPalette palette, AccentColor accent, int mouseX, int mouseY) {
@@ -290,38 +321,41 @@ public class GuiModMenu extends GuiScreen {
 
 	@Override
 	public void mouseClicked(int mouseX, int mouseY, int mouseButton) {
-		if(beginnerGuide.mouseClicked(mouseX, mouseY, mouseButton)) return;
-		if(mouseButton == 0 && MouseUtils.isInside(mouseX, mouseY, sidebarX, sidebarY,
+		int guiMouseX = toGuiMouse(mouseX);
+		int guiMouseY = toGuiMouse(mouseY);
+
+		if(beginnerGuide.mouseClicked(guiMouseX, guiMouseY, mouseButton)) return;
+		if(mouseButton == 0 && MouseUtils.isInside(guiMouseX, guiMouseY, sidebarX, sidebarY,
 				SIDEBAR_WIDTH, SIDEBAR_GRIP_HEIGHT)) {
 			draggingSidebar = true;
-			sidebarDragX = mouseX - sidebarX;
-			sidebarDragY = mouseY - sidebarY;
+			sidebarDragX = guiMouseX - sidebarX;
+			sidebarDragY = guiMouseY - sidebarY;
 			return;
 		}
 
-		if(mouseButton == 0 && clickSidebarNavigation(mouseX, mouseY)) return;
+		if(mouseButton == 0 && clickSidebarNavigation(guiMouseX, guiMouseY)) return;
 
-		boolean insideContent = MouseUtils.isInside(mouseX, mouseY, contentX - 5, contentY - 5,
+		boolean insideContent = MouseUtils.isInside(guiMouseX, guiMouseY, contentX - 5, contentY - 5,
 				contentWidth + 10, contentHeight + 10);
-		boolean insideSidebar = MouseUtils.isInside(mouseX, mouseY, sidebarX - 4, sidebarY - 4,
+		boolean insideSidebar = MouseUtils.isInside(guiMouseX, guiMouseY, sidebarX - 4, sidebarY - 4,
 				SIDEBAR_WIDTH + 8, sidebarHeight + 8);
 		if(!(currentCategory instanceof ModuleCategory) && !insideContent && !insideSidebar && mouseButton == 0 && canClose) {
 			introAnimation.setDirection(Direction.BACKWARDS);
 		}
 
-		currentCategory.mouseClicked(mouseX, mouseY, mouseButton);
-		if(!(currentCategory instanceof ModuleCategory)) searchBox.mouseClicked(mouseX, mouseY, mouseButton);
+		currentCategory.mouseClicked(guiMouseX, guiMouseY, mouseButton);
+		if(!(currentCategory instanceof ModuleCategory)) searchBox.mouseClicked(guiMouseX, guiMouseY, mouseButton);
 
 		if(Objects.equals(currentCategory.getNameKey(), TranslateText.COSMETICS.getKey())) {
 			float folderX = contentX + contentWidth - 198;
 			float folderY = contentY + 5;
-			if(MouseUtils.isInside(mouseX, mouseY, folderX, folderY, 18, 18)) {
+			if(MouseUtils.isInside(guiMouseX, guiMouseY, folderX, folderY, 18, 18)) {
 				FileUtils.openFolderAtPath(Glide.getInstance().getFileManager().getCustomCapeDir());
 			}
 		}
 
 		try {
-			super.mouseClicked(mouseX, mouseY, mouseButton);
+			super.mouseClicked(guiMouseX, guiMouseY, mouseButton);
 		} catch(IOException ignored) {}
 	}
 
@@ -356,8 +390,10 @@ public class GuiModMenu extends GuiScreen {
 
 	@Override
 	public void mouseReleased(int mouseX, int mouseY, int mouseButton) {
+		int guiMouseX = toGuiMouse(mouseX);
+		int guiMouseY = toGuiMouse(mouseY);
 		if(mouseButton == 0) draggingSidebar = false;
-		currentCategory.mouseReleased(mouseX, mouseY, mouseButton);
+		currentCategory.mouseReleased(guiMouseX, guiMouseY, mouseButton);
 	}
 
 	@Override
@@ -423,9 +459,9 @@ public class GuiModMenu extends GuiScreen {
 	private void initSnow() {
 		snowflakes.clear();
 		Random random = new Random(0xF1A8C11EL);
-		int count = Math.max(55, Math.min(105, (scaledWidth * scaledHeight) / 5200));
+		int count = Math.max(55, Math.min(105, (screenWidth * screenHeight) / 5200));
 		for(int i = 0; i < count; i++) {
-			snowflakes.add(new Snowflake(random.nextFloat() * scaledWidth, random.nextFloat() * scaledHeight,
+			snowflakes.add(new Snowflake(random.nextFloat() * screenWidth, random.nextFloat() * screenHeight,
 					0.55F + random.nextFloat() * 1.35F, 9.0F + random.nextFloat() * 20.0F,
 					4.0F + random.nextFloat() * 9.0F, random.nextFloat() * 6.28318F));
 		}
@@ -438,16 +474,16 @@ public class GuiModMenu extends GuiScreen {
 		lastSnowUpdate = now;
 		float time = now / 1_000_000_000.0F;
 		float alpha = Math.max(0, Math.min(introAnimation.getValueFloat(), 1));
-		nvg.drawRect(0, 0, scaledWidth, scaledHeight, new Color(6, 9, 18, (int) (66 * alpha)));
+		nvg.drawRect(0, 0, screenWidth, screenHeight, new Color(6, 9, 18, (int) (66 * alpha)));
 		for(Snowflake flake : snowflakes) {
 			flake.y += flake.speed * delta;
 			flake.x += (float) Math.sin(time * 0.75F + flake.phase) * flake.drift * delta;
-			if(flake.y > scaledHeight + 4) {
+			if(flake.y > screenHeight + 4) {
 				flake.y = -4;
-				flake.x = (float) ((Math.sin(flake.phase * 13.37F + time) * 0.5F + 0.5F) * scaledWidth);
+				flake.x = (float) ((Math.sin(flake.phase * 13.37F + time) * 0.5F + 0.5F) * screenWidth);
 			}
-			if(flake.x < -4) flake.x = scaledWidth + 4;
-			if(flake.x > scaledWidth + 4) flake.x = -4;
+			if(flake.x < -4) flake.x = screenWidth + 4;
+			if(flake.x > screenWidth + 4) flake.x = -4;
 			int flakeAlpha = (int) ((65 + flake.radius * 52) * alpha);
 			nvg.drawCircle(flake.x, flake.y, flake.radius,
 					new Color(244, 249, 255, Math.min(170, flakeAlpha)));

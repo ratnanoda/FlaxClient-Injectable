@@ -3,15 +3,14 @@
 #include <Shellapi.h>
 #include <TlHelp32.h>
 
-#include <filesystem>
-#include <iostream>
-#include <iterator>
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cwctype>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iterator>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -20,51 +19,37 @@
 
 namespace {
 
-struct WindowSearch {
+constexpr int embedded_dll_resource_id = 201;
+
+struct ProcessWindowSearch {
     DWORD process_id;
-    bool minecraft_window;
+    bool found;
 };
 
-BOOL CALLBACK find_minecraft_window(HWND window, LPARAM parameter) {
-    auto* search = reinterpret_cast<WindowSearch*>(parameter);
+BOOL CALLBACK find_visible_process_window(HWND window, LPARAM parameter) {
+    auto* search = reinterpret_cast<ProcessWindowSearch*>(parameter);
     DWORD process_id = 0;
     GetWindowThreadProcessId(window, &process_id);
     if (process_id != search->process_id || !IsWindowVisible(window)) {
         return TRUE;
     }
 
-    wchar_t title[512]{};
-    GetWindowTextW(window, title, static_cast<int>(std::size(title)));
-    std::wstring value(title);
-    if (value.find(L"Minecraft") != std::wstring::npos ||
-        value.find(L"Lunar Client") != std::wstring::npos ||
-        value.find(L"Dawn") != std::wstring::npos ||
-        value.find(L"Feather") != std::wstring::npos) {
-        search->minecraft_window = true;
+    // Do not key process discovery off window captions. Launchers and custom
+    // clients are free to brand their windows however they want.
+    RECT rect{};
+    if (GetWindowRect(window, &rect) &&
+        rect.right - rect.left >= 160 && rect.bottom - rect.top >= 120) {
+        search->found = true;
         return FALSE;
     }
     return TRUE;
 }
 
-bool has_minecraft_window(DWORD process_id) {
-    WindowSearch search{process_id, false};
-    EnumWindows(find_minecraft_window, reinterpret_cast<LPARAM>(&search));
-    return search.minecraft_window;
+bool has_visible_process_window(DWORD process_id) {
+    ProcessWindowSearch search{process_id, false};
+    EnumWindows(find_visible_process_window, reinterpret_cast<LPARAM>(&search));
+    return search.found;
 }
-
-std::filesystem::path executable_path() {
-    std::wstring buffer(32768, L'\0');
-    DWORD length =
-        GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-    if (length == 0 || length >= buffer.size()) {
-        return {};
-    }
-    buffer.resize(length);
-    return std::filesystem::path(buffer);
-}
-
-
-constexpr int embedded_dll_resource_id = 201;
 
 std::filesystem::path embedded_runtime_directory() {
     std::wstring buffer(32768, L'\0');
@@ -178,6 +163,54 @@ std::filesystem::path materialize_embedded_dll() {
     return target;
 }
 
+struct NativeSignals {
+    bool jvm = false;
+    bool lwjgl = false;
+    bool openal = false;
+    bool jinput = false;
+    bool flax = false;
+};
+
+NativeSignals inspect_native_signals(DWORD process_id) {
+    NativeSignals signals;
+    HANDLE snapshot = CreateToolhelp32Snapshot(
+        TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
+        process_id);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        return signals;
+    }
+
+    MODULEENTRY32W module{};
+    module.dwSize = sizeof(module);
+    if (Module32FirstW(snapshot, &module)) {
+        do {
+            std::wstring name(module.szModule);
+            std::transform(
+                name.begin(),
+                name.end(),
+                name.begin(),
+                [](wchar_t character) { return std::towlower(character); });
+
+            signals.jvm = signals.jvm || name == L"jvm.dll";
+            signals.lwjgl = signals.lwjgl ||
+                name == L"lwjgl.dll" || name == L"lwjgl64.dll" ||
+                name == L"lwjgl32.dll";
+            signals.openal = signals.openal ||
+                name == L"openal32.dll" || name == L"openal64.dll" ||
+                name == L"openal.dll";
+            signals.jinput = signals.jinput ||
+                name == L"jinput-dx8.dll" || name == L"jinput-dx8_64.dll" ||
+                name == L"jinput-raw.dll" || name == L"jinput-raw_64.dll";
+            const bool embedded_runtime =
+                name.size() > 15 && name.compare(0, 11, L"flaxclient-") == 0 &&
+                name.compare(name.size() - 4, 4, L".dll") == 0;
+            signals.flax = signals.flax || name == L"flaxclient.dll" || embedded_runtime;
+        } while (Module32NextW(snapshot, &module));
+    }
+    CloseHandle(snapshot);
+    return signals;
+}
+
 uintptr_t remote_module_base(DWORD process_id, const wchar_t* module_name) {
     HANDLE snapshot = CreateToolhelp32Snapshot(
         TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
@@ -192,39 +225,6 @@ uintptr_t remote_module_base(DWORD process_id, const wchar_t* module_name) {
     if (Module32FirstW(snapshot, &module)) {
         do {
             if (_wcsicmp(module.szModule, module_name) == 0) {
-                result = reinterpret_cast<uintptr_t>(module.modBaseAddr);
-                break;
-            }
-        } while (Module32NextW(snapshot, &module));
-    }
-    CloseHandle(snapshot);
-    return result;
-}
-
-uintptr_t remote_flax_module_base(DWORD process_id) {
-    HANDLE snapshot = CreateToolhelp32Snapshot(
-        TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32,
-        process_id);
-    if (snapshot == INVALID_HANDLE_VALUE) {
-        return 0;
-    }
-
-    MODULEENTRY32W module{};
-    module.dwSize = sizeof(module);
-    uintptr_t result = 0;
-    if (Module32FirstW(snapshot, &module)) {
-        do {
-            std::wstring name(module.szModule);
-            std::transform(
-                name.begin(),
-                name.end(),
-                name.begin(),
-                [](wchar_t character) { return std::towlower(character); });
-            const bool embedded_runtime =
-                name.size() > 15 &&
-                name.compare(0, 11, L"flaxclient-") == 0 &&
-                name.compare(name.size() - 4, 4, L".dll") == 0;
-            if (name == L"flaxclient.dll" || embedded_runtime) {
                 result = reinterpret_cast<uintptr_t>(module.modBaseAddr);
                 break;
             }
@@ -265,31 +265,84 @@ bool is_badlion_process(DWORD process_id) {
     return path.find(L"badlion") != std::wstring::npos;
 }
 
-bool is_supported_minecraft_process(DWORD process_id) {
-    return remote_module_base(process_id, L"jvm.dll") != 0 &&
-           has_minecraft_window(process_id) &&
-           !is_badlion_process(process_id);
+struct MinecraftCandidate {
+    DWORD process_id;
+    int score;
+};
+
+int minecraft_candidate_score(DWORD process_id) {
+    if (is_badlion_process(process_id)) {
+        return -1;
+    }
+
+    const NativeSignals signals = inspect_native_signals(process_id);
+    if (!signals.jvm) {
+        return -1;
+    }
+
+    // Minecraft 1.8.9 normally carries the LWJGL 2 native stack. Some custom
+    // launchers rename or wrap parts of it, so a visible JVM window remains a
+    // low-priority fallback. No client/launcher brand is consulted here.
+    int score = 0;
+    if (signals.lwjgl) {
+        score += 100;
+    }
+    if (signals.jinput) {
+        score += 40;
+    }
+    if (signals.openal) {
+        score += 20;
+    }
+    if (has_visible_process_window(process_id)) {
+        score += 10;
+    }
+    return score;
 }
 
-std::vector<DWORD> find_supported_minecraft_processes() {
-    std::vector<DWORD> candidates;
+std::vector<DWORD> find_minecraft_processes() {
+    std::vector<MinecraftCandidate> candidates;
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snapshot == INVALID_HANDLE_VALUE) {
-        return candidates;
+        return {};
     }
 
     PROCESSENTRY32W process{};
     process.dwSize = sizeof(process);
     if (Process32FirstW(snapshot, &process)) {
         do {
-            if (is_java_process(process) &&
-                is_supported_minecraft_process(process.th32ProcessID)) {
-                candidates.push_back(process.th32ProcessID);
+            if (!is_java_process(process)) {
+                continue;
+            }
+            const int score = minecraft_candidate_score(process.th32ProcessID);
+            if (score >= 10) {
+                candidates.push_back({process.th32ProcessID, score});
             }
         } while (Process32NextW(snapshot, &process));
     }
     CloseHandle(snapshot);
-    return candidates;
+
+    if (candidates.empty()) {
+        return {};
+    }
+    std::sort(
+        candidates.begin(),
+        candidates.end(),
+        [](const MinecraftCandidate& left, const MinecraftCandidate& right) {
+            return left.score > right.score;
+        });
+
+    // Return all equally-best candidates. The UI refuses to guess if two game
+    // JVMs really are running at the same time, while ignoring lower-scoring
+    // launcher JVMs in the common game+launcher case.
+    const int best_score = candidates.front().score;
+    std::vector<DWORD> result;
+    for (const MinecraftCandidate& candidate : candidates) {
+        if (candidate.score != best_score) {
+            break;
+        }
+        result.push_back(candidate.process_id);
+    }
+    return result;
 }
 
 bool same_machine_type(HANDLE target) {
@@ -310,8 +363,7 @@ bool same_machine_type(HANDLE target) {
     USHORT target_native = 0;
     return is_wow64_process2(GetCurrentProcess(), &self_process, &self_native) &&
            is_wow64_process2(target, &target_process, &target_native) &&
-           self_process == target_process &&
-           self_native == target_native;
+           self_process == target_process && self_native == target_native;
 }
 
 bool inject(DWORD process_id, const std::filesystem::path& dll_path) {
@@ -321,13 +373,10 @@ bool inject(DWORD process_id, const std::filesystem::path& dll_path) {
         FALSE,
         process_id);
     if (process == nullptr) {
-        std::wcerr << L"Could not open PID " << process_id
-                   << L" (Windows error " << GetLastError() << L").\n";
         return false;
     }
 
     if (!same_machine_type(process)) {
-        std::wcerr << L"Injector, DLL, and Minecraft must all be x64.\n";
         CloseHandle(process);
         return false;
     }
@@ -335,15 +384,9 @@ bool inject(DWORD process_id, const std::filesystem::path& dll_path) {
     const std::wstring path = dll_path.wstring();
     const SIZE_T byte_count = (path.size() + 1) * sizeof(wchar_t);
     void* remote_path = VirtualAllocEx(
-        process,
-        nullptr,
-        byte_count,
-        MEM_COMMIT | MEM_RESERVE,
-        PAGE_READWRITE);
+        process, nullptr, byte_count, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (remote_path == nullptr ||
         !WriteProcessMemory(process, remote_path, path.c_str(), byte_count, nullptr)) {
-        std::wcerr << L"Could not write the DLL path into Minecraft (Windows error "
-                   << GetLastError() << L").\n";
         if (remote_path != nullptr) {
             VirtualFreeEx(process, remote_path, 0, MEM_RELEASE);
         }
@@ -355,49 +398,33 @@ bool inject(DWORD process_id, const std::filesystem::path& dll_path) {
     uintptr_t remote_kernel32 = remote_module_base(process_id, L"kernel32.dll");
     auto local_load_library = reinterpret_cast<uintptr_t>(
         GetProcAddress(local_kernel32, "LoadLibraryW"));
-    if (local_kernel32 == nullptr || remote_kernel32 == 0 ||
-        local_load_library == 0) {
-        std::wcerr << L"Could not resolve LoadLibraryW.\n";
+    if (local_kernel32 == nullptr || remote_kernel32 == 0 || local_load_library == 0) {
         VirtualFreeEx(process, remote_path, 0, MEM_RELEASE);
         CloseHandle(process);
         return false;
     }
 
-    uintptr_t load_library_offset =
+    const uintptr_t load_library_offset =
         local_load_library - reinterpret_cast<uintptr_t>(local_kernel32);
     auto remote_load_library = reinterpret_cast<LPTHREAD_START_ROUTINE>(
         remote_kernel32 + load_library_offset);
     HANDLE thread = CreateRemoteThread(
-        process,
-        nullptr,
-        0,
-        remote_load_library,
-        remote_path,
-        0,
-        nullptr);
+        process, nullptr, 0, remote_load_library, remote_path, 0, nullptr);
     if (thread == nullptr) {
-        std::wcerr << L"Could not create the Minecraft loader thread (Windows error "
-                   << GetLastError() << L").\n";
         VirtualFreeEx(process, remote_path, 0, MEM_RELEASE);
         CloseHandle(process);
         return false;
     }
 
-    DWORD wait_result = WaitForSingleObject(thread, 15000);
+    const DWORD wait_result = WaitForSingleObject(thread, 15000);
     DWORD load_result = 0;
     if (wait_result == WAIT_OBJECT_0) {
         GetExitCodeThread(thread, &load_result);
     }
-
     CloseHandle(thread);
     VirtualFreeEx(process, remote_path, 0, MEM_RELEASE);
     CloseHandle(process);
-
-    if (wait_result != WAIT_OBJECT_0 || load_result == 0) {
-        std::wcerr << L"Minecraft did not load FlaxClient.dll.\n";
-        return false;
-    }
-    return true;
+    return wait_result == WAIT_OBJECT_0 && load_result != 0;
 }
 
 enum class UiState {
@@ -424,13 +451,9 @@ std::filesystem::path configured_dll;
 bool configured_dll_override = false;
 bool verify_embedded_only = false;
 bool force_inject = false;
-// Double-clicking the standalone injector should perform the expected attach
-// once the window is visible. The UI still starts in the idle state, so it
-// never falsely reports that injection already happened. Use --manual when a
-// user wants to select the Inject button explicitly.
 bool auto_inject = true;
 DWORD configured_process_id = 0;
-std::wstring status_text = L"Ready to attach to Minecraft";
+std::wstring status_text = L"Ready to attach to Minecraft 1.8.9";
 int animation_frame = 0;
 std::chrono::steady_clock::time_point close_at;
 
@@ -447,13 +470,11 @@ int window_height() {
 }
 
 RECT inject_button_rect() {
-    return RECT{
-        scale_ui(90), scale_ui(166), scale_ui(370), scale_ui(218)};
+    return RECT{scale_ui(90), scale_ui(166), scale_ui(370), scale_ui(218)};
 }
 
 RECT close_button_rect() {
-    return RECT{
-        window_width() - scale_ui(42), 0, window_width(), scale_ui(38)};
+    return RECT{window_width() - scale_ui(42), 0, window_width(), scale_ui(38)};
 }
 
 void fill_rect(HDC dc, const RECT& rect, COLORREF color) {
@@ -548,29 +569,14 @@ void paint_window(HWND window) {
         button_text = L"Try Again";
     }
     fill_rect(dc, button, button_color);
-
-    if (ui_state == UiState::injecting) {
-        const int width = button.right - button.left;
-        const int segment = scale_ui(62);
-        int x = button.left
-            + (animation_frame * scale_ui(5)) % (width + segment) - segment;
-        RECT shimmer{
-            std::max(button.left, static_cast<LONG>(x)),
-            button.top,
-            std::min(button.right, static_cast<LONG>(x + segment)),
-            button.bottom};
-        if (shimmer.right > shimmer.left) {
-            fill_rect(dc, shimmer, RGB(104, 108, 177));
-        }
-    }
     draw_centered_text(dc, button_text, button, button_font, RGB(255, 255, 255));
 
     RECT footer{
         scale_ui(20), scale_ui(236), client.right - scale_ui(20), scale_ui(264)};
-    std::wstring footer_text =
+    const std::wstring footer_text =
         ui_state == UiState::success
             ? L"This window will close automatically in 5 seconds"
-            : L"Lunar 1.8.9 / Dawn 26.2 (x64)";
+            : L"Minecraft 1.8.9 - MCP / SRG / Notch";
     draw_centered_text(dc, footer_text, footer, body_font, RGB(105, 113, 142));
 
     DeleteObject(title_font);
@@ -578,15 +584,7 @@ void paint_window(HWND window) {
     DeleteObject(button_font);
     DeleteObject(caption_font);
     BitBlt(
-        window_dc,
-        0,
-        0,
-        client.right,
-        client.bottom,
-        dc,
-        0,
-        0,
-        SRCCOPY);
+        window_dc, 0, 0, client.right, client.bottom, dc, 0, 0, SRCCOPY);
     SelectObject(dc, old_bitmap);
     DeleteObject(bitmap);
     DeleteDC(dc);
@@ -603,25 +601,24 @@ InjectionResult perform_injection() {
 
     DWORD process_id = configured_process_id;
     if (process_id == 0) {
-        std::vector<DWORD> candidates = find_supported_minecraft_processes();
+        const std::vector<DWORD> candidates = find_minecraft_processes();
         if (candidates.empty()) {
-            return {
-                false,
-                L"Start Minecraft 1.8.9 and wait for the main menu first"};
+            return {false, L"Start Minecraft 1.8.9 and wait for the main menu first"};
         }
         if (candidates.size() > 1) {
-            return {false, L"More than one supported Minecraft process was found"};
+            return {false, L"Multiple Minecraft JVMs found; close extras or use --pid"};
         }
         process_id = candidates.front();
     }
 
-    if (remote_module_base(process_id, L"jvm.dll") == 0) {
-        return {false, L"The selected process is not a supported Java JVM"};
+    const NativeSignals signals = inspect_native_signals(process_id);
+    if (!signals.jvm) {
+        return {false, L"The selected process is not a Java JVM"};
     }
     if (is_badlion_process(process_id)) {
         return {false, L"Badlion is not supported by this build"};
     }
-    if (!force_inject && remote_flax_module_base(process_id) != 0) {
+    if (!force_inject && signals.flax) {
         return {true, L"FlaxClient is already loaded"};
     }
     if (!inject(process_id, dll_path)) {
@@ -635,7 +632,7 @@ void start_injection(HWND window) {
         return;
     }
     ui_state = UiState::injecting;
-    status_text = L"Attaching FlaxClient to the running game";
+    status_text = L"Finding the running Minecraft 1.8.9 JVM";
     animation_frame = 0;
     InvalidateRect(window, nullptr, FALSE);
 
@@ -699,8 +696,7 @@ LRESULT CALLBACK window_procedure(
                 static_cast<LONG>(GET_Y_LPARAM(l_param))};
             ScreenToClient(window, &point);
             RECT close = close_button_rect();
-            if (point.y >= 0 && point.y < scale_ui(38) &&
-                !PtInRect(&close, point)) {
+            if (point.y >= 0 && point.y < scale_ui(38) && !PtInRect(&close, point)) {
                 return HTCAPTION;
             }
             return HTCLIENT;
@@ -727,7 +723,6 @@ LRESULT CALLBACK window_procedure(
             if (ui_state == UiState::success &&
                 std::chrono::steady_clock::now() >= close_at) {
                 DestroyWindow(window);
-                return 0;
             }
             return 0;
         case result_message: {
@@ -763,7 +758,7 @@ void parse_arguments() {
         return;
     }
     for (int index = 1; index < argument_count; ++index) {
-        std::wstring argument = arguments[index];
+        const std::wstring argument = arguments[index];
         if (argument == L"--pid" && index + 1 < argument_count) {
             try {
                 configured_process_id = std::stoul(arguments[++index]);
@@ -791,10 +786,10 @@ void parse_arguments() {
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     using SetDpiAwarenessContextFn = BOOL(WINAPI*)(HANDLE);
     auto set_dpi_awareness = reinterpret_cast<SetDpiAwarenessContextFn>(
-        GetProcAddress(GetModuleHandleW(L"user32.dll"),
-                       "SetProcessDpiAwarenessContext"));
+        GetProcAddress(
+            GetModuleHandleW(L"user32.dll"),
+            "SetProcessDpiAwarenessContext"));
     if (set_dpi_awareness != nullptr) {
-        // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
         set_dpi_awareness(reinterpret_cast<HANDLE>(-4));
     } else {
         SetProcessDPIAware();
@@ -837,9 +832,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
         return 1;
     }
 
-    int x = (GetSystemMetrics(SM_CXSCREEN) - window_width()) / 2;
-    int y = (GetSystemMetrics(SM_CYSCREEN) - window_height()) / 2;
-
+    const int x = (GetSystemMetrics(SM_CXSCREEN) - window_width()) / 2;
+    const int y = (GetSystemMetrics(SM_CYSCREEN) - window_height()) / 2;
     main_window = CreateWindowExW(
         WS_EX_APPWINDOW,
         class_name,
@@ -861,9 +855,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
     ShowWindow(main_window, show_command);
     UpdateWindow(main_window);
 
-    // The window starts idle and transitions to Injecting only after the
-    // asynchronous attach actually begins. This keeps the initial state honest
-    // while making a normal double-click useful without extra arguments.
     if (auto_inject && !configured_dll.empty()) {
         start_injection(main_window);
     }

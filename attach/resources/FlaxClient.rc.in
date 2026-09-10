@@ -1,6 +1,6 @@
 #include <windows.h>
 
-// Resource 101 is the MCP/readable runtime used by Lunar 1.8.9.
-101 RCDATA "@FLAX_CLIENT_LUNAR_JAR_RC@"
-// Resource 102 is the SRG-reobfuscated runtime used by Dawn/Feather-style 1.8.9.
-102 RCDATA "@FLAX_CLIENT_DAWN_JAR_RC@"
+// Minecraft 1.8.9 payloads keyed by runtime mapping namespace.
+101 RCDATA "@FLAX_CLIENT_MCP_JAR_RC@"
+102 RCDATA "@FLAX_CLIENT_SRG_JAR_RC@"
+103 RCDATA "@FLAX_CLIENT_NOTCH_JAR_RC@"
