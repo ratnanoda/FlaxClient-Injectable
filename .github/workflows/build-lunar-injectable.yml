@@ -1,4 +1,4 @@
-name: Build Lunar + Dawn 1.8.9 Single-EXE Package
+name: Build Generic Minecraft 1.8.9 Single-EXE Package
 
 on:
   push:
@@ -28,75 +28,87 @@ jobs:
           java-version: '8'
           architecture: x64
 
-      - name: Build Lunar and Dawn 1.8.9 runtime jars
+      - name: Build Minecraft 1.8.9 MCP, SRG, and Notch runtime jars
         shell: powershell
         env:
           GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx6g
         run: |
-          & ".\gradlew.bat" lunarJar reobfDawnJar --no-daemon --stacktrace
+          & ".\gradlew.bat" lunarJar reobfDawnJar reobfJar --no-daemon --stacktrace
           if (!(Test-Path "build\libs\FlaxClient-Lunar.jar")) {
-            throw "FlaxClient-Lunar.jar was not generated"
+            throw "MCP runtime jar was not generated"
           }
           if (!(Test-Path "build\libs\FlaxClient-Dawn.jar")) {
-            throw "FlaxClient-Dawn.jar was not generated"
+            throw "SRG runtime jar was not generated"
+          }
+          if (!(Test-Path "build\libs\FlaxClient-Release.jar")) {
+            throw "Notch runtime jar was not generated"
           }
 
-      - name: Verify Lunar MCP and Dawn SRG mappings
+      - name: Verify MCP, SRG, and Notch mappings
         shell: powershell
         run: |
-          $lunar = "build\libs\FlaxClient-Lunar.jar"
-          $dawn = "build\libs\FlaxClient-Dawn.jar"
+          $mcp = "build\libs\FlaxClient-Lunar.jar"
+          $srg = "build\libs\FlaxClient-Dawn.jar"
+          $notch = "build\libs\FlaxClient-Release.jar"
 
-          $lunarBootstrap = & javap -classpath $lunar -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
-          $lunarHooks = & javap -classpath $lunar -verbose me.eldodebug.soar.attach.LateHooks 2>&1 | Out-String
-          if ($lunarBootstrap -notmatch "net/minecraft/client/Minecraft") {
-            throw "AttachBootstrap does not contain Lunar-compatible Minecraft class names"
+          $mcpBootstrap = & javap -classpath $mcp -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
+          $mcpHooks = & javap -classpath $mcp -verbose me.eldodebug.soar.attach.LateHooks 2>&1 | Out-String
+          if ($mcpBootstrap -notmatch "net/minecraft/client/Minecraft") {
+            throw "MCP payload does not contain readable Minecraft class names"
           }
-          if ($lunarBootstrap -notmatch "getMinecraft") {
-            throw "Lunar jar does not retain MCP/readable Minecraft member names"
+          if ($mcpBootstrap -notmatch "getMinecraft") {
+            throw "MCP payload does not retain readable Minecraft member names"
           }
-          if ($lunarHooks -notmatch "net/minecraft/client/gui/GuiIngame") {
-            throw "LateHooks does not contain Lunar-compatible Minecraft class names"
-          }
-
-          $dawnBootstrap = & javap -classpath $dawn -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
-          $dawnHooks = & javap -classpath $dawn -verbose me.eldodebug.soar.attach.LateHooks 2>&1 | Out-String
-          if ($dawnBootstrap -notmatch "net/minecraft/client/Minecraft") {
-            throw "Dawn jar lost the readable Minecraft class names expected by the 1.8.9 runtime"
-          }
-          if (($dawnBootstrap -notmatch "func_71410_x") -and
-              ($dawnHooks -notmatch "field_71439_g") -and
-              ($dawnHooks -notmatch "func_")) {
-            throw "Dawn jar does not appear to contain SRG-reobfuscated Minecraft members"
+          if ($mcpHooks -notmatch "net/minecraft/client/gui/GuiIngame") {
+            throw "MCP LateHooks does not contain readable Minecraft class names"
           }
 
-          $lunarEntries = & jar tf $lunar
-          if ($lunarEntries -notcontains "assets/minecraft/soar/tools/windows-x64/yt-dlp.exe") {
+          $srgBootstrap = & javap -classpath $srg -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
+          $srgHooks = & javap -classpath $srg -verbose me.eldodebug.soar.attach.LateHooks 2>&1 | Out-String
+          if ($srgBootstrap -notmatch "net/minecraft/client/Minecraft") {
+            throw "SRG payload lost the readable Minecraft class names expected by the runtime"
+          }
+          if (($srgBootstrap -notmatch "func_71410_x") -and
+              ($srgHooks -notmatch "field_71439_g") -and
+              ($srgHooks -notmatch "func_")) {
+            throw "SRG payload does not appear to contain SRG-reobfuscated Minecraft members"
+          }
+
+          $notchBootstrap = & javap -classpath $notch -verbose me.eldodebug.soar.attach.AttachBootstrap 2>&1 | Out-String
+          $notchHooks = & javap -classpath $notch -verbose me.eldodebug.soar.attach.LateHooks 2>&1 | Out-String
+          if (($notchBootstrap -notmatch "ave") -and ($notchHooks -notmatch "avo")) {
+            throw "Notch payload does not appear to contain Minecraft 1.8.9 obfuscated class names"
+          }
+
+          $mcpEntries = & jar tf $mcp
+          if ($mcpEntries -notcontains "assets/minecraft/soar/tools/windows-x64/yt-dlp.exe") {
             throw "Bundled yt-dlp resource is missing"
           }
-          if ($lunarEntries -notcontains "assets/minecraft/soar/tools/windows-x64/ffmpeg.zip") {
+          if ($mcpEntries -notcontains "assets/minecraft/soar/tools/windows-x64/ffmpeg.zip") {
             throw "Bundled ffmpeg resource is missing"
           }
 
-          $dawnEntries = & jar tf $dawn
-          if ($dawnEntries -notcontains "me/eldodebug/soar/attach/CompatibleLateClassTransformer.class") {
-            throw "Dawn compatibility transformer bridge is missing"
+          $srgEntries = & jar tf $srg
+          if ($srgEntries -notcontains "me/eldodebug/soar/attach/CompatibleLateClassTransformer.class") {
+            throw "SRG compatibility transformer bridge is missing"
           }
-          if ($dawnEntries -notcontains "me/eldodebug/soar/attach/SrgMappingAdapter.class") {
-            throw "Dawn SRG mapping adapter is missing"
+          if ($srgEntries -notcontains "me/eldodebug/soar/attach/SrgMappingAdapter.class") {
+            throw "SRG mapping adapter is missing"
           }
-          if ($dawnEntries -notcontains "flax/mappings/mcp-srg.srg") {
-            throw "Dawn MCP-to-SRG mapping resource is missing"
+          if ($srgEntries -notcontains "flax/mappings/mcp-srg.srg") {
+            throw "MCP-to-SRG mapping resource is missing"
           }
 
-      - name: Configure 1.8.9 single-EXE build
+      - name: Configure generic 1.8.9 single-EXE build
         shell: powershell
         run: |
-          $lunar = (Resolve-Path "build\libs\FlaxClient-Lunar.jar").Path.Replace('\', '/')
-          $dawn = (Resolve-Path "build\libs\FlaxClient-Dawn.jar").Path.Replace('\', '/')
+          $mcp = (Resolve-Path "build\libs\FlaxClient-Lunar.jar").Path.Replace('\', '/')
+          $srg = (Resolve-Path "build\libs\FlaxClient-Dawn.jar").Path.Replace('\', '/')
+          $notch = (Resolve-Path "build\libs\FlaxClient-Release.jar").Path.Replace('\', '/')
           cmake -S attach -B attach/build-universal -A x64 `
-            "-DFLAX_CLIENT_LUNAR_JAR=$lunar" `
-            "-DFLAX_CLIENT_DAWN_JAR=$dawn"
+            "-DFLAX_CLIENT_MCP_JAR=$mcp" `
+            "-DFLAX_CLIENT_SRG_JAR=$srg" `
+            "-DFLAX_CLIENT_NOTCH_JAR=$notch"
 
       - name: Build embedded DLL and single EXE
         shell: powershell
