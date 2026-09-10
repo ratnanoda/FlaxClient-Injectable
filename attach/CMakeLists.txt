@@ -13,25 +13,30 @@ endif()
 find_package(JNI REQUIRED)
 
 set(
-    FLAX_CLIENT_LUNAR_JAR
+    FLAX_CLIENT_MCP_JAR
     "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Lunar.jar"
     CACHE FILEPATH
-    "MCP-named FlaxClient jar embedded for Lunar Client 1.8.9"
+    "MCP-named FlaxClient jar for Minecraft 1.8.9"
 )
 set(
-    FLAX_CLIENT_DAWN_JAR
+    FLAX_CLIENT_SRG_JAR
     "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Dawn.jar"
     CACHE FILEPATH
-    "SRG-reobfuscated FlaxClient jar embedded for Dawn/Feather-style 1.8.9"
+    "SRG-reobfuscated FlaxClient jar for Minecraft 1.8.9"
+)
+set(
+    FLAX_CLIENT_NOTCH_JAR
+    "${CMAKE_SOURCE_DIR}/../build/libs/FlaxClient-Release.jar"
+    CACHE FILEPATH
+    "Notch-reobfuscated FlaxClient jar for Minecraft 1.8.9"
 )
 
 # Keep the established native attach implementation in one source file.
-# Runtime dispatch now happens inside the shared implementation.
+# Runtime dispatch happens inside the shared compatibility implementation.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/FlaxClient.cpp" FLAX_CLIENT_CPP)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/FlaxClientPatched.cpp" "${FLAX_CLIENT_CPP}")
 
-# Likewise keep the injector implementation centralized. Its visible-window
-# filter already accepts Lunar, Dawn, and legacy Feather titles.
+# Likewise keep the injector implementation centralized.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/FlaxInjector.cpp" FLAX_INJECTOR_CPP)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/FlaxInjectorPatched.cpp" "${FLAX_INJECTOR_CPP}")
 
@@ -39,10 +44,12 @@ set(FLAX_CLIENT_SOURCES
     src/FlaxClientCompat.cpp
 )
 
-if(EXISTS "${FLAX_CLIENT_LUNAR_JAR}" AND
-   EXISTS "${FLAX_CLIENT_DAWN_JAR}")
-    file(TO_CMAKE_PATH "${FLAX_CLIENT_LUNAR_JAR}" FLAX_CLIENT_LUNAR_JAR_RC)
-    file(TO_CMAKE_PATH "${FLAX_CLIENT_DAWN_JAR}" FLAX_CLIENT_DAWN_JAR_RC)
+if(EXISTS "${FLAX_CLIENT_MCP_JAR}" AND
+   EXISTS "${FLAX_CLIENT_SRG_JAR}" AND
+   EXISTS "${FLAX_CLIENT_NOTCH_JAR}")
+    file(TO_CMAKE_PATH "${FLAX_CLIENT_MCP_JAR}" FLAX_CLIENT_MCP_JAR_RC)
+    file(TO_CMAKE_PATH "${FLAX_CLIENT_SRG_JAR}" FLAX_CLIENT_SRG_JAR_RC)
+    file(TO_CMAKE_PATH "${FLAX_CLIENT_NOTCH_JAR}" FLAX_CLIENT_NOTCH_JAR_RC)
     configure_file(
         resources/FlaxClient.rc.in
         "${CMAKE_CURRENT_BINARY_DIR}/FlaxClient.rc"
@@ -51,7 +58,7 @@ if(EXISTS "${FLAX_CLIENT_LUNAR_JAR}" AND
     list(APPEND FLAX_CLIENT_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/FlaxClient.rc")
 else()
     message(WARNING
-        "One or more FlaxClient 1.8.9 runtime jars were not found; the DLL will require a sidecar jar.")
+        "One or more Minecraft 1.8.9 mapping payload jars were not found; the DLL will require a sidecar jar.")
 endif()
 
 add_library(FlaxClient SHARED
