@@ -16,6 +16,7 @@ import me.eldodebug.soar.management.nanovg.NanoVGManager;
 import me.eldodebug.soar.management.nanovg.font.Fonts;
 import me.eldodebug.soar.management.nanovg.font.LegacyIcon;
 import me.eldodebug.soar.ui.comp.impl.CompComboBox;
+import me.eldodebug.soar.ui.comp.impl.CompSlider;
 import me.eldodebug.soar.ui.comp.impl.CompToggleButton;
 import me.eldodebug.soar.utils.ColorUtils;
 import me.eldodebug.soar.utils.mouse.MouseUtils;
@@ -26,6 +27,7 @@ public class AppearanceScene extends SettingScene {
     private Scroll themeScroll = new Scroll();
     private Scroll accentScroll = new Scroll();
     private CompComboBox modTheme;
+    private CompSlider guiScale;
     private CompToggleButton uiBlur;
 
     public AppearanceScene(SettingCategory parent) {
@@ -35,6 +37,8 @@ public class AppearanceScene extends SettingScene {
     @Override
     public void initGui() {
         modTheme = new CompComboBox(110, InternalSettingsMod.getInstance().getModThemeSetting());
+        guiScale = new CompSlider(InternalSettingsMod.getInstance().getGuiScaleSetting());
+        guiScale.setWidth(100);
         uiBlur = new CompToggleButton(InternalSettingsMod.getInstance().getBlurSetting());
     }
 
@@ -113,16 +117,24 @@ public class AppearanceScene extends SettingScene {
         nvg.drawRoundedRect(this.getX(), this.getY() + 91 + 87 - yMov2, this.getWidth(), 41, 6, palette.getBackgroundColor(ColorType.DARK));
         nvg.drawText(TranslateText.HUD_THEME.getText(), this.getX() + 8, this.getY() + 11.5F + (91 * 2) - yMov2, palette.getFontColor(ColorType.DARK), 13, Fonts.MEDIUM);
 
-        nvg.drawRoundedRect(this.getX(), this.getY() + 208, this.getWidth(), 41, 6, palette.getBackgroundColor(ColorType.DARK));
-        nvg.drawText(TranslateText.UI_BLUR.getText(), this.getX() + 8, this.getY() + 11.5F + 212, palette.getFontColor(ColorType.DARK), 13, Fonts.MEDIUM);
+        nvg.drawRoundedRect(this.getX(), this.getY() + 208, this.getWidth(), 50, 6, palette.getBackgroundColor(ColorType.DARK));
+        nvg.drawText("GUI Scale", this.getX() + 8, this.getY() + 216, palette.getFontColor(ColorType.DARK), 13, Fonts.MEDIUM);
+        nvg.drawText("Applies when the GUI is reopened", this.getX() + 8, this.getY() + 235,
+                palette.getFontColor(ColorType.NORMAL), 7.5F, Fonts.REGULAR);
 
+        nvg.drawRoundedRect(this.getX(), this.getY() + 268, this.getWidth(), 41, 6, palette.getBackgroundColor(ColorType.DARK));
+        nvg.drawText(TranslateText.UI_BLUR.getText(), this.getX() + 8, this.getY() + 279.5F, palette.getFontColor(ColorType.DARK), 13, Fonts.MEDIUM);
 
         modTheme.setX(this.getX() + this.getWidth() - 120);
         modTheme.setY(this.getY() + 9.5F + (91 * 2) - yMov2);
         modTheme.draw(mouseX, mouseY, partialTicks);
 
+        guiScale.setX(this.getX() + this.getWidth() - 120);
+        guiScale.setY(this.getY() + 231);
+        guiScale.draw(mouseX, mouseY, partialTicks);
+
         uiBlur.setX(this.getX() + this.getWidth() - 44);
-        uiBlur.setY(this.getY() + 9.5F + 212);
+        uiBlur.setY(this.getY() + 277.5F);
         uiBlur.draw(mouseX, mouseY, partialTicks);
     }
 
@@ -155,6 +167,12 @@ public class AppearanceScene extends SettingScene {
         }
 
         modTheme.mouseClicked(mouseX, mouseY, mouseButton);
+        guiScale.mouseClicked(mouseX, mouseY, mouseButton);
         uiBlur.mouseClicked(mouseX, mouseY, mouseButton);
+    }
+
+    @Override
+    public void mouseReleased(int mouseX, int mouseY, int mouseButton) {
+        guiScale.mouseReleased(mouseX, mouseY, mouseButton);
     }
 }
